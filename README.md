@@ -1,8 +1,6 @@
 # TinyPage
 
-**[🌐 Project Website](https://github.com/Laffinty/TinyPage)** • A minimal static page/blog generator built with Python
-
-A minimal **pure static** page/blog generator built with Python. **No database required** - all content is stored as HTML files. This is a toy project for testing ideas, not for production use.
+A static page/blog generator built with Python. Stores content as HTML files without requiring a database. Experimental project for testing ideas.
 
 ## ⚠️ WARNING
 
