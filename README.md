@@ -32,14 +32,23 @@ Default admin credentials are generated automatically on first run. Check the co
 
 ## Nginx Reverse Proxy
 
-Configure Nginx as a reverse proxy:
+Configure Nginx as a reverse proxy (HTTPS example):
 
 ```nginx
+# Frontend (static pages) - Public HTTPS
 server {
-    listen 80;
+    listen 443 ssl http2;
     server_name your-domain.com;
 
-    # Frontend (static pages)
+    # SSL certificates
+    ssl_certificate /path/to/your/cert.pem;
+    ssl_certificate_key /path/to/your/key.pem;
+
+    # SSL configuration
+    ssl_protocols TLSv1.2 TLSv1.3;
+    ssl_ciphers HIGH:!aNULL:!MD5;
+    ssl_prefer_server_ciphers on;
+
     location / {
         proxy_pass http://127.0.0.1:8080;
         proxy_set_header Host $host;
@@ -47,10 +56,24 @@ server {
         proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
         proxy_set_header X-Forwarded-Proto $scheme;
     }
+}
 
-    # Admin backend
-    location /admin/ {
-        proxy_pass http://127.0.0.1:8081/;
+# Admin backend - Private HTTPS port
+server {
+    listen 10443 ssl http2;
+    server_name your-domain.com;
+
+    # SSL certificates
+    ssl_certificate /path/to/your/cert.pem;
+    ssl_certificate_key /path/to/your/key.pem;
+
+    # SSL configuration
+    ssl_protocols TLSv1.2 TLSv1.3;
+    ssl_ciphers HIGH:!aNULL:!MD5;
+    ssl_prefer_server_ciphers on;
+
+    location / {
+        proxy_pass http://127.0.0.1:8081;
         proxy_set_header Host $host;
         proxy_set_header X-Real-IP $remote_addr;
         proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
