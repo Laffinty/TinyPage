@@ -1,0 +1,7 @@
+/* Dark mode overrides - loaded via media query or .dark class */
+
+/* When .dark is explicitly set on html element */
+html.dark body {
+  background: var(--bg);
+  color: var(--text);
+}

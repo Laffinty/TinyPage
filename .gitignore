@@ -173,9 +173,34 @@ cython_debug/
 # PyPI configuration file
 .pypirc
 
-# Cursor  
-#  Cursor is an AI-powered code editor.`.cursorignore` specifies files/directories to 
+# Cursor
+#  Cursor is an AI-powered code editor.`.cursorignore` specifies files/directories to
 #  exclude from AI features like autocomplete and code analysis. Recommended for sensitive data
 #  refer to https://docs.cursor.com/context/ignore-files
 .cursorignore
 .cursorindexingignore
+
+# -----------------------------------------------------------------------------
+# TinyPage project specific / TinyPage 项目特定
+# -----------------------------------------------------------------------------
+
+# Runtime secrets / 运行时密码
+admin_password.txt
+
+# Runtime logs / 运行时日志
+run.log
+run.err
+security_audit.log
+
+# Snapshot files / 快照文件
+snapshot_*.html
+
+# Generated static site output (pages/) / 生成的静态站点输出
+pages/index.html
+pages/search.html
+pages/robots.txt
+pages/rss.xml
+pages/sitemap.xml
+pages/search-index.json
+pages/article/*.html
+pages/list/*.html
