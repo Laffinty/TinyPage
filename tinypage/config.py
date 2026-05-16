@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import json
 import os
 from dataclasses import dataclass, field
 from pathlib import Path
@@ -53,6 +54,13 @@ class Config:
     pwa_theme_color: str = "#2c3e50"
     pwa_bg_color: str = "#ffffff"
 
+    # AI (optional - requires extras_require ai)
+    ai_provider: str = "openai"
+    ai_api_key: str = ""
+    ai_model: str = "gpt-3.5-turbo"
+    ai_endpoint: str = ""
+    ai_enabled: bool = False
+
     @property
     def article_dir(self) -> Path:
         return self.root_dir / "article"
@@ -62,13 +70,31 @@ class Config:
         return self.root_dir / "list"
 
     @property
+    def standalone_dir(self) -> Path:
+        return self.root_dir / "standalone"
+
+    @property
+    def static_dir(self) -> Path:
+        return self.root_dir / "static"
+
+    @property
     def theme_dir(self) -> Path:
         return Path("themes") / self.theme_name
 
     @classmethod
     def from_env(cls) -> Config:
-        """Build config from environment variables."""
-        return cls()
+        """Build config from environment variables and persisted config file."""
+        config = cls()
+        config_dir = Path(".") / ".tinypage"
+        config_file = config_dir / "config.json"
+        if config_file.exists():
+            try:
+                config_data = json.loads(config_file.read_text(encoding="utf-8"))
+                if "theme_name" in config_data:
+                    config = config.merge(theme_name=config_data["theme_name"])
+            except (OSError, json.JSONDecodeError):
+                pass
+        return config
 
     def merge(self, **kwargs: Any) -> Config:
         """Return a new config with overrides."""

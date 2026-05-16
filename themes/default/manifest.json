@@ -1,0 +1,15 @@
+{
+  "name": "TinyPage Default",
+  "author": "Laffinty",
+  "version": "1.0.0",
+  "description": "Cutting-edge CSS showcase theme with blog layout",
+  "layouts": ["blog"],
+  "default_layout": "blog",
+  "planned_layouts": ["doc", "garden"],
+  "variables": {
+    "primary": "oklch(38% 0.08 250)",
+    "accent": "oklch(55% 0.2 25)",
+    "font_body": "-apple-system, BlinkMacSystemFont, Segoe UI, sans-serif",
+    "font_mono": "SFMono-Regular, Consolas, monospace"
+  }
+}

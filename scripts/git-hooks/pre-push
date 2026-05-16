@@ -1,0 +1,57 @@
+# TinyPage pre-push hook
+# This hook runs before each push to ensure the site builds correctly
+
+import os
+import subprocess
+import sys
+from pathlib import Path
+
+def get_repo_root() -> Path:
+    """Get the repository root directory."""
+    return Path(__file__).resolve().parent.parent.parent
+
+def run_build(incremental: bool = True) -> bool:
+    """Run the TinyPage build."""
+    try:
+        print("[PRE-PUSH] Running TinyPage build...")
+        cmd = [sys.executable, "-m", "tinypage", "build"]
+        if incremental:
+            cmd.append("--incremental")
+        result = subprocess.run(
+            cmd,
+            capture_output=True,
+            text=True,
+            cwd=get_repo_root(),
+        )
+        if result.returncode == 0:
+            print("[PRE-PUSH] Build successful")
+            return True
+        else:
+            print(f"[PRE-PUSH] Build failed:")
+            print(result.stderr)
+            return False
+    except Exception as e:
+        print(f"[PRE-PUSH] Build error: {e}")
+        return False
+
+def main() -> int:
+    """Main pre-push hook."""
+    repo_root = get_repo_root()
+
+    print("[PRE-PUSH] Starting pre-push checks...")
+
+    has_tinypage = (repo_root / "tinypage").exists()
+    has_pages = (repo_root / "pages").exists()
+
+    if has_tinypage and has_pages:
+        print("[PRE-PUSH] TinyPage project detected, running build check...")
+        if not run_build(incremental=True):
+            print("[PRE-PUSH] Error: Site build failed")
+            print("[PRE-PUSH] Push rejected. Fix build errors before pushing.")
+            return 1
+
+    print("[PRE-PUSH] Pre-push checks complete")
+    return 0
+
+if __name__ == "__main__":
+    sys.exit(main())

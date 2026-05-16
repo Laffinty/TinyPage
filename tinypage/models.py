@@ -17,6 +17,8 @@ class ArticleMeta:
     slug: str = ""
     tags: str = ""
     summary: str = ""
+    category: str = ""
+    status: str = "published"
     file: str = ""
     date_obj: Optional[datetime] = None
 
@@ -38,6 +40,16 @@ class ArticleMeta:
     def url(self) -> str:
         """Return relative URL for this article."""
         return f"/article/{self.file}"
+
+    @property
+    def is_draft(self) -> bool:
+        """Return True if this article is a draft."""
+        return self.status.lower() == "draft"
+
+    @property
+    def is_published(self) -> bool:
+        """Return True if this article is published."""
+        return self.status.lower() != "draft"
 
 
 @dataclass

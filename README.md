@@ -1,70 +1,129 @@
 # TinyPage
 
-A static page/blog generator built with Python. Stores content as HTML files without requiring a database. Experimental project for testing ideas.  
-基于 Python 构建的静态页面/博客生成器。内容以 HTML 文件形式存储，无需数据库。这是一个用于测试想法的实验性项目。
+A modern static site generator for documentation and digital gardens. Built with Python, stores content as HTML files without requiring a database.
 
----
-
-## ⚠️ WARNING / 警告
-
-**This is an experimental project for testing the author's ideas only. DO NOT use in any production environment. No warranty or support is provided.**  
-**本项目仅为作者测试想法而创建的实验性项目。请勿用于任何生产环境。不提供任何担保或支持。**
+基于 Python 构建的现代化静态站点生成器，支持文档和数字花园功能。内容以 HTML 文件形式存储，无需数据库。
 
 ---
 
 ## Features / 特性
 
-- Simple static page generation / 简单的静态页面生成
-- Basic admin interface with HTTP Basic Auth + CSRF protection / 基础管理后台，支持 HTTP Basic 认证与 CSRF 防护
-- Markdown-like text formatting (bold, italic, code, links) / 类 Markdown 文本格式（粗体、斜体、代码、链接）
-- Pagination support / 分页支持
-- Full-text search (frontend JavaScript) / 全文搜索（前端 JavaScript 实现）
-- RSS 2.0 feed and XML sitemap / RSS 2.0 订阅源与 XML 站点地图
-- PWA support (manifest + service worker) / PWA 支持（清单 + Service Worker）
-- Dark mode (system preference + manual toggle) / 深色模式（跟随系统偏好 + 手动切换）
-- CSS View Transitions / CSS 视图过渡效果
-- Security features (path traversal prevention, security headers, CSP, audit logging) / 安全特性（路径遍历防护、安全响应头、CSP、审计日志）
+### Core / 核心功能
+- **Zero-dependency core** / 核心零依赖：Run with `pip install tinypage` or extend with extras
+- **Markdown support** / Markdown 支持：Rich content with optional mistune parser
+- **Syntax highlighting** / 代码高亮：Pygments integration with theme support
+- **Pagination** / 分页支持：Auto-generate paginated article lists
+- **Full-text search** / 全文搜索：Frontend JavaScript search with JSON index
+- **RSS & Sitemap** / RSS 与站点地图：Auto-generated for SEO
+
+### Digital Garden / 数字花园
+- **Bidirectional links** / 双向链接：`[[Page Title]]` wikilink syntax
+- **Table of Contents** / 目录导航：Auto-generated from headings
+- **Footnotes** / 脚注：`[^1]` footnote syntax
+- **Mermaid diagrams** / Mermaid 图表：Flowcharts and sequence diagrams
+- **Backlinks** / 反向链接：See what links to your articles
+- **Related articles** / 相关文章：Tag-based Jaccard similarity
+- **Tag graph** / 标签图谱：Visual tag network
+
+### Modern Web / 现代 Web
+- **PWA support** / PWA 支持：Offline-capable with service worker
+- **Dark mode** / 深色模式：System preference + manual toggle
+- **CSS View Transitions** / CSS 视图过渡：Smooth page navigation
+- **SEO optimized** / SEO 优化：JSON-LD, Open Graph, Twitter Cards
+- **Responsive design** / 响应式设计：Mobile-friendly layouts
+
+### Admin & Security / 管理与安全
+- **Admin dashboard** / 管理后台：HTMX-enhanced modern UI
+- **HTTP Basic Auth** / 基础认证：Protected admin access
+- **CSRF protection** / CSRF 防护：HMAC token + double-submit cookie
+- **Content Security Policy** / CSP：Modern security headers
+- **Rate limiting** / 速率限制：In-memory request throttling
+- **Audit logging** / 审计日志：Security event tracking
+
+### AI Features / AI 功能 (optional)
+- **AI writing assistant** / AI 写作助手：Complete, polish, translate
+- **Auto summarization** / 自动摘要：AI-powered summaries
+- **Smart tag suggestions** / 智能标签推荐：Keyword extraction
+
+### Theme System / 主题系统
+- **Theme switching** / 主题切换：Live preview in admin
+- **Dark mode themes** / 深色主题：Built-in theme support
+- **Extensible layouts** / 可扩展布局：Blog, doc, garden layouts
 
 ---
 
 ## Quick Start / 快速开始
 
 ```bash
-# Install dependencies / 安装依赖
-pip install waitress
+# Install core (zero dependencies)
+pip install tinypage
 
-# Run the application / 运行应用
-python tiny_page.py
+# Or install with extras
+pip install tinypage[markdown,syntax]     # Markdown + syntax highlighting
+pip install tinypage[ai]                  # AI features
+pip install tinypage[full]                 # All features
+
+# Run the server
+python -m tinypage serve
+
+# Or use CLI
+tinypage build
+tinypage serve --port 8080
 ```
 
 The application will start two services: / 应用将启动两个服务：
-- Static frontend: http://127.0.0.1:8080 / 静态前端：http://127.0.0.1:8080
-- Admin backend: http://127.0.0.1:8081 / 管理后台：http://127.0.0.1:8081
+
+- **Static frontend**: `http://127.0.0.1:8080` - Public-facing site
+- **Admin backend**: `http://127.0.0.1:8081` - Content management
 
 Admin credentials are generated automatically on first run if `ADMIN_PASS` is not set. Check the console output.  
 如果未设置 `ADMIN_PASS`，首次运行时将自动生成管理员密码，请查看控制台输出。
 
 ---
 
-## Nginx Reverse Proxy / Nginx 反向代理
+## Installation Options / 安装选项
 
-Configure Nginx as a reverse proxy (HTTPS example):  
-将 Nginx 配置为反向代理（HTTPS 示例）：
+| Extra | Description |
+|-------|-------------|
+| `markdown` | Mistune 3.x parser for extended Markdown |
+| `syntax` | Pygments for syntax highlighting |
+| `ai` | OpenAI/DeepSeek for AI writing assistance |
+| `server` | Waitress WSGI server |
+| `full` | All features |
+
+---
+
+## Environment Variables / 环境变量
+
+| Variable | Description | Default |
+|----------|-------------|---------|
+| `ADMIN_USER` | Admin username | `admin` |
+| `ADMIN_PASS` | Admin password | auto-generated |
+| `STATIC_PORT` | Frontend port | `8080` |
+| `ADMIN_PORT` | Backend port | `8081` |
+| `STATIC_HOST` | Bind address | `127.0.0.1` |
+| `BIND_DOMAIN` | Domain for Nginx proxy | (empty) |
+
+---
+
+## Deployment / 部署
+
+### Docker
+
+```bash
+docker-compose up -d
+```
+
+### Nginx Reverse Proxy / Nginx 反向代理
 
 ```nginx
-# Frontend (static pages) - Public HTTPS / 前端（静态页面）- 公共 HTTPS
+# Frontend (static pages) - Public HTTPS
 server {
     listen 443 ssl http2;
     server_name your-domain.com;
 
-    # SSL certificates / SSL 证书
     ssl_certificate /path/to/your/cert.pem;
     ssl_certificate_key /path/to/your/key.pem;
-
-    # SSL configuration / SSL 配置
-    ssl_protocols TLSv1.2 TLSv1.3;
-    ssl_ciphers HIGH:!aNULL:!MD5;
-    ssl_prefer_server_ciphers on;
 
     location / {
         proxy_pass http://127.0.0.1:8080;
@@ -75,19 +134,13 @@ server {
     }
 }
 
-# Admin backend - Private HTTPS port / 管理后台 - 私有 HTTPS 端口
+# Admin backend - Private HTTPS port
 server {
     listen 10443 ssl http2;
     server_name your-domain.com;
 
-    # SSL certificates / SSL 证书
     ssl_certificate /path/to/your/cert.pem;
     ssl_certificate_key /path/to/your/key.pem;
-
-    # SSL configuration / SSL 配置
-    ssl_protocols TLSv1.2 TLSv1.3;
-    ssl_ciphers HIGH:!aNULL:!MD5;
-    ssl_prefer_server_ciphers on;
 
     location / {
         proxy_pass http://127.0.0.1:8081;
@@ -95,26 +148,19 @@ server {
         proxy_set_header X-Real-IP $remote_addr;
         proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
         proxy_set_header X-Forwarded-Proto $scheme;
-        
-        # Basic auth timeout / 基础认证超时
+
         proxy_read_timeout 300s;
         proxy_connect_timeout 75s;
     }
 }
 ```
 
----
+### GitHub Actions / CI/CD
 
-## Environment Variables / 环境变量
-
-| Variable / 变量 | Description / 说明 | Default / 默认值 |
-|---|---|---|
-| `ADMIN_USER` | Admin username / 管理员用户名 | `admin` |
-| `ADMIN_PASS` | Admin password / 管理员密码 | auto-generated / 自动生成 |
-| `STATIC_PORT` | Frontend port / 前端端口 | `8080` |
-| `ADMIN_PORT` | Backend port / 后台端口 | `8081` |
-| `STATIC_HOST` | Bind address / 绑定地址 | `127.0.0.1` |
-| `BIND_DOMAIN` | Domain for Nginx proxy / Nginx 代理域名 | (empty / 空) |
+See `.github/workflows/` for deployment templates:
+- GitHub Pages
+- Cloudflare Pages
+- Vercel
 
 ---
 
@@ -122,61 +168,63 @@ server {
 
 ```
 TinyPage/
-├── tinypage/           # Core Python package / 核心 Python 包
-│   ├── config.py       # Configuration / 配置管理
-│   ├── server.py       # Entry point & startup / 入口与启动逻辑
-│   ├── frontend.py     # Static file WSGI app / 静态文件 WSGI 应用
-│   ├── admin.py        # Admin WSGI app / 管理后台 WSGI 应用
-│   ├── generator.py    # HTML generators / HTML 生成器
-│   ├── content.py      # Article I/O / 文章读写
-│   ├── models.py       # Data models / 数据模型
-│   └── security.py     # Security utilities / 安全工具
-├── themes/default/     # Theme CSS files / 主题 CSS 文件
-├── static_inject/      # Injected static assets / 注入式静态资源
-├── pages/              # Generated static site output / 生成的静态站点输出
-├── tiny_page.py        # Launcher script / 启动脚本
-├── test_runner.py      # Integration tests / 集成测试
-├── make_snapshots.py   # Snapshot generator / 快照生成器
-└── README.md           # This file / 本文件
+├── tinypage/              # Core Python package
+│   ├── __init__.py        # Package entry point
+│   ├── config.py          # Configuration management
+│   ├── server.py          # Server startup
+│   ├── frontend.py        # Static file WSGI app
+│   ├── admin.py           # Admin dashboard WSGI app
+│   ├── generator.py       # HTML generators
+│   ├── content.py         # Article I/O & digital garden
+│   ├── models.py          # Data models
+│   ├── security.py        # Security utilities
+│   ├── parsers/          # Content parsers
+│   │   ├── markdown.py    # Markdown rendering
+│   │   ├── syntax.py      # Syntax highlighting
+│   │   ├── toc.py         # Table of contents
+│   │   ├── footnotes.py   # Footnote processing
+│   │   ├── wikilinks.py   # Bidirectional links
+│   │   └── tag_graph.py   # Tag visualization
+│   ├── core/              # Core utilities
+│   │   ├── template.py    # Page skeleton templates
+│   │   └── ai_assistance.py # AI writing tools
+│   └── cli.py             # CLI commands
+├── themes/                 # Theme CSS files
+├── static/                 # Static assets
+├── pages/                  # Generated site output
+├── scripts/                # Deployment scripts
+├── Dockerfile
+├── docker-compose.yml
+└── pyproject.toml
 ```
 
 ---
 
-## Testing / 测试
+## Architecture / 架构
 
-Run integration tests (requires the server to be running):  
-运行集成测试（需要服务正在运行）：
+TinyPage uses a dual-service architecture:
 
-```bash
-python tiny_page.py   # in another terminal / 在另一个终端运行
-python test_runner.py
-```
+1. **Static Server** (port 8080): Serves pre-generated HTML, CSS, JS, and images
+2. **Admin Server** (port 8081): Protected backend for content management
 
----
-
-## Important Notes / 重要提示
-
-1. **Security / 安全**：This is experimental code with basic security measures. It may have vulnerabilities. / 这是带有基础安全措施的实验性代码，可能存在漏洞。
-2. **Performance / 性能**：Not optimized for high traffic or large datasets. / 未针对高流量或大数据量进行优化。
-3. **Data Persistence / 数据持久化**：All data is stored as HTML files in the `pages/` directory. / 所有数据均以 HTML 文件形式存储在 `pages/` 目录中。
-4. **No Backup / 无备份**：No built-in backup mechanism. Data loss is possible. / 没有内置备份机制，可能发生数据丢失。
-5. **No Updates / 无自动更新**：No automatic updates or maintenance mode. / 没有自动更新或维护模式。
+Content is stored as plain HTML files in the `pages/` directory, making it:
+- **Git-friendly**: Version control your content
+- **Database-free**: No SQLite or external DB required
+- **Portable**: Deploy anywhere that serves static files
 
 ---
 
-## Limitations / 限制
+## Security Notes / 安全说明
 
-- Single admin user only / 仅支持单个管理员账户
-- No user management / 无用户管理
-- No media upload / 无媒体上传
-- No comments system / 无评论系统
-- Basic text formatting only / 仅支持基础文本格式
+- Admin backend is bound to `127.0.0.1` by default
+- Use HTTPS reverse proxy for production
+- Change default admin credentials
+- Enable rate limiting in high-traffic scenarios
 
 ---
 
 ## License / 许可证
 
-This project is licensed under the MIT License. See the [LICENSE](LICENSE) file for details.  
-本项目采用 MIT 许可证。详情请参阅 [LICENSE](LICENSE) 文件。
+MIT License - See [LICENSE](LICENSE) file for details.
 
 Copyright (c) 2026 Laffinty
