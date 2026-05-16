@@ -155,13 +155,6 @@ server {
 }
 ```
 
-### GitHub Actions / CI/CD
-
-See `.github/workflows/` for deployment templates:
-- GitHub Pages
-- Cloudflare Pages
-- Vercel
-
 ---
 
 ## Project Structure / 项目结构
@@ -169,32 +162,43 @@ See `.github/workflows/` for deployment templates:
 ```
 TinyPage/
 ├── tinypage/              # Core Python package
-│   ├── __init__.py        # Package entry point
+│   ├── __init__.py        # Package entry point, version, exports
+│   ├── __main__.py        # CLI entry point
 │   ├── config.py          # Configuration management
-│   ├── server.py          # Server startup
+│   ├── server.py          # Dual-service startup
 │   ├── frontend.py        # Static file WSGI app
 │   ├── admin.py           # Admin dashboard WSGI app
 │   ├── generator.py       # HTML generators
 │   ├── content.py         # Article I/O & digital garden
 │   ├── models.py          # Data models
 │   ├── security.py        # Security utilities
-│   ├── parsers/          # Content parsers
+│   ├── cli.py             # CLI commands
+│   ├── parsers/           # Content parsers
 │   │   ├── markdown.py    # Markdown rendering
 │   │   ├── syntax.py      # Syntax highlighting
 │   │   ├── toc.py         # Table of contents
 │   │   ├── footnotes.py   # Footnote processing
-│   │   ├── wikilinks.py   # Bidirectional links
+│   │   ├── bidirectional_links.py  # Bidirectional links
+│   │   ├── mermaid_init.py         # Mermaid diagram init
 │   │   └── tag_graph.py   # Tag visualization
-│   ├── core/              # Core utilities
-│   │   ├── template.py    # Page skeleton templates
-│   │   └── ai_assistance.py # AI writing tools
-│   └── cli.py             # CLI commands
-├── themes/                 # Theme CSS files
-├── static/                 # Static assets
-├── pages/                  # Generated site output
-├── scripts/                # Deployment scripts
+│   └── core/              # Core utilities
+│       ├── template.py    # Page skeleton templates
+│       ├── ai_assistance.py # AI writing tools
+│       └── incremental.py # Incremental build engine
+├── themes/                 # Theme files
+│   └── default/           # Default theme
+├── static_inject/         # Frontend assets injected into pages
+│   ├── htmx.min.js        # HTMX library
+│   ├── manifest.json      # PWA manifest
+│   ├── search.js          # Client-side search
+│   └── sw.js              # Service worker
+├── pages/                 # Content & generated output
+├── scripts/               # Utility scripts
+│   └── git-hooks/         # Git hook scripts
+├── tiny_page.py           # Legacy entry point
 ├── Dockerfile
 ├── docker-compose.yml
+├── nginx.conf             # Nginx reverse proxy config
 └── pyproject.toml
 ```
 

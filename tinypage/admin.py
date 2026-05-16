@@ -1042,18 +1042,32 @@ function filterArticles(q) {{
         """Handle base64-encoded image uploads."""
         import base64
 
+        client_ip = get_real_ip(environ)
+        logger.info(f"[UPLOAD-DEBUG] 收到上传请求 from {client_ip}")
+        logger.info(f"[UPLOAD-DEBUG] POST数据键: {list(post_data.keys())}")
+
         filename = post_data.get("filename", [""])[0]
         data_b64 = post_data.get("data", [""])[0]
-        client_ip = get_real_ip(environ)
+        csrf_token = post_data.get("csrf_token", [""])[0]
+
+        logger.info(f"[UPLOAD-DEBUG] 文件名: '{filename}'")
+        logger.info(
+            f"[UPLOAD-DEBUG] Base64数据长度: {len(data_b64) if data_b64 else 0}"
+        )
+        logger.info(f"[UPLOAD-DEBUG] CSRF token存在: {bool(csrf_token)}")
 
         if not filename or not data_b64:
+            logger.error(f"[UPLOAD-DEBUG] 缺少文件名或数据")
             return self._json_error(
                 start_response, "400 Bad Request", "Missing filename or data"
             )
 
         # Sanitize filename
         filename = re.sub(r"[^a-zA-Z0-9._-]", "_", filename)
+        logger.info(f"[UPLOAD-DEBUG] 清理后文件名: '{filename}'")
+
         if not filename or ".." in filename:
+            logger.error(f"[UPLOAD-DEBUG] 无效文件名: '{filename}'")
             return self._json_error(
                 start_response, "400 Bad Request", "Invalid filename"
             )
@@ -1061,7 +1075,10 @@ function filterArticles(q) {{
         # Validate file extension against whitelist
         ALLOWED_EXTENSIONS = {".jpg", ".jpeg", ".png", ".gif", ".webp"}
         ext = Path(filename).suffix.lower()
+        logger.info(f"[UPLOAD-DEBUG] 文件扩展名: '{ext}'")
+
         if ext not in ALLOWED_EXTENSIONS:
+            logger.error(f"[UPLOAD-DEBUG] 文件类型不允许: {ext}")
             return self._json_error(
                 start_response, "400 Bad Request", f"File type not allowed: {ext}"
             )
@@ -1069,19 +1086,28 @@ function filterArticles(q) {{
         # Determine subdir by month
         now = datetime.now()
         subdir = self.cfg.static_dir / "images" / f"{now.year:04d}-{now.month:02d}"
+        logger.info(f"[UPLOAD-DEBUG] 目标目录: {subdir}")
+
         subdir.mkdir(parents=True, exist_ok=True)
 
         # Decode base64 (data URI prefix is stripped if present)
         if "," in data_b64:
             data_b64 = data_b64.split(",", 1)[1]
+            logger.info(f"[UPLOAD-DEBUG] 已去除Data URI前缀")
+
         try:
             raw_data = base64.b64decode(data_b64)
-        except Exception:
+            logger.info(
+                f"[UPLOAD-DEBUG] Base64解码成功，原始数据大小: {len(raw_data)} bytes"
+            )
+        except Exception as e:
+            logger.error(f"[UPLOAD-DEBUG] Base64解码失败: {e}")
             return self._json_error(
                 start_response, "400 Bad Request", "Invalid base64 data"
             )
 
         if len(raw_data) > 10 * 1024 * 1024:
+            logger.error(f"[UPLOAD-DEBUG] 文件过大: {len(raw_data)} bytes")
             return self._json_error(
                 start_response, "400 Bad Request", "File too large (max 10MB)"
             )
@@ -1095,8 +1121,12 @@ function filterArticles(q) {{
             b"RIFF": ".webp",  # WebP starts with RIFF....WEBP
         }
         is_valid = False
+        header_hex = raw_data[:16].hex() if len(raw_data) >= 16 else raw_data.hex()
+        logger.info(f"[UPLOAD-DEBUG] 文件头部(hex): {header_hex}")
+
         for magic, expected_ext in MAGIC_BYTES.items():
             if raw_data[: len(magic)] == magic:
+                logger.info(f"[UPLOAD-DEBUG] 匹配文件格式: {expected_ext}")
                 if ext == expected_ext:
                     is_valid = True
                     break
@@ -1107,6 +1137,7 @@ function filterArticles(q) {{
                         break
 
         if not is_valid:
+            logger.error(f"[UPLOAD-DEBUG] 无效图片格式，扩展名: {ext}")
             return self._json_error(
                 start_response, "400 Bad Request", "Invalid image format"
             )
@@ -1120,10 +1151,12 @@ function filterArticles(q) {{
             while target.exists():
                 target = subdir / f"{stem}-{counter}{suffix}"
                 counter += 1
+            logger.info(f"[UPLOAD-DEBUG] 文件已存在，使用新名称: {target.name}")
 
         target.write_bytes(raw_data)
         rel_path = f"/static/images/{now.year:04d}-{now.month:02d}/{target.name}"
         logger.info(f"[UPLOAD] {rel_path} from {client_ip}")
+        logger.info(f"[UPLOAD-DEBUG] 上传成功，目标路径: {target}")
 
         headers = [("Content-Type", "application/json")] + get_security_headers()
         start_response("200 OK", headers)
@@ -1147,6 +1180,7 @@ function filterArticles(q) {{
 <meta name="viewport" content="width=device-width,initial-scale=1">
 <meta name="color-scheme" content="light dark">
 <title>{escape_html(title)} - 管理后台</title>
+{htmx_script}
 <style>
 :root {{ --primary: #2c3e50; --accent: #e74c3c; --bg: #fff; --surface: #f8f9fa; --text: #333; --border: #e0e0e0; }}
 html.dark {{ --bg: #1a1a2e; --surface: #16213e; --text: #eaeaea; --border: #0f3460; }}
@@ -1198,22 +1232,34 @@ function handleFileSelect(e) {{
   if (file) {{ uploadFile(file); }}
 }}
 function uploadFile(file) {{
+  var csrfInput = document.querySelector('input[name=csrf_token]');
+  if (!csrfInput || !csrfInput.value) {{
+    alert('CSRF token missing');
+    return;
+  }}
   var reader = new FileReader();
   reader.onload = function(ev) {{
     var b64 = ev.target.result;
+    var b64Data = b64.split(',')[1];
+    var body = 'csrf_token=' + encodeURIComponent(csrfInput.value) +
+               '&filename=' + encodeURIComponent(file.name) + '&data=' + encodeURIComponent(b64Data);
     fetch('/upload', {{
       method: 'POST',
       headers: {{ 'Content-Type': 'application/x-www-form-urlencoded' }},
-      body: 'csrf_token=' + encodeURIComponent(document.querySelector('[name=csrf_token]').value) +
-            '&filename=' + encodeURIComponent(file.name) + '&data=' + encodeURIComponent(b64.split(',')[1])
-    }}).then(r => r.json()).then(data => {{
+      body: body
+    }}).then(function(r) {{ return r.json(); }}).then(function(data) {{
       if (data.success) {{
         var ta = document.querySelector('textarea[name=content]');
         ta.value += '\\n![](' + data.url + ')\\n';
         ta.dispatchEvent(new Event('input', {{ bubbles: true }}));
-      }} else {{ alert('上传失败'); }}
-    }}).catch(() => alert('上传失败'));
+      }} else {{
+        alert('Upload failed: ' + (data.error || 'Unknown error'));
+      }}
+    }}).catch(function(err) {{
+      alert('Upload failed: Network error');
+    }});
   }};
+  reader.onerror = function() {{ alert('File read error'); }};
   reader.readAsDataURL(file);
 }}
 function showAIPanel() {{
@@ -1222,7 +1268,7 @@ function showAIPanel() {{
 }}
 function setAIStatus(msg, isError) {{
   var el = document.getElementById('ai-status');
-  if (el) {{ el.textContent = msg; el.style.color = isError ? '#e74c3c' : '#27ae60'; }}
+  if (el) {{ el.textContent = msg; el.style.color = isError ? "#e74c3c" : "#27ae60"; }}
 }}
 function setAIBusy(busy) {{
   document.querySelectorAll('.ai-btn').forEach(function(b) {{ b.disabled = busy; }});
@@ -1246,7 +1292,7 @@ function aiCall(action, data, callback) {{
 function aiComplete() {{
   var ta = document.querySelector('textarea[name=content]');
   if (!ta.value) {{ setAIStatus('请先输入内容', true); return; }}
-  aiCall('complete', {{ text: ta.value }}, function(r) {{ ta.value += '\n\n' + r.result; ta.dispatchEvent(new Event('input', {{ bubbles: true }})); }});
+  aiCall('complete', {{ text: ta.value }}, function(r) {{ ta.value += '\\n\\n' + r.result; ta.dispatchEvent(new Event('input', {{ bubbles: true }})); }});
 }}
 function aiPolish() {{
   var ta = document.querySelector('textarea[name=content]');
@@ -1277,7 +1323,6 @@ setTimeout(showAIPanel, 100);
 </head>
 <body>
 {body}
-{htmx_script}
 </body>
 </html>"""
         csrf_cookie = get_csrf_cookie_header(csrf_token)
