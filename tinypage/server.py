@@ -5,13 +5,14 @@ from __future__ import annotations
 import logging
 import os
 import sys
+import tempfile
 import threading
 from pathlib import Path
 
 # Ensure UTF-8 output on Windows
-if hasattr(sys.stdout, 'reconfigure'):
-    sys.stdout.reconfigure(encoding='utf-8')
-    sys.stderr.reconfigure(encoding='utf-8')
+if hasattr(sys.stdout, "reconfigure"):
+    sys.stdout.reconfigure(encoding="utf-8")
+    sys.stderr.reconfigure(encoding="utf-8")
 
 from .config import Config
 from .content import list_articles
@@ -21,32 +22,49 @@ from .admin import AdminApp
 
 logger = logging.getLogger(__name__)
 
+_PASSWORD_CACHE_FILE = Path(tempfile.gettempdir()) / ".tinypage_admin_pass"
+
 
 def ensure_admin_password(cfg: Config) -> str:
-    """Generate random admin password if not set."""
+    """Get or generate admin password. Persist generated password to temp dir."""
     password = cfg.admin_pass
     if password:
         return password
+
+    # Try to read cached password from temp dir
+    if _PASSWORD_CACHE_FILE.exists():
+        try:
+            cached = _PASSWORD_CACHE_FILE.read_text(encoding="utf-8").strip()
+            if cached and len(cached) >= 24:
+                logger.info("[INIT] Reusing cached admin password from temp file")
+                return cached
+        except (OSError, ValueError):
+            pass
+
+    # Generate new random password
     import secrets
+
     base = secrets.token_urlsafe(24)
     suffix = secrets.choice(["#", "+", "%"])
     password = base[:31] + suffix
-    password_file = Path(__file__).resolve().parent.parent / "admin_password.txt"
+
+    # Save to system temp directory instead of project dir
     try:
-        with open(password_file, "w", encoding="utf-8") as f:
-            f.write(f"ADMIN_PASS={password}\n")
-            f.write(f"Generated at: {__import__('datetime').datetime.now().strftime('%Y-%m-%d %H:%M:%S')}\n")
-            f.write("\n" + "=" * 70 + "\n")
-            f.write("⚠️  阅后即焚 - 请立即复制此密码并删除本文件 ⚠️\n")
-            f.write("=" * 70 + "\n")
-        print(f"\n{'='*70}")
-        print("⚠️  警告：ADMIN_PASS 未设置！")
-        print(f"随机密码已生成并保存到: {password_file}")
-        print("请立即查看该文件并删除！")
-        print(f"{'='*70}\n")
-        logger.warning(f"[INIT] Random password saved to {password_file}")
-    except Exception as e:
-        logger.error(f"[INIT-FAILED] {e}")
+        _PASSWORD_CACHE_FILE.write_text(password, encoding="utf-8")
+        try:
+            _PASSWORD_CACHE_FILE.chmod(0o600)  # Restrict permissions on Unix
+        except OSError:
+            # Windows doesn't fully support chmod, but write_text still works
+            pass
+    except OSError as e:
+        logger.error(f"[INIT-FAILED] Cannot save password cache: {e}")
+
+    print(f"\n{'=' * 70}")
+    print("WARNING: ADMIN_PASS is not set!")
+    print(f"Random password generated and cached to: {_PASSWORD_CACHE_FILE}")
+    print("Set ADMIN_PASS environment variable for persistent authentication.")
+    print(f"{'=' * 70}\n")
+    logger.warning(f"[INIT] Random password cached to {_PASSWORD_CACHE_FILE}")
     return password
 
 
@@ -63,13 +81,17 @@ def setup_logging() -> None:
 
 def run_static_server(cfg: Config) -> None:
     from waitress import serve
+
     app = StaticApp(cfg)
     logger.info(f"[START] Static server: http://{cfg.static_host}:{cfg.static_port}")
-    serve(app, host=cfg.static_host, port=cfg.static_port, threads=4, channel_timeout=30)
+    serve(
+        app, host=cfg.static_host, port=cfg.static_port, threads=4, channel_timeout=30
+    )
 
 
 def run_admin_server(cfg: Config) -> None:
     from waitress import serve
+
     app = AdminApp(cfg)
     host = "127.0.0.1"
     logger.info(f"[START] Admin server: http://{host}:{cfg.admin_port}")
@@ -89,6 +111,15 @@ def main() -> None:
     # Ensure admin password
     password = ensure_admin_password(cfg)
     cfg = cfg.merge(admin_pass=password)
+
+    # Configure trusted proxies if bind_domain is set (implies reverse proxy)
+    if cfg.bind_domain:
+        from .security import configure_trusted_proxies
+        configure_trusted_proxies({"127.0.0.1", "::1", "172.17.0.1"})
+
+    # Validate config and show warnings
+    for warning in cfg.validate_startup():
+        logger.warning(f"[CONFIG] {warning}")
 
     # Generate initial pages
     index_path = cfg.root_dir / "index.html"
@@ -114,8 +145,10 @@ def main() -> None:
     print("   proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;")
     print("   proxy_set_header Host $http_host;")
     pw_len = len(cfg.admin_pass or "")
-    if pw_len < 16:
-        print(f"⚠️  WARNING: Password too short ({pw_len} chars)")
+    if pw_len == 0:
+        print("Password: AUTO-GENERATED (set ADMIN_PASS env var to customize)")
+    elif pw_len < 16:
+        print(f"WARNING: Password too short ({pw_len} chars)")
     else:
         print(f"Password: {'*' * 16}... (length: {pw_len})")
     print(f"Audit Log: security_audit.log")

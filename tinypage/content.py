@@ -13,57 +13,41 @@ from typing import Optional
 
 from .models import ArticleMeta
 from .parsers import (
-    render_markdown, highlight_code_blocks, parse_bidirectional_links,
-    extract_headings, build_toc_html, add_heading_ids, process_footnotes,
+    render_markdown,
+    highlight_code_blocks,
+    parse_bidirectional_links,
+    extract_headings,
+    build_toc_html,
+    add_heading_ids,
+    process_footnotes,
+    build_backlinks_html,
+    build_article_title_map,
 )
-from .security import escape_html, escape_attr, validate_url_protocol, validate_filename
+from .security import (
+    escape_html,
+    validate_filename,
+    slugify,
+)
 
 logger = logging.getLogger(__name__)
 
-
-def slugify_title(title: str) -> str:
-    # Keep CJK characters and alphanumeric
-    s = re.sub(r"[^a-zA-Z0-9\u4e00-\u9fa5]", "-", title.lower())
-    s = re.sub(r"-+", "-", s).strip("-")
-    if not s:
-        return str(int(time.time()))
-    return s[:80]
-
-
-def text_to_html(content: str) -> str:
-    """Convert plain text with lightweight markup to safe HTML."""
-    content = escape_html(content)
-    paragraphs = re.split(r"\n\s*\n", content.strip())
-    html_paragraphs: list[str] = []
-
-    for para in paragraphs:
-        if not para.strip():
-            continue
-        # Inline formatting
-        para = re.sub(r"\*\*(.+?)\*\*", r"<strong>\1</strong>", para)
-        para = re.sub(r"\*(.+?)\*", r"<em>\1</em>", para)
-        para = re.sub(r"`(.+?)`", r"<code>\1</code>", para)
-
-        # Links with protocol validation
-        def replace_link(m: re.Match) -> str:
-            text = m.group(1)
-            url = m.group(2)
-            if validate_url_protocol(url):
-                return f'<a href="{escape_attr(url)}" rel="noopener noreferrer">{text}</a>'
-            return f"[{text}]({url})"
-
-        para = re.sub(r"\[([^\]]+)\]\(([^\)]+)\)", replace_link, para)
-
-        lines = para.strip().split("\n")
-        html_lines = "<br>\n".join(lines)
-        html_paragraphs.append(f"<p>{html_lines}</p>")
-
-    return "\n".join(html_paragraphs)
+_META_ALLOWED_KEYS = frozenset(
+    {
+        "title",
+        "date",
+        "slug",
+        "tags",
+        "summary",
+        "category",
+        "status",
+        "markdown",
+    }
+)
 
 
 def _extract_body_from_html(html_content: str) -> str:
     """Extract raw text content from an existing generated article HTML file.
-    
+
     Skips all leading HTML comment metadata lines, then extracts text from
     the post-content div or falls back to stripping all HTML tags.
     """
@@ -88,21 +72,23 @@ def _extract_body_from_html(html_content: str) -> str:
     return re.sub(r"\s+", " ", text).strip()
 
 
-def parse_meta(path: Path, max_file_size: int = 10 * 1024 * 1024) -> Optional[ArticleMeta]:
+def parse_meta(
+    path: Path, max_file_size: int = 10 * 1024 * 1024
+) -> Optional[ArticleMeta]:
     """Safely parse article metadata from HTML comments."""
     try:
         if path.stat().st_size > max_file_size:
             return None
 
         meta = ArticleMeta()
-        with open(path, "r", encoding="utf-8", errors="ignore") as f:
+        with open(path, "r", encoding="utf-8", errors="replace") as f:
             for i, line in enumerate(f):
                 if i >= 7:
                     break
                 m = re.match(r"<!--\s*(\w+):\s*(.*)\s*-->", line.strip())
                 if m:
                     key, val = m.group(1), m.group(2).strip()
-                    if hasattr(meta, key):
+                    if key in _META_ALLOWED_KEYS:
                         setattr(meta, key, val)
 
         # Normalize status
@@ -111,7 +97,7 @@ def parse_meta(path: Path, max_file_size: int = 10 * 1024 * 1024) -> Optional[Ar
 
         # Auto-generate summary from content
         if not meta.summary:
-            with open(path, "r", encoding="utf-8", errors="ignore") as f:
+            with open(path, "r", encoding="utf-8", errors="replace") as f:
                 html_content = f.read()
             text = _extract_body_from_html(html_content)
             meta.summary = text[:200] + "..." if len(text) > 200 else text
@@ -122,52 +108,16 @@ def parse_meta(path: Path, max_file_size: int = 10 * 1024 * 1024) -> Optional[Ar
         return None
 
 
-def build_article_title_map(
-    articles: list[ArticleMeta],
-    prefix: str = "article",
-) -> dict[str, tuple[str, str]]:
-    """Build a title-to-(slug, url) mapping for bidirectional link resolution."""
-    title_map: dict[str, tuple[str, str]] = {}
-    for art in articles:
-        if art.is_draft:
-            continue
-        key = art.title.lower()
-        slug = art.slug or slugify_title(art.title)
-        url = f"/{prefix}/{slug}.html"
-        title_map[key] = (slug, url)
-    return title_map
-
-
-def build_backlinks_html(backlinks: list[tuple[str, str, str]]) -> str:
-    """Build HTML for backlinks section."""
-    if not backlinks:
-        return ""
-    items = []
-    for title, display, url in backlinks:
-        items.append(f'<li><a href="{escape_attr(url)}">{escape_html(display)}</a></li>')
-    return f"""
-<section class="backlinks">
-  <h2>反向链接</h2>
-  <ul>
-    {"".join(items)}
-  </ul>
-</section>"""
-
-
 def extract_bidirectional_links(content: str) -> list[str]:
     """Extract all [[Page Title]] links from content."""
     pattern = r"\[\[([^\]|]+)(?:\|[^\]]+)?\]\]"
     return re.findall(pattern, content)
 
 
-def slugify_for_link(title: str) -> str:
-    """Convert title to slug for link matching."""
-    return slugify_title(title)
-
-
 def delete_article(path: Path) -> None:
     """Safely delete an article with backup-and-verify."""
     import shutil
+
     if not path.is_file():
         return
     backup = path.with_suffix(".html.backup")
@@ -191,7 +141,7 @@ def list_articles(
     category: str = "",
 ) -> list[ArticleMeta]:
     """List all valid articles sorted by date descending.
-    
+
     Args:
         article_dir: Directory containing article HTML files.
         max_file_size: Maximum file size to consider.
@@ -290,7 +240,7 @@ def write_article(
     skip_html_generation: bool = False,
 ) -> None:
     """Safely write an article file with atomic rename.
-    
+
     Args:
         article_map: Dict mapping title to (slug, url) for bidirectional links
         related_articles: List of all articles for backlinks/related articles
@@ -317,31 +267,41 @@ def write_article(
         # Phase 3: Process Markdown features
         # 1. Process footnotes first before markdown rendering
         processed_content, footnotes_html = process_footnotes(content)
-        
+
         # 2. Extract headings for ToC
         headings = extract_headings(processed_content)
         toc_html = build_toc_html(headings)
-        
+
         # 3. Process bidirectional links
         if article_map is None:
             article_map = {}
-        processed_content, found_links = parse_bidirectional_links(processed_content, article_map)
-        
+        processed_content, found_links = parse_bidirectional_links(
+            processed_content, article_map
+        )
+
         # Render markdown
         html_body = render_markdown(processed_content)
-        
+
         # Add heading IDs to rendered HTML
         html_body = add_heading_ids(html_body, headings)
-        
+
         # Highlight code blocks
         html_body = highlight_code_blocks(html_body)
-        
+
         # Lazy import to avoid circular dependency
         from .generator import generate_article_html
+
         full_html = generate_article_html(
-            title=title, date=date, slug=slug, content=html_body,
-            tags=tags, summary=summary, category=category, status=status,
-            toc_html=toc_html, footnotes_html=footnotes_html
+            title=title,
+            date=date,
+            slug=slug,
+            content=html_body,
+            tags=tags,
+            summary=summary,
+            category=category,
+            status=status,
+            toc_html=toc_html,
+            footnotes_html=footnotes_html,
         )
 
     temp_path = path.with_suffix(".html.tmp")
@@ -367,6 +327,7 @@ def write_article(
 
 # ---------- Phase 3: Digital Garden Features ----------
 
+
 def _get_backlink_cache_path(article_dir: Path) -> Path:
     """Get the path to the backlink cache file."""
     cache_dir = article_dir.parent / ".tinypage"
@@ -391,11 +352,15 @@ def build_backlink_index(
         try:
             cached = json.loads(cache_path.read_text(encoding="utf-8"))
             cached_mtime = cached.get("_mtime", 0)
-            current_mtime = max(
-                (article_dir / art.file).stat().st_mtime
-                for art in articles
-                if (article_dir / art.file).exists()
-            ) if articles else 0
+            current_mtime = (
+                max(
+                    (article_dir / art.file).stat().st_mtime
+                    for art in articles
+                    if (article_dir / art.file).exists()
+                )
+                if articles
+                else 0
+            )
 
             if current_mtime <= cached_mtime:
                 result: dict[str, list[ArticleMeta]] = {}
@@ -435,7 +400,7 @@ def build_backlink_index(
         linked_titles = extract_bidirectional_links(content)
 
         for linked_title in linked_titles:
-            linked_slug = slugify_title(linked_title)
+            linked_slug = slugify(linked_title)
 
             for target in articles:
                 if target.is_draft:
@@ -453,11 +418,15 @@ def build_backlink_index(
                         index[target.file].append(art)
 
     try:
-        current_mtime = max(
-            (article_dir / art.file).stat().st_mtime
-            for art in articles
-            if (article_dir / art.file).exists()
-        ) if articles else 0
+        current_mtime = (
+            max(
+                (article_dir / art.file).stat().st_mtime
+                for art in articles
+                if (article_dir / art.file).exists()
+            )
+            if articles
+            else 0
+        )
 
         cache_data: dict = {"_mtime": current_mtime}
         for target_file, backlinks in index.items():
@@ -474,7 +443,9 @@ def build_backlink_index(
                 }
                 for art in backlinks
             ]
-        cache_path.write_text(json.dumps(cache_data, ensure_ascii=False), encoding="utf-8")
+        cache_path.write_text(
+            json.dumps(cache_data, ensure_ascii=False), encoding="utf-8"
+        )
         logger.info(f"[BACKLINKS] Cached {len(index)} entries")
     except OSError as e:
         logger.warning(f"[BACKLINKS] Failed to write cache: {e}")
@@ -490,16 +461,16 @@ def get_raw_content(path: Path) -> str:
     try:
         if not path.is_file():
             return ""
-        
+
         content = path.read_text(encoding="utf-8")
-        
+
         # Look for <!-- markdown: ... --> comment
         markdown_match = re.search(r"<!-- markdown:\s*(.*?)\s*-->", content, re.DOTALL)
         if markdown_match:
             return markdown_match.group(1)
-        
+
         # Fallback: extract from summary
-        return parse_meta(path, 10*1024*1024).summary or ""
+        return parse_meta(path, 10 * 1024 * 1024).summary or ""
     except Exception:
         return ""
 
@@ -515,7 +486,7 @@ def regenerate_all_articles(
 ) -> None:
     """
     Regenerate all articles with full Phase 3 features.
-    
+
     This is the main integration point for:
     - Bidirectional links
     - Table of Contents
@@ -524,49 +495,51 @@ def regenerate_all_articles(
     - Backlinks
     """
     from .generator import generate_article_html
-    
+
     logger.info("[PHASE3] Regenerating articles with digital garden features...")
-    
+
     # Build article map for bidirectional links
     article_map = build_article_title_map(articles, "article")
-    
+
     # Build backlink index
     backlink_index = build_backlink_index(articles, article_dir)
-    
+
     count = 0
     for art in articles:
         path = article_dir / art.file
         if not path.is_file():
             continue
-        
+
         # Get raw content
         raw_content = get_raw_content(path)
-        
+
         if not raw_content:
             raw_content = art.summary or ""
-        
+
         # 1. Process footnotes
         processed_content, footnotes_html = process_footnotes(raw_content)
-        
+
         # 2. Extract headings and build ToC
         headings = extract_headings(processed_content)
         toc_html = build_toc_html(headings)
-        
+
         # 3. Process bidirectional links
-        processed_content, found_links = parse_bidirectional_links(processed_content, article_map)
-        
+        processed_content, found_links = parse_bidirectional_links(
+            processed_content, article_map
+        )
+
         # 4. Render markdown
         html_body = render_markdown(processed_content)
-        
+
         # 5. Add heading IDs to rendered HTML
         html_body = add_heading_ids(html_body, headings)
-        
+
         # 6. Syntax highlighting
         html_body = highlight_code_blocks(html_body)
-        
+
         # 7. Find related articles
         related = find_related_articles(art, articles, limit=5)
-        
+
         # 8. Build backlinks HTML
         backlinks_html = ""
         if art.file in backlink_index:
@@ -575,7 +548,7 @@ def regenerate_all_articles(
                 backlinks_html = build_backlinks_html(
                     [(back.title, back.title, back.url) for back in backlink_arts]
                 )
-        
+
         # 9. Generate full HTML
         full_html = generate_article_html(
             title=art.title,
@@ -596,7 +569,7 @@ def regenerate_all_articles(
             backlinks_html=backlinks_html,
             related_articles=related,
         )
-        
+
         # Save the updated article
         temp_path = path.with_suffix(".html.tmp")
         try:
@@ -616,7 +589,7 @@ def regenerate_all_articles(
             if temp_path.exists():
                 temp_path.unlink()
             logger.error(f"[REGEN-FAILED] {art.file}, error: {e}")
-    
+
     logger.info(f"[PHASE3] Regenerated {count} articles")
 
 
@@ -686,8 +659,11 @@ def write_standalone(
     html_body = render_markdown(content)
     html_body = highlight_code_blocks(html_body)
     from .generator import generate_standalone_html
+
     full_html = generate_standalone_html(
-        title=title, content=html_body, summary=summary,
+        title=title,
+        content=html_body,
+        summary=summary,
     )
 
     temp_path = path.with_suffix(".html.tmp")
@@ -712,6 +688,7 @@ def delete_standalone(path: Path) -> None:
 
 # ---------- Phase 4: AI & Translation ----------
 
+
 def translate_article(
     article_dir: Path,
     fname: str,
@@ -729,14 +706,14 @@ def translate_article(
     Returns:
         dict with 'success' bool and optional 'error' message
     """
-    from .core.ai_assistance import build_ai_assistance, AIAssistanceError, fallback_summarize
+    from .core.ai_assistance import build_ai_assistance, AIAssistanceError
 
     path = article_dir / fname
     if not path.is_file():
         return {"success": False, "error": "Article not found"}
 
     try:
-        with open(path, "r", encoding="utf-8", errors="ignore") as f:
+        with open(path, "r", encoding="utf-8", errors="replace") as f:
             html_content = f.read()
     except Exception as e:
         return {"success": False, "error": f"Read error: {e}"}
@@ -754,7 +731,10 @@ def translate_article(
 
     ai = build_ai_assistance(config)
     if not ai:
-        return {"success": False, "error": "AI not configured. Set ai_api_key in config."}
+        return {
+            "success": False,
+            "error": "AI not configured. Set ai_api_key in config.",
+        }
 
     try:
         translated_content = ai.translate_text(raw_content, lang_name)
@@ -777,7 +757,7 @@ def translate_article(
             counter += 1
         trans_fname = f"{base}-{counter}{suffix}"
 
-    trans_slug = slugify_title(meta.title)
+    trans_slug = slugify(meta.title)
     translated_tags = meta.tags
 
     write_article(
@@ -791,7 +771,7 @@ def translate_article(
         translated_summary,
         meta.category,
         "published",
+        skip_html_generation=True,
     )
 
     return {"success": True, "filename": trans_fname, "language": lang_name}
-

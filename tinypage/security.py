@@ -112,20 +112,83 @@ def validate_csrf_token(environ: dict, token: str, admin_port: int = 8081, bind_
         return False
 
 
-def get_csrf_cookie_header(token: Optional[str] = None) -> Tuple[str, str]:
+def get_csrf_cookie_header(
+    token: Optional[str] = None,
+    secure: bool = False,
+) -> Tuple[str, str]:
+    """Generate Set-Cookie header for CSRF token.
+
+    Args:
+        token: CSRF token string. Generated if not provided.
+        secure: Add Secure flag. Should be True when served over HTTPS.
+    """
     if token is None:
         token = generate_csrf_token()
-    return ("Set-Cookie", f"csrf_token={token}; Path=/; HttpOnly; SameSite=Strict")
+    cookie = f"csrf_token={token}; Path=/; HttpOnly; SameSite=Strict"
+    if secure:
+        cookie += "; Secure"
+    return ("Set-Cookie", cookie)
+
+
+def is_valid_csrf_format(token: str, max_age: int = 3600) -> bool:
+    """Check if a CSRF token has valid format and signature (no origin check).
+
+    Use this for reusing existing tokens in cookies without requiring
+    a full request context. Does NOT replace validate_csrf_token() for
+    POST request validation.
+
+    Args:
+        token: CSRF token string.
+        max_age: Maximum token age in seconds.
+
+    Returns:
+        True if token format and HMAC signature are valid.
+    """
+    if not token or len(token) < 32:
+        return False
+    try:
+        signed_token = base64.urlsafe_b64decode(token.encode("ascii"))
+        if len(signed_token) != 52:
+            return False
+        token_data = signed_token[:20]
+        signature = signed_token[20:]
+        expected_sig = hmac.new(_CSRF_SECRET, token_data, hashlib.sha256).digest()
+        if not hmac.compare_digest(signature, expected_sig):
+            return False
+        timestamp = int.from_bytes(token_data[16:20], "big")
+        now = time.time()
+        if now - timestamp > max_age or timestamp > now + 60:
+            return False
+        return True
+    except Exception:
+        return False
+
+
+_TRUSTED_PROXIES: set[str] = set()  # Configured at startup
+
+
+def configure_trusted_proxies(proxies: set[str]) -> None:
+    """Set trusted reverse proxy IPs. Only these proxies' headers are trusted."""
+    global _TRUSTED_PROXIES
+    _TRUSTED_PROXIES = proxies
 
 
 def get_real_ip(environ: dict) -> str:
-    x_forwarded_for = environ.get("HTTP_X_FORWARDED_FOR", "")
-    if x_forwarded_for:
-        return x_forwarded_for.split(",")[0].strip()
-    x_real_ip = environ.get("HTTP_X_REAL_IP", "")
-    if x_real_ip:
-        return x_real_ip.strip()
-    return environ.get("REMOTE_ADDR", "unknown")
+    """Get client IP, trusting proxy headers only from trusted proxies."""
+    remote_addr = environ.get("REMOTE_ADDR", "unknown")
+
+    # Only trust proxy headers when request comes from a trusted proxy
+    if remote_addr in _TRUSTED_PROXIES:
+        x_forwarded_for = environ.get("HTTP_X_FORWARDED_FOR", "")
+        if x_forwarded_for:
+            # X-Forwarded-For: client, proxy1, proxy2
+            ips = [ip.strip() for ip in x_forwarded_for.split(",")]
+            return ips[0]
+        x_real_ip = environ.get("HTTP_X_REAL_IP", "")
+        if x_real_ip:
+            return x_real_ip.strip()
+
+    return remote_addr
 
 
 def validate_filename(filename: str) -> bool:
@@ -252,3 +315,21 @@ def get_csp_header() -> Tuple[str, str]:
         "base-uri 'self';"
     )
     return ("Content-Security-Policy", policy)
+
+
+def slugify(text: str, max_length: int = 80, fallback: str = "") -> str:
+    """Convert text to URL-safe slug, preserving CJK characters.
+
+    Args:
+        text: Input text to slugify.
+        max_length: Maximum slug length.
+        fallback: Fallback value if result is empty.
+
+    Returns:
+        URL-safe slug string.
+    """
+    slug = re.sub(r"[^\w\u4e00-\u9fa5-]", "-", text.lower()).strip("-")
+    slug = re.sub(r"-{2,}", "-", slug)
+    if max_length:
+        slug = slug[:max_length].rstrip("-")
+    return slug or fallback or f"untitled-{int(time.time())}"

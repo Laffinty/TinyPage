@@ -6,6 +6,8 @@ import re
 from dataclasses import dataclass
 from typing import Optional
 
+from ..security import escape_html
+
 
 FOOTNOTE_DEF_PATTERN = re.compile(r"\[\^([^\]]+)\]:\s*(.+)$", re.MULTILINE)
 FOOTNOTE_REF_PATTERN = re.compile(r"\[\^([^\]]+)\](?![:])")
@@ -104,14 +106,3 @@ def process_footnotes(markdown_text: str) -> tuple[str, str]:
     rendered = render_footnote_refs(cleaned)
     footnotes_html = build_footnotes_html(footnotes)
     return rendered, footnotes_html
-
-
-def escape_html(text: str) -> str:
-    """Basic HTML escaping."""
-    return (
-        text.replace("&", "&amp;")
-        .replace("<", "&lt;")
-        .replace(">", "&gt;")
-        .replace('"', "&quot;")
-        .replace("'", "&#39;")
-    )

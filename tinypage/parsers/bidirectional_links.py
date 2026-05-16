@@ -5,6 +5,8 @@ from __future__ import annotations
 import re
 from typing import Optional
 
+from ..security import escape_html, slugify
+
 
 BIDIRECTIONAL_LINK_PATTERN = re.compile(r"\[\[([^\]|]+)(?:\|([^\]]+))?\]\]")
 BACKLINKS_HTML_TEMPLATE = """
@@ -20,9 +22,7 @@ BACKLINK_ITEM_TEMPLATE = '<li><a href="{url}">{title}</a></li>'
 
 def slugify_for_link(title: str) -> str:
     """Convert a title to a URL-safe slug for linking."""
-    s = re.sub(r"[^a-zA-Z0-9\u4e00-\u9fa5]", "-", title.lower())
-    s = re.sub(r"-+", "-", s).strip("-")
-    return s or "untitled"
+    return slugify(title, max_length=0, fallback="untitled")
 
 
 def parse_bidirectional_links(
@@ -82,17 +82,6 @@ def build_backlinks_html(backlinks: list[tuple[str, str]]) -> str:
     )
 
     return BACKLINKS_HTML_TEMPLATE.format(links=links_html)
-
-
-def escape_html(text: str) -> str:
-    """Basic HTML escaping for display text."""
-    return (
-        text.replace("&", "&amp;")
-        .replace("<", "&lt;")
-        .replace(">", "&gt;")
-        .replace('"', "&quot;")
-        .replace("'", "&#39;")
-    )
 
 
 def extract_bidirectional_links(text: str) -> list[str]:

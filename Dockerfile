@@ -12,20 +12,21 @@ ENV PYTHONUNBUFFERED=1 \
 
 WORKDIR /app
 
-RUN apt-get update && apt-get install -y --no-install-recommends \
-    ca-certificates \
-    && rm -rf /var/lib/apt/lists/*
-
+# Dependency install (leveraging Docker layer cache)
 COPY pyproject.toml .
 RUN pip install --no-cache-dir -e .[full]
 
-COPY . .
+# Copy only necessary application code (.dockerignore excludes sensitive files)
+COPY tinypage/ tinypage/
+COPY static_inject/ static_inject/
+COPY themes/ themes/
+COPY tiny_page.py .
 
-RUN mkdir -p pages/article pages/list pages/standalone pages/static themes/default static
+RUN mkdir -p pages/article pages/list pages/standalone pages/static
 
 EXPOSE 8080 8081
 
-VOLUME ["/app/pages", "/app/themes", "/app/static"]
+VOLUME ["/app/pages", "/app/themes"]
 
 HEALTHCHECK --interval=30s --timeout=10s --start-period=5s --retries=3 \
     CMD python -c "import urllib.request; urllib.request.urlopen('http://localhost:8080')" || exit 1

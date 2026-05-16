@@ -176,7 +176,7 @@ def build_cache_key(article_dir: Path) -> str:
         mtimes.append(f"{f.name}:{int(f.stat().st_mtime)}")
 
     content = "|".join(mtimes)
-    return hashlib.md5(content.encode()).hexdigest()[:12]
+    return hashlib.sha256(content.encode()).hexdigest()[:12]
 
 
 def get_unchanged_articles(

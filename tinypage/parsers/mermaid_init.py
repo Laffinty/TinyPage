@@ -10,7 +10,7 @@ document.addEventListener('DOMContentLoaded', function() {{
     mermaid.initialize {{
       startOnLoad: true,
       theme: document.documentElement.classList.contains('dark') ? 'dark' : 'default',
-      securityLevel: 'loose',
+      securityLevel: 'strict',
     }};
     mermaid.run({{
       querySelector: '.language-mermaid, .mermaid',

@@ -6,6 +6,8 @@ import re
 from dataclasses import dataclass
 from typing import Optional
 
+from ..security import escape_html
+
 
 HEADING_PATTERN = re.compile(r"^(#{1,6})\s+(.+)$", re.MULTILINE)
 
@@ -138,14 +140,3 @@ def _add_id_to_heading(match: re.Match, heading_map: dict[str, str]) -> str:
             return f"<{tag} id=\"{heading_id}\"{attrs}>{content}</{tag}>"
 
     return match.group(0)
-
-
-def escape_html(text: str) -> str:
-    """Basic HTML escaping."""
-    return (
-        text.replace("&", "&amp;")
-        .replace("<", "&lt;")
-        .replace(">", "&gt;")
-        .replace('"', "&quot;")
-        .replace("'", "&#39;")
-    )

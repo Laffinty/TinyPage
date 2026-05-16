@@ -5,32 +5,31 @@ from __future__ import annotations
 import logging
 import mimetypes
 from pathlib import Path
-from typing import Optional
+from typing import Any, Optional
+from wsgiref.types import StartResponse
 
 from .config import Config
 from .security import get_security_headers, safe_path_check
 
 logger = logging.getLogger(__name__)
 
-# Map virtual paths to injected static assets
-_INJECTED_ASSETS: dict[str, tuple[str, bytes]] = {}
+# Map virtual paths to injected static assets (lazy loaded)
+_INJECTED_ASSETS: dict[str, tuple[str, bytes]] | None = None
 
 
-def _load_injected_assets() -> None:
-    """Load static assets to inject into the frontend."""
+def _get_injected_assets() -> dict[str, tuple[str, bytes]]:
+    """Lazy-load injected assets on first access."""
     global _INJECTED_ASSETS
-    base = Path("static_inject")
-    if not base.exists():
-        return
-    for f in base.iterdir():
-        if f.is_file():
-            data = f.read_bytes()
-            ct = mimetypes.guess_type(f.name)[0] or "application/octet-stream"
-            _INJECTED_ASSETS[f"/" + f.name] = (ct, data)
-
-
-# Initialize on module load
-_load_injected_assets()
+    if _INJECTED_ASSETS is None:
+        _INJECTED_ASSETS = {}
+        base = Path("static_inject")
+        if base.exists():
+            for f in base.iterdir():
+                if f.is_file():
+                    data = f.read_bytes()
+                    ct = mimetypes.guess_type(f.name)[0] or "application/octet-stream"
+                    _INJECTED_ASSETS[f"/" + f.name] = (ct, data)
+    return _INJECTED_ASSETS
 
 
 class StaticApp:
@@ -40,7 +39,7 @@ class StaticApp:
         self.cfg = config
         self.doc_root = config.root_dir
 
-    def __call__(self, environ: dict, start_response):
+    def __call__(self, environ: dict[str, Any], start_response: StartResponse) -> list[bytes]:
         path = environ.get("PATH_INFO", "/")
         # Fix potential mojibake from WSGI servers that decode UTF-8 as latin1
         try:
@@ -51,8 +50,9 @@ class StaticApp:
             path += "index.html"
 
         # Check injected assets first
-        if path in _INJECTED_ASSETS:
-            ct, data = _INJECTED_ASSETS[path]
+        injected = _get_injected_assets()
+        if path in injected:
+            ct, data = injected[path]
             headers = [
                 ("Content-Type", ct),
                 ("Content-Length", str(len(data))),

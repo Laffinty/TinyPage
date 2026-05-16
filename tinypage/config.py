@@ -26,9 +26,15 @@ class Config:
     admin_pass: str = field(default_factory=lambda: os.getenv("ADMIN_PASS", ""))
 
     # Server
-    static_host: str = field(default_factory=lambda: os.getenv("STATIC_HOST", "127.0.0.1"))
-    static_port: int = field(default_factory=lambda: int(os.getenv("STATIC_PORT", "8080")))
-    admin_port: int = field(default_factory=lambda: int(os.getenv("ADMIN_PORT", "8081")))
+    static_host: str = field(
+        default_factory=lambda: os.getenv("STATIC_HOST", "127.0.0.1")
+    )
+    static_port: int = field(
+        default_factory=lambda: int(os.getenv("STATIC_PORT", "8080"))
+    )
+    admin_port: int = field(
+        default_factory=lambda: int(os.getenv("ADMIN_PORT", "8081"))
+    )
     bind_domain: str = field(default_factory=lambda: os.getenv("BIND_DOMAIN", ""))
 
     # Paths
@@ -95,6 +101,48 @@ class Config:
             except (OSError, json.JSONDecodeError):
                 pass
         return config
+
+    def __post_init__(self):
+        """Validate configuration values at creation time."""
+        if not (1 <= self.static_port <= 65535):
+            raise ValueError(
+                f"Invalid static_port: {self.static_port}. Must be 1-65535."
+            )
+        if not (1 <= self.admin_port <= 65535):
+            raise ValueError(f"Invalid admin_port: {self.admin_port}. Must be 1-65535.")
+        if self.admin_port == self.static_port:
+            raise ValueError(
+                f"admin_port and static_port must differ (both {self.admin_port})."
+            )
+        if self.page_size < 1:
+            raise ValueError(f"Invalid page_size: {self.page_size}. Must be >= 1.")
+        if self.max_file_size < 1024:
+            raise ValueError(
+                f"Invalid max_file_size: {self.max_file_size}. Must be >= 1024."
+            )
+        if self.max_title_length < 1:
+            raise ValueError(
+                f"Invalid max_title_length: {self.max_title_length}. Must be >= 1."
+            )
+        if self.max_content_length < 100:
+            raise ValueError(
+                f"Invalid max_content_length: {self.max_content_length}. Must be >= 100."
+            )
+
+    def validate_startup(self) -> list[str]:
+        """Validate config for startup. Returns list of warnings."""
+        warnings = []
+        if not self.admin_pass:
+            warnings.append(
+                "ADMIN_PASS is not set. A random password will be generated "
+                "and saved to a temp file. Set ADMIN_PASS env var for persistent auth."
+            )
+        if len(self.admin_pass) < 16 and self.admin_pass:
+            warnings.append(
+                f"ADMIN_PASS is only {len(self.admin_pass)} chars. "
+                "Recommend at least 16 characters."
+            )
+        return warnings
 
     def merge(self, **kwargs: Any) -> Config:
         """Return a new config with overrides."""

@@ -11,8 +11,9 @@ import threading
 import time
 from datetime import datetime
 from pathlib import Path
-from typing import Optional
+from typing import Any, Optional
 from urllib.parse import parse_qs
+from wsgiref.types import StartResponse
 
 from .config import Config
 from .content import (
@@ -38,6 +39,7 @@ from .security import (
     get_csp_header,
     validate_csrf_token,
     validate_filename,
+    is_valid_csrf_format,
 )
 
 logger = logging.getLogger(__name__)
@@ -46,58 +48,144 @@ HTMX_CDN = "/htmx.min.js"
 
 
 class RateLimiter:
-    """Simple in-memory rate limiter using sliding window."""
+    """In-memory rate limiter using sliding window with automatic cleanup."""
+
+    MAX_TRACKED_IPS = 10000  # Prevent dictionary from growing indefinitely
 
     def __init__(self, max_requests: int = 60, window_seconds: int = 60):
         self.max_requests = max_requests
         self.window_seconds = window_seconds
         self._requests: dict[str, list[float]] = {}
         self._lock = threading.Lock()
+        self._last_cleanup = time.time()
+        self._cleanup_interval = 60  # Clean up every 60 seconds
+
+    def _cleanup(self, now: float) -> None:
+        """Remove expired IP entries to prevent memory leak."""
+        if now - self._last_cleanup < self._cleanup_interval:
+            return
+        self._last_cleanup = now
+        cutoff = now - self.window_seconds
+        expired = [
+            ip
+            for ip, times in self._requests.items()
+            if not times or times[-1] < cutoff
+        ]
+        for ip in expired:
+            del self._requests[ip]
 
     def is_allowed(self, client_ip: str) -> bool:
         now = time.time()
         cutoff = now - self.window_seconds
-
         with self._lock:
+            self._cleanup(now)
             if client_ip not in self._requests:
+                # If IP count has reached limit, reject new IPs (preserve existing)
+                if len(self._requests) >= self.MAX_TRACKED_IPS:
+                    return False
                 self._requests[client_ip] = []
-
             self._requests[client_ip] = [
                 t for t in self._requests[client_ip] if t > cutoff
             ]
-
             if len(self._requests[client_ip]) >= self.max_requests:
                 return False
-
             self._requests[client_ip].append(now)
             return True
 
     def get_retry_after(self, client_ip: str) -> int:
         now = time.time()
         cutoff = now - self.window_seconds
-
         with self._lock:
             if client_ip not in self._requests:
                 return 0
-
             valid_times = [t for t in self._requests[client_ip] if t > cutoff]
             if not valid_times:
                 return 0
-
             oldest = min(valid_times)
             return int(self.window_seconds - (now - oldest)) + 1
 
 
+class AuthFailureTracker:
+    """Track authentication failures and implement progressive lockout."""
+
+    def __init__(
+        self,
+        max_failures: int = 5,
+        lockout_seconds: int = 300,
+        cleanup_interval: int = 60,
+    ):
+        self.max_failures = max_failures
+        self.lockout_seconds = lockout_seconds
+        self._failures: dict[str, list[float]] = {}
+        self._lock = threading.Lock()
+        self._last_cleanup = time.time()
+        self._cleanup_interval = cleanup_interval
+
+    def record_failure(self, client_ip: str) -> None:
+        """Record an authentication failure."""
+        now = time.time()
+        with self._lock:
+            if client_ip not in self._failures:
+                self._failures[client_ip] = []
+            cutoff = now - self.lockout_seconds
+            self._failures[client_ip] = [
+                t for t in self._failures[client_ip] if t > cutoff
+            ]
+            self._failures[client_ip].append(now)
+            self._maybe_cleanup(now)
+
+    def is_locked_out(self, client_ip: str) -> bool:
+        """Check if an IP is currently locked out."""
+        now = time.time()
+        with self._lock:
+            cutoff = now - self.lockout_seconds
+            recent = [t for t in self._failures.get(client_ip, []) if t > cutoff]
+            return len(recent) >= self.max_failures
+
+    def get_lockout_remaining(self, client_ip: str) -> int:
+        """Get seconds remaining in lockout."""
+        now = time.time()
+        with self._lock:
+            cutoff = now - self.lockout_seconds
+            recent = [t for t in self._failures.get(client_ip, []) if t > cutoff]
+            if len(recent) < self.max_failures:
+                return 0
+            oldest = min(recent)
+            return int(self.lockout_seconds - (now - oldest)) + 1
+
+    def _maybe_cleanup(self, now: float) -> None:
+        """Periodically clean up expired IP entries."""
+        if now - self._last_cleanup < self._cleanup_interval:
+            return
+        self._last_cleanup = now
+        cutoff = now - self.lockout_seconds
+        expired = [
+            ip
+            for ip, times in self._failures.items()
+            if not times or times[-1] < cutoff
+        ]
+        for ip in expired:
+            del self._failures[ip]
+
+
 class AdminApp:
     """WSGI admin application with HTMX interactivity."""
+
+    MAX_POST_SIZE = 10 * 1024 * 1024  # 10MB max POST body
 
     def __init__(self, config: Config):
         self.cfg = config
         self.user = config.admin_user
         self.password = config.admin_pass
         self.rate_limiter = RateLimiter(max_requests=60, window_seconds=60)
+        self.auth_tracker = AuthFailureTracker(
+            max_failures=5,
+            lockout_seconds=300,
+        )
 
-    def __call__(self, environ: dict, start_response):
+    def __call__(
+        self, environ: dict[str, Any], start_response: StartResponse
+    ) -> list[bytes]:
         method = environ.get("REQUEST_METHOD", "GET")
         path = environ.get("PATH_INFO", "/")
         client_ip = get_real_ip(environ)
@@ -114,16 +202,33 @@ class AdminApp:
             start_response("429 Too Many Requests", headers)
             return [b"Rate limit exceeded. Please try again later."]
 
+        # Check auth lockout first
+        if self.auth_tracker.is_locked_out(client_ip):
+            remaining = self.auth_tracker.get_lockout_remaining(client_ip)
+            logger.warning(f"[AUTH-LOCKOUT] {client_ip} locked out for {remaining}s")
+            headers = [
+                ("Content-Type", "text/plain"),
+                ("Retry-After", str(remaining)),
+            ] + get_security_headers()
+            start_response("429 Too Many Requests", headers)
+            return [b"Account temporarily locked. Try again later."]
+
         if not check_basic_auth(environ, self.user, self.password):
-            logger.warning(f"[AUTH-FAIL] Admin access from {client_ip}")
+            self.auth_tracker.record_failure(client_ip)
+            failures = len(self.auth_tracker._failures.get(client_ip, []))
+            logger.warning(
+                f"[AUTH-FAIL] Admin access from {client_ip} "
+                f"(attempt {failures}/{self.auth_tracker.max_failures})"
+            )
             return self._auth_required(start_response)
 
         try:
             if method == "GET":
-                from .frontend import _INJECTED_ASSETS
+                from .frontend import _get_injected_assets
 
-                if path in _INJECTED_ASSETS:
-                    ct, data = _INJECTED_ASSETS[path]
+                injected = _get_injected_assets()
+                if path in injected:
+                    ct, data = injected[path]
                     headers = [
                         ("Content-Type", ct),
                         ("Content-Length", str(len(data))),
@@ -143,8 +248,6 @@ class AdminApp:
                     return self._edit_form(environ, start_response)
                 if path == "/edit-page":
                     return self._edit_page_form(environ, start_response)
-                if path == "/preview":
-                    return self._live_preview(environ, start_response)
                 if path == "/theme":
                     return self._theme_page(environ, start_response)
                 return self._send_404(start_response)
@@ -220,37 +323,9 @@ class AdminApp:
             cookie = cookie.strip()
             if cookie.startswith("csrf_token="):
                 token = cookie[11:]
-                # Quick check to see if token is valid before using it
-                try:
-                    from .security import validate_csrf_token
-
-                    # We'll just check basic validity and expiry, not full origin check
-                    import base64
-                    import time
-                    import hmac
-                    import hashlib
-                    from .security import _CSRF_SECRET
-
-                    signed_token = base64.urlsafe_b64decode(token.encode("ascii"))
-                    if len(signed_token) != 52:
-                        break
-
-                    token_data = signed_token[:20]
-                    signature = signed_token[20:]
-                    expected_sig = hmac.new(
-                        _CSRF_SECRET, token_data, hashlib.sha256
-                    ).digest()
-                    if not hmac.compare_digest(signature, expected_sig):
-                        break
-
-                    timestamp = int.from_bytes(token_data[16:20], "big")
-                    now = time.time()
-                    if now - timestamp > 3600 or timestamp > now + 60:
-                        break
-
+                if is_valid_csrf_format(token):
                     return token
-                except Exception:
-                    break
+                break
         return generate_csrf_token()
 
     # ---------- Page handlers ----------
@@ -292,8 +367,8 @@ class AdminApp:
             translate_html = (
                 f"""
     <form method="post" action="/translate" style="display:inline;">
-      <input type="hidden" name="csrf_token" value="{csrf_token}">
-      <input type="hidden" name="file" value="{art.file}">
+      <input type="hidden" name="csrf_token" value="{escape_attr(csrf_token)}">
+      <input type="hidden" name="file" value="{escape_attr(art.file)}">
       <select name="lang" onchange="if(this.value)this.form.submit()" 
               style="padding:0.2rem 0.4rem;font-size:0.8rem;border-radius:4px;
                      background:var(--surface);color:var(--text);border:1px solid var(--border);">
@@ -307,12 +382,12 @@ class AdminApp:
             )
             rows.append(f"""
 <tr style="{"background:#fff9e6;" if art.is_draft else ""}">
-  <td><a href="/edit?file={art.file}">{safe_title}</a>{cat_display}{draft_label} {tags_display}</td>
+  <td><a href="/edit?file={escape_attr(art.file)}">{safe_title}</a>{cat_display}{draft_label} {tags_display}</td>
   <td>{escape_html(art.date)}</td>
   <td>
     <form method="post" action="/delete" hx-post="/delete" hx-target="closest tr" hx-swap="outerHTML swap:0.3s" hx-confirm="删除不可恢复，确定？" style="display:inline;">
-      <input type="hidden" name="csrf_token" value="{csrf_token}">
-      <input type="hidden" name="file" value="{art.file}">
+      <input type="hidden" name="csrf_token" value="{escape_attr(csrf_token)}">
+      <input type="hidden" name="file" value="{escape_attr(art.file)}">
       <button type="submit" class="btn-danger btn-sm" onclick="return confirm('删除不可恢复，确定？')">删除</button>
     </form>
     {translate_html}
@@ -337,7 +412,7 @@ class AdminApp:
   <a href="/new-page" class="btn-primary">+ 新建页面</a>
   <a href="/pages" class="btn-secondary">📄 管理页面</a>
   <form method="post" action="/regen" hx-post="/regen" hx-target="#regen-status" style="display:inline;">
-    <input type="hidden" name="csrf_token" value="{csrf_token}">
+    <input type="hidden" name="csrf_token" value="{escape_attr(csrf_token)}">
     <button type="submit" class="btn-secondary">重新生成静态页</button>
   </form>
   <span id="regen-status" style="margin-left:0.5rem;font-size:0.9rem;"></span>
@@ -403,7 +478,7 @@ function filterArticles(q) {{
 <div class="editor-grid">
   <div class="editor-form">
     <form method="post" action="/create" id="article-form">
-      <input type="hidden" name="csrf_token" value="{csrf_token}">
+      <input type="hidden" name="csrf_token" value="{escape_attr(csrf_token)}">
       <p><input name="title" placeholder="文章标题" required maxlength="{self.cfg.max_title_length}"></p>
       <p><input name="date" value="{now}" required pattern="\\d{{4}}-\\d{{2}}-\\d{{2}} \\d{{2}}:\\d{{2}}"></p>
       <p><input name="category" list="category-list" placeholder="分类"></p>
@@ -492,8 +567,8 @@ function filterArticles(q) {{
 <div class="editor-grid">
   <div class="editor-form">
     <form method="post" action="/save" id="article-form">
-      <input type="hidden" name="csrf_token" value="{csrf_token}">
-      <input type="hidden" name="file" value="{fname}">
+      <input type="hidden" name="csrf_token" value="{escape_attr(csrf_token)}">
+      <input type="hidden" name="file" value="{escape_attr(fname)}">
       <p><input name="title" value="{escape_attr(article.title)}" required maxlength="{self.cfg.max_title_length}"></p>
       <p><input name="date" value="{escape_html(article.date)}" required></p>
       <p><input name="category" list="category-list" value="{escape_attr(article.category)}" placeholder="分类"></p>
@@ -567,9 +642,9 @@ function filterArticles(q) {{
         if not all([title, date, content]):
             return self._error(start_response, "400 Bad Request", "Missing fields")
 
-        from .content import slugify_title
+        from .security import slugify
 
-        slug = slugify_title(title)
+        slug = slugify(title)
         fname = f"{date[:10]}-{slug}.html"
         if (self.cfg.article_dir / fname).exists():
             fname = f"{date[:10]}-{slug}-{secrets.token_urlsafe(4)}.html"
@@ -610,9 +685,9 @@ function filterArticles(q) {{
         if not validate_filename(fname):
             return self._error(start_response, "400 Bad Request", "Invalid filename")
 
-        from .content import slugify_title
+        from .security import slugify
 
-        slug = slugify_title(title)
+        slug = slugify(title)
         write_article(
             self.cfg.article_dir,
             fname,
@@ -707,8 +782,8 @@ function filterArticles(q) {{
   <p style="color:#888;font-size:0.8rem;margin:0 0 0.5rem 0;">{desc}</p>
   <p style="color:#666;font-size:0.75rem;margin:0 0 0.75rem 0;">布局: {layouts}</p>
   <form method="post" action="/set-theme" style="margin:0;">
-    <input type="hidden" name="csrf_token" value="{csrf_token}">
-    <input type="hidden" name="theme" value="{theme["name"]}">
+    <input type="hidden" name="csrf_token" value="{escape_attr(csrf_token)}">
+    <input type="hidden" name="theme" value="{escape_attr(theme["name"])}">
     <button type="submit" class="btn-primary btn-sm" {'disabled style="opacity:0.5;"' if theme["name"] == current_theme else ""}>选择</button>
   </form>
 </div>""")
@@ -735,7 +810,7 @@ function filterArticles(q) {{
         if not manifest_path.is_file():
             return self._error(start_response, "400 Bad Request", "Theme not found")
 
-        object.__setattr__(self.cfg, "theme_name", theme_name)
+        self.cfg = self.cfg.merge(theme_name=theme_name)
         self._save_theme_config(theme_name)
 
         arts = list_articles(self.cfg.article_dir, self.cfg.max_file_size)
@@ -839,12 +914,12 @@ function filterArticles(q) {{
             safe_title = escape_html(page.title[:80] or page.file)
             rows.append(f"""
 <tr>
-  <td><a href="/edit-page?file={page.file}">{safe_title}</a></td>
-  <td>/standalone/{page.file}</td>
+  <td><a href="/edit-page?file={escape_attr(page.file)}">{safe_title}</a></td>
+  <td>/standalone/{escape_attr(page.file)}</td>
   <td>
     <form method="post" action="/delete-page" hx-post="/delete-page" hx-target="closest tr" hx-swap="outerHTML swap:0.3s" hx-confirm="删除不可恢复，确定？" style="display:inline;">
-      <input type="hidden" name="csrf_token" value="{csrf_token}">
-      <input type="hidden" name="file" value="{page.file}">
+      <input type="hidden" name="csrf_token" value="{escape_attr(csrf_token)}">
+      <input type="hidden" name="file" value="{escape_attr(page.file)}">
       <button type="submit" class="btn-danger btn-sm" onclick="return confirm('删除不可恢复，确定？')">删除</button>
     </form>
   </td>
@@ -873,7 +948,7 @@ function filterArticles(q) {{
 <div class="editor-grid">
   <div class="editor-form">
     <form method="post" action="/create-page" id="page-form">
-      <input type="hidden" name="csrf_token" value="{csrf_token}">
+      <input type="hidden" name="csrf_token" value="{escape_attr(csrf_token)}">
       <p><input name="title" placeholder="页面标题" required maxlength="{self.cfg.max_title_length}"></p>
       <p><input name="slug" placeholder="URL 标识（如 about）" required pattern="[a-zA-Z0-9\\u4e00-\\u9fa5_-]+" title="字母、数字、中文、下划线、连字符"></p>
       <p><textarea name="content" placeholder="支持 Markdown" required maxlength="{self.cfg.max_content_length}" hx-trigger="keyup changed delay:500ms" hx-post="/preview" hx-target="#live-preview" hx-include="#page-form"></textarea></p>
@@ -937,8 +1012,8 @@ function filterArticles(q) {{
 <div class="editor-grid">
   <div class="editor-form">
     <form method="post" action="/save-page" id="page-form">
-      <input type="hidden" name="csrf_token" value="{csrf_token}">
-      <input type="hidden" name="file" value="{fname}">
+      <input type="hidden" name="csrf_token" value="{escape_attr(csrf_token)}">
+      <input type="hidden" name="file" value="{escape_attr(fname)}">
       <p><input name="title" value="{escape_attr(page.title)}" required maxlength="{self.cfg.max_title_length}"></p>
       <p><input name="slug" value="{escape_attr(page.slug)}" placeholder="URL 标识" required pattern="[a-zA-Z0-9\\u4e00-\\u9fa5_-]+"></p>
       {ai_panel_html}
@@ -1325,7 +1400,8 @@ setTimeout(showAIPanel, 100);
 {body}
 </body>
 </html>"""
-        csrf_cookie = get_csrf_cookie_header(csrf_token)
+        is_secure = bool(self.cfg.bind_domain)
+        csrf_cookie = get_csrf_cookie_header(csrf_token, secure=is_secure)
         headers = [
             ("Content-Type", "text/html; charset=utf-8"),
             csrf_cookie,
@@ -1363,10 +1439,15 @@ setTimeout(showAIPanel, 100);
     def _get_post_data(self, environ: dict) -> dict:
         try:
             cl = int(environ.get("CONTENT_LENGTH", 0))
-            if cl > 0:
-                data = environ["wsgi.input"].read(cl)
-                environ["wsgi.input"] = io.BytesIO(data)
-                return parse_qs(data.decode("utf-8"))
-        except (ValueError, KeyError):
-            pass
-        return {}
+        except (ValueError, TypeError):
+            cl = 0
+        if cl <= 0:
+            return {}
+        if cl > self.MAX_POST_SIZE:
+            logger.warning(
+                f"[BLOCK] POST body too large: {cl} bytes (max {self.MAX_POST_SIZE})"
+            )
+            return {}
+        data = environ["wsgi.input"].read(cl)
+        environ["wsgi.input"] = io.BytesIO(data)
+        return parse_qs(data.decode("utf-8", errors="replace"))
