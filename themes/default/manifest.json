@@ -1,15 +1,10 @@
 {
-  "name": "Cyber Lime",
-  "author": "Laffinty",
-  "version": "2.0.0",
-  "description": "Cyberpunk green/black neon theme with lime accents. Default dark mode.",
+  "name": "default",
+  "version": "3.1.0",
+  "description": "Forest Neon: modern flat green-on-black theme with lime accents",
   "layouts": ["blog"],
-  "default_layout": "blog",
-  "planned_layouts": ["doc", "garden"],
   "variables": {
-    "primary": "#ccff00",
-    "accent": "#39ff14",
-    "font_body": "-apple-system, BlinkMacSystemFont, Segoe UI, sans-serif",
-    "font_mono": "SFMono-Regular, Consolas, monospace"
+    "primary": "#a3e635",
+    "accent": "#22c55e"
   }
 }

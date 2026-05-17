@@ -1,18 +1,20 @@
-/* TinyPage Cyber-Lime Theme — Dark mode enhancements */
+/* TinyPage Theme — Dark mode variables (Trae-inspired) */
 
-/* Default dark is already in theme.css :root; this adds subtle enhancements */
-html.dark,
-:root {
-  --primary: #ccff00;
-  --accent: #39ff14;
-  --text: #e8e8e8;
-  --text-light: #888888;
-  --bg: #0a0a0a;
-  --surface: #141414;
-  --surface-hover: #1a1a1a;
-  --border: #2a2a2a;
-  --code-bg: #0d0d0d;
-  --shadow: rgba(0, 0, 0, 0.6);
-  --glow: rgba(204, 255, 0, 0.35);
-  --glow-strong: rgba(204, 255, 0, 0.6);
+@layer base {
+  @media (prefers-color-scheme: dark) {
+    :root {
+      --primary: #32f08c;
+      --accent: #387bff;
+      --text: #f5f9fe;
+      --text-light: #a6aab5;
+      --bg: #0a0b0d;
+      --surface: #121314;
+      --surface-hover: #1a1b1d;
+      --border: rgba(255,255,255,0.08);
+      --code-bg: #0e0e0e;
+      --shadow: rgba(0,0,0,0.5);
+      --glow: rgba(50,240,140,0.25);
+      --glow-mint: rgba(50,240,140,0.15);
+    }
+  }
 }

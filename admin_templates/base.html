@@ -1,0 +1,45 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<meta name="color-scheme" content="light dark">
+<title>$title - TinyPage Admin</title>
+<link rel="stylesheet" href="/admin.css">
+$htmx_script
+<script>
+(function(){
+  var m = localStorage.getItem('theme');
+  if (m === 'light' || (!m && window.matchMedia('(prefers-color-scheme: light)').matches)) {
+    document.documentElement.classList.add('light');
+  }
+})();
+</script>
+</head>
+<body>
+<button class="mobile-menu-toggle" aria-label="打开菜单" onclick="document.body.classList.toggle('menu-open')">☰</button>
+<div class="admin-layout">
+  <aside class="admin-sidebar">
+    <div class="brand">
+      <span class="brand-logo">TinyPage</span>
+      <span class="brand-tag">Admin</span>
+    </div>
+    <nav>
+      $nav_html
+    </nav>
+    <div class="sidebar-footer">
+      <button class="theme-toggle" aria-label="切换主题" onclick="toggleTheme()">🌓</button>
+      <form method="post" action="/logout" class="logout-form">
+        <input type="hidden" name="csrf_token" value="$csrf_token">
+        <button type="submit" class="logout-btn">退出登录</button>
+      </form>
+    </div>
+  </aside>
+  <main class="admin-main">
+    $body
+  </main>
+</div>
+<div id="toast-container"></div>
+<script src="/admin.js"></script>
+</body>
+</html>

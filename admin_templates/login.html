@@ -1,0 +1,45 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<meta name="color-scheme" content="light dark">
+<title>登录 - TinyPage Admin</title>
+<link rel="stylesheet" href="/admin.css">
+<script>
+(function(){
+  var m = localStorage.getItem('theme');
+  if (m === 'light' || (!m && window.matchMedia('(prefers-color-scheme: light)').matches)) {
+    document.documentElement.classList.add('light');
+  }
+})();
+</script>
+</head>
+<body class="login-body">
+<button class="theme-toggle login-theme-toggle" aria-label="切换主题" onclick="toggleTheme()">🌓</button>
+<div class="login-bg"></div>
+<div class="login-container">
+  <div class="login-card glass-panel">
+    <div class="login-brand">
+      <span class="brand-logo">TinyPage</span>
+    </div>
+    <div class="login-subtitle">管理后台登录</div>
+    $error_msg
+    <form method="post" action="/login" class="login-form">
+      <input type="hidden" name="csrf_token" value="$csrf_token">
+      <div class="input-group">
+        <input type="text" id="username" name="username" required autocomplete="username" autofocus placeholder=" ">
+        <label for="username">用户名</label>
+      </div>
+      <div class="input-group">
+        <input type="password" id="password" name="password" required autocomplete="current-password" placeholder=" ">
+        <label for="password">密码</label>
+      </div>
+      <button type="submit" class="btn-primary btn-glow">登录</button>
+    </form>
+    <div class="login-footer">所有登录尝试已记录审计日志</div>
+  </div>
+</div>
+<script src="/admin.js"></script>
+</body>
+</html>

@@ -1,0 +1,51 @@
+<div class="admin-wrapper">
+  <h1>仪表盘</h1>
+  <div class="bento-grid stats-grid">
+    <div class="stat-card">
+      <div class="stat-value">$total</div>
+      <div class="stat-label">文章总数</div>
+    </div>
+    <div class="stat-card">
+      <div class="stat-value">$draft_count</div>
+      <div class="stat-label">草稿</div>
+    </div>
+    <div class="stat-card">
+      <div class="stat-value">$page_count</div>
+      <div class="stat-label">独立页面</div>
+    </div>
+  </div>
+  <div class="glass-banner">
+    <span class="pulse-dot"></span>
+    <strong>安全提醒：</strong>所有操作已记录审计日志 | CSRF保护已启用
+  </div>
+  <div class="actions">
+    <a href="/new" class="btn-primary btn-glow">+ 新建文章</a>
+    <a href="/new-page" class="btn-primary">+ 新建页面</a>
+    <a href="/pages" class="btn-secondary">📄 管理页面</a>
+    <form method="post" action="/regen" hx-post="/regen" hx-target="#regen-status" style="display:inline;">
+      <input type="hidden" name="csrf_token" value="$csrf_token">
+      <button type="submit" class="btn-secondary" id="regen-btn">
+        <span class="btn-icon">↻</span> 重新生成静态页
+      </button>
+    </form>
+    <span id="regen-status"></span>
+    <a href="/theme" class="btn-secondary">◐ 主题</a>
+    <div class="search-wrap">
+      <input type="search" id="article-search" placeholder="搜索文章标题..." oninput="filterArticles(this.value)">
+    </div>
+  </div>
+  <div class="table-card">
+    <table class="admin-table">
+      <thead>
+        <tr>
+          <th style="width:55%">标题</th>
+          <th style="width:25%">发布时间</th>
+          <th style="width:20%">操作</th>
+        </tr>
+      </thead>
+      <tbody>$rows</tbody>
+    </table>
+  </div>
+  $nav_html
+  <p class="table-meta">共 $total 篇文章，第 $page/$pages 页</p>
+</div>

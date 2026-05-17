@@ -10,6 +10,7 @@ import logging
 import os
 import re
 import secrets
+import threading
 import time
 from pathlib import Path
 from typing import Optional, Tuple
@@ -125,6 +126,39 @@ def get_csrf_cookie_header(
     if token is None:
         token = generate_csrf_token()
     cookie = f"csrf_token={token}; Path=/; HttpOnly; SameSite=Strict"
+    if secure:
+        cookie += "; Secure"
+    return ("Set-Cookie", cookie)
+
+
+def generate_session_token() -> str:
+    """Generate a secure opaque session token."""
+    return secrets.token_urlsafe(32)
+
+
+def get_session_cookie_header(
+    token: Optional[str] = None,
+    secure: bool = False,
+    max_age: int = 86400,
+) -> Tuple[str, str]:
+    """Generate Set-Cookie header for session token.
+
+    Args:
+        token: Session token string. Generated if not provided.
+        secure: Add Secure flag. Should be True when served over HTTPS.
+        max_age: Max-Age in seconds (default 24h).
+    """
+    if token is None:
+        token = generate_session_token()
+    cookie = f"session_id={token}; Path=/; HttpOnly; SameSite=Strict; Max-Age={max_age}"
+    if secure:
+        cookie += "; Secure"
+    return ("Set-Cookie", cookie)
+
+
+def get_session_clear_cookie_header(secure: bool = False) -> Tuple[str, str]:
+    """Generate Set-Cookie header to clear session."""
+    cookie = "session_id=; Path=/; HttpOnly; SameSite=Strict; Max-Age=0"
     if secure:
         cookie += "; Secure"
     return ("Set-Cookie", cookie)
@@ -333,3 +367,185 @@ def slugify(text: str, max_length: int = 80, fallback: str = "") -> str:
     if max_length:
         slug = slug[:max_length].rstrip("-")
     return slug or fallback or f"untitled-{int(time.time())}"
+
+
+class SessionManager:
+    """In-memory session manager with automatic expiration and cleanup."""
+
+    SESSION_MAX_AGE = 86400  # 24 hours
+    MAX_TRACKED_SESSIONS = 5000
+    CLEANUP_INTERVAL = 300  # 5 minutes
+
+    def __init__(self):
+        self._sessions: dict[str, dict] = {}
+        self._lock = threading.Lock()
+        self._last_cleanup = time.time()
+
+    def _cleanup(self, now: float) -> None:
+        if now - self._last_cleanup < self.CLEANUP_INTERVAL:
+            return
+        self._last_cleanup = now
+        cutoff = now - self.SESSION_MAX_AGE
+        expired = [sid for sid, data in self._sessions.items() if data["created_at"] < cutoff]
+        for sid in expired:
+            del self._sessions[sid]
+
+    def create_session(self, client_ip: str) -> str:
+        now = time.time()
+        with self._lock:
+            self._cleanup(now)
+            if len(self._sessions) >= self.MAX_TRACKED_SESSIONS:
+                # Remove oldest session to prevent memory growth
+                oldest = min(self._sessions, key=lambda k: self._sessions[k]["created_at"])
+                del self._sessions[oldest]
+            token = secrets.token_urlsafe(32)
+            self._sessions[token] = {"created_at": now, "client_ip": client_ip}
+            return token
+
+    def validate_session(self, token: str, client_ip: str) -> bool:
+        now = time.time()
+        with self._lock:
+            self._cleanup(now)
+            data = self._sessions.get(token)
+            if not data:
+                return False
+            if now - data["created_at"] > self.SESSION_MAX_AGE:
+                del self._sessions[token]
+                return False
+            # Optional strict IP binding: uncomment to enforce
+            # if data["client_ip"] != client_ip:
+            #     return False
+            return True
+
+    def destroy_session(self, token: str) -> None:
+        with self._lock:
+            self._sessions.pop(token, None)
+
+    def get_session_from_environ(self, environ: dict) -> Optional[str]:
+        cookie_header = environ.get("HTTP_COOKIE", "")
+        for cookie in cookie_header.split(";"):
+            cookie = cookie.strip()
+            if cookie.startswith("session_id="):
+                return cookie[11:]
+        return None
+
+
+class RateLimiter:
+    """In-memory rate limiter using sliding window with automatic cleanup."""
+
+    MAX_TRACKED_IPS = 10000  # Prevent dictionary from growing indefinitely
+
+    def __init__(self, max_requests: int = 60, window_seconds: int = 60):
+        self.max_requests = max_requests
+        self.window_seconds = window_seconds
+        self._requests: dict[str, list[float]] = {}
+        self._lock = threading.Lock()
+        self._last_cleanup = time.time()
+        self._cleanup_interval = 60  # Clean up every 60 seconds
+
+    def _cleanup(self, now: float) -> None:
+        """Remove expired IP entries to prevent memory leak."""
+        if now - self._last_cleanup < self._cleanup_interval:
+            return
+        self._last_cleanup = now
+        cutoff = now - self.window_seconds
+        expired = [
+            ip
+            for ip, times in self._requests.items()
+            if not times or times[-1] < cutoff
+        ]
+        for ip in expired:
+            del self._requests[ip]
+
+    def is_allowed(self, client_ip: str) -> bool:
+        now = time.time()
+        cutoff = now - self.window_seconds
+        with self._lock:
+            self._cleanup(now)
+            if client_ip not in self._requests:
+                # If IP count has reached limit, reject new IPs (preserve existing)
+                if len(self._requests) >= self.MAX_TRACKED_IPS:
+                    return False
+                self._requests[client_ip] = []
+            self._requests[client_ip] = [
+                t for t in self._requests[client_ip] if t > cutoff
+            ]
+            if len(self._requests[client_ip]) >= self.max_requests:
+                return False
+            self._requests[client_ip].append(now)
+            return True
+
+    def get_retry_after(self, client_ip: str) -> int:
+        now = time.time()
+        cutoff = now - self.window_seconds
+        with self._lock:
+            if client_ip not in self._requests:
+                return 0
+            valid_times = [t for t in self._requests[client_ip] if t > cutoff]
+            if not valid_times:
+                return 0
+            oldest = min(valid_times)
+            return int(self.window_seconds - (now - oldest)) + 1
+
+
+class AuthFailureTracker:
+    """Track authentication failures and implement progressive lockout."""
+
+    def __init__(
+        self,
+        max_failures: int = 5,
+        lockout_seconds: int = 300,
+        cleanup_interval: int = 60,
+    ):
+        self.max_failures = max_failures
+        self.lockout_seconds = lockout_seconds
+        self._failures: dict[str, list[float]] = {}
+        self._lock = threading.Lock()
+        self._last_cleanup = time.time()
+        self._cleanup_interval = cleanup_interval
+
+    def record_failure(self, client_ip: str) -> None:
+        """Record an authentication failure."""
+        now = time.time()
+        with self._lock:
+            if client_ip not in self._failures:
+                self._failures[client_ip] = []
+            cutoff = now - self.lockout_seconds
+            self._failures[client_ip] = [
+                t for t in self._failures[client_ip] if t > cutoff
+            ]
+            self._failures[client_ip].append(now)
+            self._maybe_cleanup(now)
+
+    def is_locked_out(self, client_ip: str) -> bool:
+        """Check if an IP is currently locked out."""
+        now = time.time()
+        with self._lock:
+            cutoff = now - self.lockout_seconds
+            recent = [t for t in self._failures.get(client_ip, []) if t > cutoff]
+            return len(recent) >= self.max_failures
+
+    def get_lockout_remaining(self, client_ip: str) -> int:
+        """Get seconds remaining in lockout."""
+        now = time.time()
+        with self._lock:
+            cutoff = now - self.lockout_seconds
+            recent = [t for t in self._failures.get(client_ip, []) if t > cutoff]
+            if len(recent) < self.max_failures:
+                return 0
+            oldest = min(recent)
+            return int(self.lockout_seconds - (now - oldest)) + 1
+
+    def _maybe_cleanup(self, now: float) -> None:
+        """Periodically clean up expired IP entries."""
+        if now - self._last_cleanup < self._cleanup_interval:
+            return
+        self._last_cleanup = now
+        cutoff = now - self.lockout_seconds
+        expired = [
+            ip
+            for ip, times in self._failures.items()
+            if not times or times[-1] < cutoff
+        ]
+        for ip in expired:
+            del self._failures[ip]

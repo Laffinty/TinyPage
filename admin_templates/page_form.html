@@ -1,0 +1,38 @@
+<div class="admin-wrapper">
+  <h1>$heading</h1>
+  <div class="editor-grid">
+    <div class="editor-form">
+      <form method="post" action="$form_action" id="page-form">
+        <input type="hidden" name="csrf_token" value="$csrf_token">
+        $file_input
+        <div class="form-group">
+          <input name="title" value="$title" placeholder="页面标题" required maxlength="$max_title_length">
+        </div>
+        <div class="form-group">
+          <input name="slug" value="$slug" placeholder="URL 标识（如 about）" required pattern="[a-zA-Z0-9\u4e00-\u9fa5_-]+" title="字母、数字、中文、下划线、连字符">
+        </div>
+        $ai_panel
+        <div id="drop-zone" onclick="document.getElementById('file-input').click()" ondragover="event.preventDefault();this.classList.add('dragover')" ondragleave="this.classList.remove('dragover')" ondrop="handleDrop(event)">
+          <span class="drop-icon">📎</span>
+          <span>拖拽图片到此处上传，或点击选择文件</span>
+          <input type="file" id="file-input" accept="image/*" style="display:none" onchange="handleFileSelect(event)">
+        </div>
+        <div class="form-group">
+          <textarea name="content" placeholder="支持 Markdown" required maxlength="$max_content_length" hx-trigger="keyup changed delay:500ms" hx-post="/preview" hx-target="#live-preview" hx-include="#page-form">$content</textarea>
+        </div>
+        <div class="form-actions">
+          <button type="submit" class="btn-primary btn-glow">$submit_label</button>
+          <a href="/pages" class="btn-secondary">返回</a>
+        </div>
+      </form>
+    </div>
+    <div class="editor-preview">
+      <div class="preview-header">
+        <span class="preview-badge">Live Preview</span>
+      </div>
+      <div id="live-preview" class="preview-box">
+        <p class="preview-placeholder">在左侧输入内容，预览将显示在这里...</p>
+      </div>
+    </div>
+  </div>
+</div>
