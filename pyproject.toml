@@ -31,6 +31,7 @@ markdown = ["mistune>=3.0"]
 syntax = ["pygments"]
 ai = ["openai", "deepseek"]
 server = ["waitress"]
+test = ["pytest>=7.0"]
 full = ["mistune>=3.0", "pygments", "openai", "deepseek"]
 
 [project.scripts]

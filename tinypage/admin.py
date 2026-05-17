@@ -173,6 +173,34 @@ class AdminApp:
 
     MAX_POST_SIZE = 10 * 1024 * 1024  # 10MB max POST body
 
+    _GET_ROUTES: dict[str, str] = {
+        "/": "_dashboard",
+        "/dashboard": "_dashboard",
+        "/pages": "_pages_dashboard",
+        "/new": "_new_form",
+        "/new-page": "_new_page_form",
+        "/edit": "_edit_form",
+        "/edit-page": "_edit_page_form",
+        "/theme": "_theme_page",
+    }
+
+    _POST_ROUTES: dict[str, str] = {
+        "/upload": "_upload",
+        "/create": "_create",
+        "/create-page": "_create_page",
+        "/save": "_save",
+        "/save-page": "_save_page",
+        "/delete": "_delete",
+        "/delete-page": "_delete_page",
+        "/regen": "_regen",
+        "/preview": "_live_preview",
+        "/set-theme": "_set_theme",
+        "/ai-assist": "_ai_assist",
+        "/translate": "_translate",
+    }
+
+    _CSRF_EXEMPT_POST: set[str] = {"/upload"}
+
     def __init__(self, config: Config):
         self.cfg = config
         self.user = config.admin_user
@@ -224,84 +252,9 @@ class AdminApp:
 
         try:
             if method == "GET":
-                from .frontend import _get_injected_assets
-
-                injected = _get_injected_assets()
-                if path in injected:
-                    ct, data = injected[path]
-                    headers = [
-                        ("Content-Type", ct),
-                        ("Content-Length", str(len(data))),
-                        ("Cache-Control", "max-age=3600"),
-                    ] + get_security_headers()
-                    start_response("200 OK", headers)
-                    return [data]
-                if path in ("/", "/dashboard"):
-                    return self._dashboard(environ, start_response)
-                if path == "/pages":
-                    return self._pages_dashboard(environ, start_response)
-                if path == "/new":
-                    return self._new_form(environ, start_response)
-                if path == "/new-page":
-                    return self._new_page_form(environ, start_response)
-                if path == "/edit":
-                    return self._edit_form(environ, start_response)
-                if path == "/edit-page":
-                    return self._edit_page_form(environ, start_response)
-                if path == "/theme":
-                    return self._theme_page(environ, start_response)
-                return self._send_404(start_response)
-
+                return self._handle_get(environ, start_response, path)
             if method == "POST":
-                post_data = self._get_post_data(environ)
-                csrf_token = post_data.get("csrf_token", [""])[0]
-
-                if path == "/upload":
-                    if not validate_csrf_token(
-                        environ, csrf_token, self.cfg.admin_port, self.cfg.bind_domain
-                    ):
-                        headers = [
-                            ("Content-Type", "application/json")
-                        ] + get_security_headers()
-                        start_response("403 Forbidden", headers)
-                        return [
-                            json.dumps(
-                                {"success": False, "error": "CSRF validation failed"}
-                            ).encode("utf-8")
-                        ]
-                    return self._upload(environ, start_response, post_data)
-
-                if not validate_csrf_token(
-                    environ, csrf_token, self.cfg.admin_port, self.cfg.bind_domain
-                ):
-                    return self._error(
-                        start_response, "403 Forbidden", "CSRF validation failed"
-                    )
-
-                if path == "/create":
-                    return self._create(environ, start_response, post_data)
-                if path == "/create-page":
-                    return self._create_page(environ, start_response, post_data)
-                if path == "/save":
-                    return self._save(environ, start_response, post_data)
-                if path == "/save-page":
-                    return self._save_page(environ, start_response, post_data)
-                if path == "/delete":
-                    return self._delete(environ, start_response, post_data)
-                if path == "/delete-page":
-                    return self._delete_page(environ, start_response, post_data)
-                if path == "/regen":
-                    return self._regen(environ, start_response)
-                if path == "/preview":
-                    return self._live_preview(environ, start_response, post_data)
-                if path == "/set-theme":
-                    return self._set_theme(environ, start_response, post_data)
-                if path == "/ai-assist":
-                    return self._ai_assist(environ, start_response, post_data)
-                if path == "/translate":
-                    return self._translate(environ, start_response, post_data)
-                return self._send_404(start_response)
-
+                return self._handle_post(environ, start_response, path)
             return self._error(
                 start_response, "405 Method Not Allowed", "Method not allowed"
             )
@@ -310,6 +263,59 @@ class AdminApp:
             return self._error(
                 start_response, "500 Internal Server Error", "Server error"
             )
+
+    def _handle_get(self, environ: dict[str, Any], start_response: StartResponse, path: str) -> list[bytes]:
+        """Dispatch GET requests."""
+        from .frontend import _get_injected_assets
+
+        injected = _get_injected_assets()
+        if path in injected:
+            ct, data = injected[path]
+            headers = [
+                ("Content-Type", ct),
+                ("Content-Length", str(len(data))),
+                ("Cache-Control", "max-age=3600"),
+            ] + get_security_headers()
+            start_response("200 OK", headers)
+            return [data]
+
+        handler_name = self._GET_ROUTES.get(path)
+        if handler_name:
+            handler = getattr(self, handler_name)
+            return handler(environ, start_response)
+
+        return self._send_404(start_response)
+
+    def _handle_post(self, environ: dict[str, Any], start_response: StartResponse, path: str) -> list[bytes]:
+        """Dispatch POST requests with CSRF validation."""
+        handler_name = self._POST_ROUTES.get(path)
+        if not handler_name:
+            return self._send_404(start_response)
+
+        post_data = self._get_post_data(environ)
+        csrf_token = post_data.get("csrf_token", [""])[0]
+
+        is_valid_csrf = validate_csrf_token(
+            environ, csrf_token, self.cfg.admin_port, self.cfg.bind_domain
+        )
+
+        if path in self._CSRF_EXEMPT_POST:
+            if not is_valid_csrf:
+                headers = [("Content-Type", "application/json")] + get_security_headers()
+                start_response("403 Forbidden", headers)
+                return [json.dumps({"success": False, "error": "CSRF validation failed"}).encode("utf-8")]
+        else:
+            if not is_valid_csrf:
+                return self._error(
+                    start_response, "403 Forbidden", "CSRF validation failed"
+                )
+
+        handler = getattr(self, handler_name)
+
+        # Routes that don't need post_data
+        if path == "/regen":
+            return handler(environ, start_response)
+        return handler(environ, start_response, post_data)
 
     # ---------- HTMX helpers ----------
 
@@ -355,12 +361,12 @@ class AdminApp:
                 else ""
             )
             draft_label = (
-                '<span style="background:#f39c12;color:#fff;padding:0.1rem 0.4rem;border-radius:4px;font-size:0.75rem;margin-left:0.5rem;">草稿</span>'
+                '<span class="draft-badge">草稿</span>'
                 if art.is_draft
                 else ""
             )
             cat_display = (
-                f'<span style="color:#888;font-size:0.8rem;margin-left:0.5rem;">[{escape_html(art.category)}]</span>'
+                f'<span style="color:var(--a-text-dim);font-size:0.8rem;margin-left:0.5rem;">[{escape_html(art.category)}]</span>'
                 if art.category
                 else ""
             )
@@ -381,7 +387,7 @@ class AdminApp:
                 else ""
             )
             rows.append(f"""
-<tr style="{"background:#fff9e6;" if art.is_draft else ""}">
+<tr style="{"background:var(--a-surface-hover);" if art.is_draft else ""}">
   <td><a href="/edit?file={escape_attr(art.file)}">{safe_title}</a>{cat_display}{draft_label} {tags_display}</td>
   <td>{escape_html(art.date)}</td>
   <td>
@@ -436,7 +442,7 @@ function filterArticles(q) {{
 <tbody>{"".join(rows)}</tbody>
 </table>
 {nav_html}
-<p style="margin-top:1rem;color:#666;font-size:0.9rem;">共 {total} 篇文章，第 {page}/{pages} 页</p>
+<p style="margin-top:1rem;color:var(--a-text-dim);font-size:0.9rem;">共 {total} 篇文章，第 {page}/{pages} 页</p>
 </div>"""
 
         return self._render_page(
@@ -461,13 +467,13 @@ function filterArticles(q) {{
         if self.cfg.ai_enabled and self.cfg.ai_api_key:
             ai_panel_html = f"""<div id="ai-panel" class="ai-panel" style="display:none;margin:0.75rem 0;padding:0.75rem;background:var(--surface);border:1px solid var(--border);border-radius:6px;">
         <div style="display:flex;gap:0.5rem;flex-wrap:wrap;align-items:center;">
-          <span style="font-size:0.85rem;color:#666;">AI 助手:</span>
+          <span style="font-size:0.85rem;color:var(--a-text-dim);">AI 助手:</span>
           <button type="button" class="ai-btn" onclick="aiComplete()">续写</button>
           <button type="button" class="ai-btn" onclick="aiPolish()">润色</button>
           <button type="button" class="ai-btn" onclick="aiTranslate('en')">译英</button>
           <button type="button" class="ai-btn" onclick="aiTranslate('ja')">译日</button>
           <button type="button" class="ai-btn" onclick="aiSuggestTags()">推荐标签</button>
-          <span id="ai-status" style="font-size:0.8rem;color:#888;margin-left:auto;"></span>
+          <span id="ai-status" style="font-size:0.8rem;color:var(--a-text-dim);margin-left:auto;"></span>
         </div>
       </div>"""
         else:
@@ -491,7 +497,7 @@ function filterArticles(q) {{
         </select>
       </p>
       {ai_panel_html}
-      <div id="drop-zone" style="margin-bottom:0.75rem;padding:1rem;border:2px dashed #ccc;border-radius:6px;text-align:center;color:#888;cursor:pointer;" onclick="document.getElementById('file-input').click()" ondragover="event.preventDefault();this.style.borderColor='#e74c3c';this.style.color='#e74c3c'" ondragleave="this.style.borderColor='#ccc';this.style.color='#888'" ondrop="handleDrop(event)">拖拽图片到此处上传，或点击选择文件<input type="file" id="file-input" accept="image/*" style="display:none" onchange="handleFileSelect(event)"></div>
+      <div id="drop-zone" style="margin-bottom:0.75rem;padding:1rem;border:2px dashed #ccc;border-radius:6px;text-align:center;color:var(--a-text-dim);cursor:pointer;" onclick="document.getElementById('file-input').click()" ondragover="event.preventDefault();this.classList.add('dragover')" ondragleave="this.classList.remove('dragover')" ondrop="handleDrop(event)">拖拽图片到此处上传，或点击选择文件<input type="file" id="file-input" accept="image/*" style="display:none" onchange="handleFileSelect(event)"></div>
       <p><textarea name="content" placeholder="支持 Markdown：# 标题、**粗体**、*斜体*、`代码`、[链接](url)、```代码块```" required maxlength="{self.cfg.max_content_length}" hx-trigger="keyup changed delay:500ms" hx-post="/preview" hx-target="#live-preview" hx-include="#article-form"></textarea></p>
       <p>
         <button type="submit" class="btn-primary">发布</button>
@@ -537,13 +543,13 @@ function filterArticles(q) {{
         if self.cfg.ai_enabled and self.cfg.ai_api_key:
             ai_panel_html = f"""<div id="ai-panel" class="ai-panel" style="display:none;margin:0.75rem 0;padding:0.75rem;background:var(--surface);border:1px solid var(--border);border-radius:6px;">
         <div style="display:flex;gap:0.5rem;flex-wrap:wrap;align-items:center;">
-          <span style="font-size:0.85rem;color:#666;">AI 助手:</span>
+          <span style="font-size:0.85rem;color:var(--a-text-dim);">AI 助手:</span>
           <button type="button" class="ai-btn" onclick="aiComplete()">续写</button>
           <button type="button" class="ai-btn" onclick="aiPolish()">润色</button>
           <button type="button" class="ai-btn" onclick="aiTranslate('en')">译英</button>
           <button type="button" class="ai-btn" onclick="aiTranslate('ja')">译日</button>
           <button type="button" class="ai-btn" onclick="aiSuggestTags()">推荐标签</button>
-          <span id="ai-status" style="font-size:0.8rem;color:#888;margin-left:auto;"></span>
+          <span id="ai-status" style="font-size:0.8rem;color:var(--a-text-dim);margin-left:auto;"></span>
         </div>
       </div>"""
         else:
@@ -581,7 +587,7 @@ function filterArticles(q) {{
         </select>
       </p>
       {ai_panel_html}
-      <div id="drop-zone" style="margin-bottom:0.75rem;padding:1rem;border:2px dashed #ccc;border-radius:6px;text-align:center;color:#888;cursor:pointer;" onclick="document.getElementById('file-input').click()" ondragover="event.preventDefault();this.style.borderColor='#e74c3c';this.style.color='#e74c3c'" ondragleave="this.style.borderColor='#ccc';this.style.color='#888'" ondrop="handleDrop(event)">拖拽图片到此处上传，或点击选择文件<input type="file" id="file-input" accept="image/*" style="display:none" onchange="handleFileSelect(event)"></div>
+      <div id="drop-zone" style="margin-bottom:0.75rem;padding:1rem;border:2px dashed #ccc;border-radius:6px;text-align:center;color:var(--a-text-dim);cursor:pointer;" onclick="document.getElementById('file-input').click()" ondragover="event.preventDefault();this.classList.add('dragover')" ondragleave="this.classList.remove('dragover')" ondrop="handleDrop(event)">拖拽图片到此处上传，或点击选择文件<input type="file" id="file-input" accept="image/*" style="display:none" onchange="handleFileSelect(event)"></div>
       <p><textarea name="content" required maxlength="{self.cfg.max_content_length}" hx-trigger="keyup changed delay:500ms" hx-post="/preview" hx-target="#live-preview" hx-include="#article-form">{escape_html(text)}</textarea></p>
       <p>
         <button type="submit" class="btn-primary">保存更改</button>
@@ -766,7 +772,7 @@ function filterArticles(q) {{
                 else " border: 2px solid transparent;"
             )
             default_badge = (
-                ' <span style="background:#27ae60;color:#fff;padding:0.1rem 0.4rem;border-radius:4px;font-size:0.7rem;margin-left:0.5rem;">当前</span>'
+                ' <span class="draft-badge" style="background:var(--a-primary);color:var(--a-bg);">当前</span>'
                 if theme["name"] == current_theme
                 else ""
             )
@@ -779,8 +785,8 @@ function filterArticles(q) {{
             theme_rows.append(f"""
 <div style="display:inline-block;width:200px;margin:0.5rem;padding:1rem;border-radius:8px;background:var(--surface);{selected}">
   <h3 style="margin:0 0 0.5rem 0;font-size:1rem;">{escape_html(theme.get("display_name", theme["name"]))}{default_badge}</h3>
-  <p style="color:#888;font-size:0.8rem;margin:0 0 0.5rem 0;">{desc}</p>
-  <p style="color:#666;font-size:0.75rem;margin:0 0 0.75rem 0;">布局: {layouts}</p>
+  <p style="color:var(--a-text-dim);font-size:0.8rem;margin:0 0 0.5rem 0;">{desc}</p>
+  <p style="color:var(--a-text-dim);font-size:0.75rem;margin:0 0 0.75rem 0;">布局: {layouts}</p>
   <form method="post" action="/set-theme" style="margin:0;">
     <input type="hidden" name="csrf_token" value="{escape_attr(csrf_token)}">
     <input type="hidden" name="theme" value="{escape_attr(theme["name"])}">
@@ -793,7 +799,7 @@ function filterArticles(q) {{
 <div class="actions">
   <a href="/" class="btn-secondary">返回后台</a>
 </div>
-<p style="margin-bottom:1rem;color:#666;">当前主题：<strong>{escape_html(current_theme)}</strong></p>
+<p style="margin-bottom:1rem;color:var(--a-text-dim);">当前主题：<strong>{escape_html(current_theme)}</strong></p>
 <div style="display:flex;flex-wrap:wrap;gap:0.5rem;">
   {"".join(theme_rows)}
 </div>
@@ -935,7 +941,7 @@ function filterArticles(q) {{
 <thead><tr><th style="width:45%">标题</th><th style="width:35%">路径</th><th style="width:20%">操作</th></tr></thead>
 <tbody>{"".join(rows)}</tbody>
 </table>
-<p style="margin-top:1rem;color:#666;font-size:0.9rem;">共 {len(pages)} 个页面</p>
+<p style="margin-top:1rem;color:var(--a-text-dim);font-size:0.9rem;">共 {len(pages)} 个页面</p>
 </div>"""
         return self._render_page(
             start_response, "独立页面", body, csrf_token, extra_script=True
@@ -996,12 +1002,12 @@ function filterArticles(q) {{
         if self.cfg.ai_enabled and self.cfg.ai_api_key:
             ai_panel_html = f"""<div id="ai-panel" class="ai-panel" style="display:none;margin:0.75rem 0;padding:0.75rem;background:var(--surface);border:1px solid var(--border);border-radius:6px;">
         <div style="display:flex;gap:0.5rem;flex-wrap:wrap;align-items:center;">
-          <span style="font-size:0.85rem;color:#666;">AI 助手:</span>
+          <span style="font-size:0.85rem;color:var(--a-text-dim);">AI 助手:</span>
           <button type="button" class="ai-btn" onclick="aiComplete()">续写</button>
           <button type="button" class="ai-btn" onclick="aiPolish()">润色</button>
           <button type="button" class="ai-btn" onclick="aiTranslate('en')">译英</button>
           <button type="button" class="ai-btn" onclick="aiTranslate('ja')">译日</button>
-          <span id="ai-status" style="font-size:0.8rem;color:#888;margin-left:auto;"></span>
+          <span id="ai-status" style="font-size:0.8rem;color:var(--a-text-dim);margin-left:auto;"></span>
         </div>
       </div>"""
         else:
@@ -1017,7 +1023,7 @@ function filterArticles(q) {{
       <p><input name="title" value="{escape_attr(page.title)}" required maxlength="{self.cfg.max_title_length}"></p>
       <p><input name="slug" value="{escape_attr(page.slug)}" placeholder="URL 标识" required pattern="[a-zA-Z0-9\\u4e00-\\u9fa5_-]+"></p>
       {ai_panel_html}
-      <div id="drop-zone" style="margin-bottom:0.75rem;padding:1rem;border:2px dashed #ccc;border-radius:6px;text-align:center;color:#888;cursor:pointer;" onclick="document.getElementById('file-input').click()" ondragover="event.preventDefault();this.style.borderColor='#e74c3c';this.style.color='#e74c3c'" ondragleave="this.style.borderColor='#ccc';this.style.color='#888'" ondrop="handleDrop(event)">拖拽图片到此处上传，或点击选择文件<input type="file" id="file-input" accept="image/*" style="display:none" onchange="handleFileSelect(event)"></div>
+      <div id="drop-zone" style="margin-bottom:0.75rem;padding:1rem;border:2px dashed #ccc;border-radius:6px;text-align:center;color:var(--a-text-dim);cursor:pointer;" onclick="document.getElementById('file-input').click()" ondragover="event.preventDefault();this.classList.add('dragover')" ondragleave="this.classList.remove('dragover')" ondrop="handleDrop(event)">拖拽图片到此处上传，或点击选择文件<input type="file" id="file-input" accept="image/*" style="display:none" onchange="handleFileSelect(event)"></div>
       <p><textarea name="content" required maxlength="{self.cfg.max_content_length}" hx-trigger="keyup changed delay:500ms" hx-post="/preview" hx-target="#live-preview" hx-include="#page-form">{escape_html(text)}</textarea></p>
       <p>
         <button type="submit" class="btn-primary">保存更改</button>
@@ -1248,57 +1254,338 @@ function filterArticles(q) {{
         extra_script: bool = False,
     ):
         htmx_script = f'<script src="{HTMX_CDN}"></script>' if extra_script else ""
+        is_secure = bool(self.cfg.bind_domain)
+        csrf_cookie = get_csrf_cookie_header(csrf_token, secure=is_secure)
+        headers = [
+            ("Content-Type", "text/html; charset=utf-8"),
+            csrf_cookie,
+            get_csp_header(),
+        ] + get_security_headers()
+
+        nav_links = [
+            ("/", "仪表盘", "◈"),
+            ("/new", "新建文章", "+"),
+            ("/new-page", "新建页面", "◉"),
+            ("/pages", "管理页面", "☰"),
+            ("/theme", "主题", "◐"),
+        ]
+        nav_html = "".join(
+            f'<a href="{href}" class="nav-item"><span class="nav-icon">{icon}</span><span class="nav-label">{label}</span></a>'
+            for href, label, icon in nav_links
+        )
+
         html = f"""<!DOCTYPE html>
 <html lang="zh-CN">
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width,initial-scale=1">
 <meta name="color-scheme" content="light dark">
-<title>{escape_html(title)} - 管理后台</title>
+<title>{escape_html(title)} - TinyPage Admin</title>
 {htmx_script}
 <style>
-:root {{ --primary: #2c3e50; --accent: #e74c3c; --bg: #fff; --surface: #f8f9fa; --text: #333; --border: #e0e0e0; }}
-html.dark {{ --bg: #1a1a2e; --surface: #16213e; --text: #eaeaea; --border: #0f3460; }}
-body {{ max-width: 1100px; margin: 2rem auto; padding: 0 1.5rem; font-family: system-ui, -apple-system, sans-serif; background: var(--bg); color: var(--text); line-height: 1.6; transition: background 0.2s, color 0.2s; }}
-h1 {{ color: var(--primary); margin-bottom: 1rem; font-size: 1.6rem; }}
-.security-notice {{ background: #d4edda; border-left: 4px solid #28a745; padding: 0.6rem 1rem; margin-bottom: 1.5rem; border-radius: 4px; font-size: 0.9rem; }}
-.actions {{ margin: 1.5rem 0; display: flex; gap: 0.75rem; align-items: center; flex-wrap: wrap; }}
-.btn-primary, .btn-secondary, .btn-danger {{ border: none; padding: 0.5rem 1rem; cursor: pointer; border-radius: 6px; font-size: 0.9rem; text-decoration: none; display: inline-block; transition: opacity 0.15s; }}
-.btn-primary {{ background: var(--accent); color: white; }}
-.btn-secondary {{ background: var(--surface); color: var(--text); border: 1px solid var(--border); }}
-.btn-danger {{ background: #c0392b; color: white; }}
-.btn-sm {{ padding: 0.25rem 0.6rem; font-size: 0.8rem; }}
-button:hover, .btn-primary:hover, .btn-secondary:hover, .btn-danger:hover {{ opacity: 0.85; }}
-table {{ width: 100%; border-collapse: collapse; margin-top: 1rem; }}
-th, td {{ text-align: left; padding: 0.75rem; border-bottom: 1px solid var(--border); }}
-th {{ background: var(--surface); font-weight: 600; font-size: 0.85rem; color: var(--primary); }}
-tr {{ transition: background 0.2s; }}
-tr:hover {{ background: var(--surface); }}
-a {{ color: var(--accent); text-decoration: none; }}
-a:hover {{ text-decoration: underline; }}
-input, textarea {{ width: 100%; font-family: inherit; font-size: 1rem; padding: 0.6rem; margin-bottom: 0.75rem; border: 1px solid var(--border); border-radius: 6px; background: var(--surface); color: var(--text); }}
-textarea {{ height: 300px; resize: vertical; line-height: 1.6; }}
-input:focus, textarea:focus {{ outline: none; border-color: var(--accent); }}
+:root {{
+  --a-primary: #ccff00;
+  --a-accent: #39ff14;
+  --a-text: #e8e8e8;
+  --a-text-dim: #888;
+  --a-bg: #0a0a0a;
+  --a-surface: #141414;
+  --a-surface-hover: #1a1a1a;
+  --a-border: #2a2a2a;
+  --a-glow: rgba(204,255,0,0.3);
+  --a-radius: 10px;
+  --a-transition: 0.2s ease;
+}}
+html.light {{
+  --a-primary: #000;
+  --a-accent: #1a1a1a;
+  --a-text: #000;
+  --a-text-dim: #333;
+  --a-bg: #ccff00;
+  --a-surface: #e5ff66;
+  --a-surface-hover: #d4ff00;
+  --a-border: #000;
+  --a-glow: rgba(0,0,0,0.15);
+}}
+* {{ margin:0; padding:0; box-sizing:border-box; }}
+html {{ scroll-behavior:smooth; }}
+body {{
+  font-family: system-ui, -apple-system, sans-serif;
+  background: var(--a-bg);
+  color: var(--a-text);
+  line-height: 1.6;
+  min-height: 100vh;
+}}
+.admin-layout {{
+  display: grid;
+  grid-template-columns: 220px 1fr;
+  min-height: 100vh;
+}}
+.admin-sidebar {{
+  background: var(--a-surface);
+  border-right: 1px solid var(--a-border);
+  display: flex;
+  flex-direction: column;
+  padding: 1.5rem 0;
+  position: sticky;
+  top: 0;
+  height: 100vh;
+  overflow-y: auto;
+}}
+.brand {{
+  font-size: 1.3rem;
+  font-weight: 700;
+  color: var(--a-primary);
+  padding: 0 1.25rem 1.5rem;
+  border-bottom: 1px solid var(--a-border);
+  margin-bottom: 1rem;
+  text-shadow: 0 0 10px var(--a-glow);
+}}
+.admin-sidebar nav {{
+  display: flex;
+  flex-direction: column;
+  gap: 0.25rem;
+  padding: 0 0.75rem;
+  flex: 1;
+}}
+.nav-item {{
+  display: flex;
+  align-items: center;
+  gap: 0.75rem;
+  padding: 0.65rem 0.75rem;
+  border-radius: var(--a-radius);
+  color: var(--a-text-dim);
+  font-size: 0.95rem;
+  text-decoration: none;
+  transition: all var(--a-transition);
+}}
+.nav-item:hover {{
+  background: var(--a-surface-hover);
+  color: var(--a-primary);
+  text-shadow: 0 0 6px var(--a-glow);
+}}
+.nav-icon {{
+  width: 1.2rem;
+  text-align: center;
+  opacity: 0.7;
+}}
+.sidebar-footer {{
+  padding: 1rem 1.25rem 0;
+  border-top: 1px solid var(--a-border);
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+}}
+.theme-toggle {{
+  background: transparent;
+  border: 1px solid var(--a-border);
+  border-radius: var(--a-radius);
+  padding: 0.35rem 0.6rem;
+  cursor: pointer;
+  font-size: 1rem;
+  color: var(--a-text);
+  transition: all var(--a-transition);
+}}
+.theme-toggle:hover {{
+  border-color: var(--a-primary);
+  box-shadow: 0 0 8px var(--a-glow);
+}}
+.admin-main {{
+  padding: 2rem;
+  max-width: 1100px;
+}}
+h1 {{
+  font-size: 1.5rem;
+  color: var(--a-primary);
+  margin-bottom: 1.25rem;
+  text-shadow: 0 0 8px var(--a-glow);
+}}
+.security-notice {{
+  background: var(--a-surface-hover);
+  border-left: 3px solid var(--a-primary);
+  padding: 0.75rem 1rem;
+  margin-bottom: 1.5rem;
+  border-radius: 0 var(--a-radius) var(--a-radius) 0;
+  font-size: 0.9rem;
+  color: var(--a-text-dim);
+}}
+.actions {{
+  margin: 1.5rem 0;
+  display: flex;
+  gap: 0.75rem;
+  align-items: center;
+  flex-wrap: wrap;
+}}
+.btn-primary, .btn-secondary, .btn-danger {{
+  border: none;
+  padding: 0.55rem 1.1rem;
+  cursor: pointer;
+  border-radius: var(--a-radius);
+  font-size: 0.9rem;
+  text-decoration: none;
+  display: inline-flex;
+  align-items: center;
+  gap: 0.35rem;
+  transition: all var(--a-transition);
+  font-weight: 500;
+}}
+.btn-primary {{
+  background: var(--a-primary);
+  color: var(--a-bg);
+}}
+.btn-primary:hover {{
+  box-shadow: 0 0 12px var(--a-glow);
+  transform: translateY(-1px);
+}}
+.btn-secondary {{
+  background: var(--a-surface-hover);
+  color: var(--a-text);
+  border: 1px solid var(--a-border);
+}}
+.btn-secondary:hover {{
+  border-color: var(--a-primary);
+  box-shadow: 0 0 8px var(--a-glow);
+}}
+.btn-danger {{
+  background: #c0392b;
+  color: #fff;
+}}
+.btn-danger:hover {{
+  background: #e74c3c;
+  box-shadow: 0 0 10px rgba(231,76,60,0.4);
+}}
+.btn-sm {{ padding: 0.3rem 0.6rem; font-size: 0.8rem; }}
+table.admin-table {{
+  width: 100%;
+  border-collapse: separate;
+  border-spacing: 0;
+  margin-top: 1rem;
+  background: var(--a-surface);
+  border: 1px solid var(--a-border);
+  border-radius: var(--a-radius);
+  overflow: hidden;
+}}
+th, td {{
+  text-align: left;
+  padding: 0.85rem 1rem;
+  border-bottom: 1px solid var(--a-border);
+}}
+th {{
+  background: var(--a-surface-hover);
+  font-weight: 600;
+  font-size: 0.85rem;
+  color: var(--a-primary);
+  text-transform: uppercase;
+  letter-spacing: 0.03em;
+}}
+tr {{ transition: background var(--a-transition); }}
+tr:hover {{ background: var(--a-surface-hover); }}
+tr:last-child td {{ border-bottom: none; }}
+a {{ color: var(--a-primary); text-decoration: none; }}
+a:hover {{ text-shadow: 0 0 6px var(--a-glow); text-decoration: underline; }}
+input, textarea, select {{
+  width: 100%;
+  font-family: inherit;
+  font-size: 1rem;
+  padding: 0.7rem;
+  margin-bottom: 0.75rem;
+  border: 1px solid var(--a-border);
+  border-radius: var(--a-radius);
+  background: var(--a-surface);
+  color: var(--a-text);
+  transition: all var(--a-transition);
+}}
+input:focus, textarea:focus, select:focus {{
+  outline: none;
+  border-color: var(--a-primary);
+  box-shadow: 0 0 10px var(--a-glow);
+}}
+textarea {{ height: 320px; resize: vertical; line-height: 1.6; }}
 .editor-grid {{ display: grid; grid-template-columns: 1fr 1fr; gap: 2rem; }}
 .editor-preview {{ position: sticky; top: 2rem; height: fit-content; }}
-.preview-box {{ background: var(--surface); border: 1px solid var(--border); border-radius: 8px; padding: 1.25rem; min-height: 200px; overflow: auto; }}
-.preview-placeholder {{ color: #888; font-style: italic; }}
-.tag {{ display: inline-block; padding: 0.15rem 0.5rem; background: var(--surface); border: 1px solid var(--border); border-radius: 999px; font-size: 0.75rem; margin-left: 0.5rem; color: var(--text); }}
+.preview-box {{
+  background: var(--a-surface);
+  border: 1px solid var(--a-border);
+  border-radius: var(--a-radius);
+  padding: 1.25rem;
+  min-height: 200px;
+  overflow: auto;
+}}
+.preview-placeholder {{ color: var(--a-text-dim); font-style: italic; }}
+.tag {{
+  display: inline-block;
+  padding: 0.15rem 0.5rem;
+  background: transparent;
+  border: 1px solid var(--a-primary);
+  border-radius: 999px;
+  font-size: 0.75rem;
+  margin-left: 0.5rem;
+  color: var(--a-primary);
+}}
 .nav-links {{ margin-top: 1.5rem; display: flex; gap: 1rem; }}
-.nav-links a {{ color: var(--accent); }}
-@media (max-width: 800px) {{ .editor-grid {{ grid-template-columns: 1fr; }} .editor-preview {{ position: static; }} }}
-#drop-zone.dragover {{ border-color: #e74c3c; color: #e74c3c; background: #fdf2f2; }}
+.nav-links a {{ color: var(--a-primary); }}
+#drop-zone {{
+  margin-bottom: 0.75rem;
+  padding: 1rem;
+  border: 2px dashed var(--a-border);
+  border-radius: var(--a-radius);
+  text-align: center;
+  color: var(--a-text-dim);
+  cursor: pointer;
+  transition: all var(--a-transition);
+}}
+#drop-zone:hover {{
+  border-color: var(--a-primary);
+  color: var(--a-primary);
+}}
+#drop-zone.dragover {{
+  border-color: var(--a-primary);
+  color: var(--a-bg);
+  background: var(--a-primary);
+  box-shadow: 0 0 15px var(--a-glow);
+}}
 .ai-panel {{ transition: all 0.2s; }}
-.ai-btn {{ background: linear-gradient(135deg, #667eea 0%, #764ba2 100%); color: white; border: none; padding: 0.4rem 0.8rem; border-radius: 4px; cursor: pointer; font-size: 0.8rem; transition: opacity 0.2s; }}
+.ai-btn {{
+  background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+  color: white;
+  border: none;
+  padding: 0.4rem 0.8rem;
+  border-radius: var(--a-radius);
+  cursor: pointer;
+  font-size: 0.8rem;
+  transition: opacity 0.2s;
+}}
 .ai-btn:hover {{ opacity: 0.85; }}
 .ai-btn:disabled {{ opacity: 0.5; cursor: not-allowed; }}
 #ai-status:empty {{ display: none; }}
+.card {{
+  background: var(--a-surface);
+  border: 1px solid var(--a-border);
+  border-radius: var(--a-radius);
+  padding: 1.5rem;
+  margin-bottom: 1.5rem;
+}}
+@media (max-width: 900px) {{
+  .admin-layout {{ grid-template-columns: 1fr; }}
+  .admin-sidebar {{ display: none; }}
+  .admin-main {{ padding: 1.25rem; }}
+  .editor-grid {{ grid-template-columns: 1fr; }}
+  .editor-preview {{ position: static; }}
+}}
 </style>
+<script>
+(function(){{
+  var m = localStorage.getItem('theme');
+  if (m === 'light' || (!m && window.matchMedia('(prefers-color-scheme: light)').matches)) {{
+    document.documentElement.classList.add('light');
+  }}
+}})();
+</script>
 <script>
 function handleDrop(e) {{
   e.preventDefault();
   var zone = document.getElementById('drop-zone');
-  zone.style.borderColor = '#ccc'; zone.style.color = '#888'; zone.style.background = 'transparent';
+  zone.classList.remove('dragover');
   var file = e.dataTransfer.files[0];
   if (file && file.type.startsWith('image/')) {{ uploadFile(file); }}
 }}
@@ -1308,31 +1595,23 @@ function handleFileSelect(e) {{
 }}
 function uploadFile(file) {{
   var csrfInput = document.querySelector('input[name=csrf_token]');
-  if (!csrfInput || !csrfInput.value) {{
-    alert('CSRF token missing');
-    return;
-  }}
+  if (!csrfInput || !csrfInput.value) {{ alert('CSRF token missing'); return; }}
   var reader = new FileReader();
   reader.onload = function(ev) {{
     var b64 = ev.target.result;
     var b64Data = b64.split(',')[1];
     var body = 'csrf_token=' + encodeURIComponent(csrfInput.value) +
                '&filename=' + encodeURIComponent(file.name) + '&data=' + encodeURIComponent(b64Data);
-    fetch('/upload', {{
-      method: 'POST',
-      headers: {{ 'Content-Type': 'application/x-www-form-urlencoded' }},
-      body: body
-    }}).then(function(r) {{ return r.json(); }}).then(function(data) {{
-      if (data.success) {{
-        var ta = document.querySelector('textarea[name=content]');
-        ta.value += '\\n![](' + data.url + ')\\n';
-        ta.dispatchEvent(new Event('input', {{ bubbles: true }}));
-      }} else {{
-        alert('Upload failed: ' + (data.error || 'Unknown error'));
-      }}
-    }}).catch(function(err) {{
-      alert('Upload failed: Network error');
-    }});
+    fetch('/upload', {{ method: 'POST', headers: {{ 'Content-Type': 'application/x-www-form-urlencoded' }}, body: body }})
+      .then(function(r) {{ return r.json(); }})
+      .then(function(data) {{
+        if (data.success) {{
+          var ta = document.querySelector('textarea[name=content]');
+          ta.value += '\n![](' + data.url + ')\n';
+          ta.dispatchEvent(new Event('input', {{ bubbles: true }}));
+        }} else {{ alert('Upload failed: ' + (data.error || 'Unknown error')); }}
+      }})
+      .catch(function(err) {{ alert('Upload failed: Network error'); }});
   }};
   reader.onerror = function() {{ alert('File read error'); }};
   reader.readAsDataURL(file);
@@ -1343,7 +1622,7 @@ function showAIPanel() {{
 }}
 function setAIStatus(msg, isError) {{
   var el = document.getElementById('ai-status');
-  if (el) {{ el.textContent = msg; el.style.color = isError ? "#e74c3c" : "#27ae60"; }}
+  if (el) {{ el.textContent = msg; el.style.color = isError ? '#e74c3c' : '#27ae60'; }}
 }}
 function setAIBusy(busy) {{
   document.querySelectorAll('.ai-btn').forEach(function(b) {{ b.disabled = busy; }});
@@ -1367,7 +1646,7 @@ function aiCall(action, data, callback) {{
 function aiComplete() {{
   var ta = document.querySelector('textarea[name=content]');
   if (!ta.value) {{ setAIStatus('请先输入内容', true); return; }}
-  aiCall('complete', {{ text: ta.value }}, function(r) {{ ta.value += '\\n\\n' + r.result; ta.dispatchEvent(new Event('input', {{ bubbles: true }})); }});
+  aiCall('complete', {{ text: ta.value }}, function(r) {{ ta.value += '\n\n' + r.result; ta.dispatchEvent(new Event('input', {{ bubbles: true }})); }});
 }}
 function aiPolish() {{
   var ta = document.querySelector('textarea[name=content]');
@@ -1397,18 +1676,27 @@ setTimeout(showAIPanel, 100);
 </script>
 </head>
 <body>
-{body}
+<div class="admin-layout">
+  <aside class="admin-sidebar">
+    <div class="brand">TinyPage</div>
+    <nav>
+      {nav_html}
+    </nav>
+    <div class="sidebar-footer">
+      <span style="font-size:0.8rem;color:var(--a-text-dim);">Admin</span>
+      <button class="theme-toggle" aria-label="切换主题" onclick="var d=document.documentElement;d.classList.toggle('light');try{{localStorage.setItem('theme',d.classList.contains('light')?'light':'dark')}}catch(e){{}}">🌓</button>
+    </div>
+  </aside>
+  <main class="admin-main">
+    {body}
+  </main>
+</div>
 </body>
 </html>"""
-        is_secure = bool(self.cfg.bind_domain)
-        csrf_cookie = get_csrf_cookie_header(csrf_token, secure=is_secure)
-        headers = [
-            ("Content-Type", "text/html; charset=utf-8"),
-            csrf_cookie,
-            get_csp_header(),
-        ] + get_security_headers()
+
         start_response("200 OK", headers)
         return [html.encode("utf-8")]
+
 
     def _auth_required(self, start_response):
         headers = [

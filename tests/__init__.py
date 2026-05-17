@@ -1,0 +1,1 @@
+"""TinyPage test suite."""

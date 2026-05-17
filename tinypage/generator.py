@@ -12,26 +12,6 @@ from .models import ArticleMeta, PageInfo
 from .security import escape_html, escape_attr
 from .core.template import render_skeleton
 
-# Lazy imports to avoid circular dependency with content module
-_render_markdown = None
-_extract_body = None
-
-
-def _get_render_markdown():
-    global _render_markdown
-    if _render_markdown is None:
-        from .parsers import render_markdown as _rm
-        _render_markdown = _rm
-    return _render_markdown
-
-
-def _get_extract_body():
-    global _extract_body
-    if _extract_body is None:
-        from .content import _extract_body_from_html as _eb
-        _extract_body = _eb
-    return _extract_body
-
 logger = logging.getLogger(__name__)
 
 
@@ -96,6 +76,61 @@ def _nav_links(cfg: Config, standalones: list[ArticleMeta] | None = None, curren
     return "\n      ".join(links)
 
 
+def _build_common_context(
+    config: Optional[Config] = None,
+    theme_css: str = "",
+    dark_css: str = "",
+    has_dark: bool = False,
+    standalones: list[ArticleMeta] | None = None,
+    current_path: str = "",
+) -> dict:
+    """Build common page context shared by all page generation functions.
+
+    Returns a dict with keys:
+        cfg, site_title, theme_css, dark_css, has_dark,
+        dark_mode_meta, dark_mode_script, pwa_meta, pwa_manifest,
+        vt_meta, search_script, nav, theme_toggle
+    """
+    cfg = config or Config()
+    if not theme_css:
+        theme_css, dark_css, has_dark = load_theme_css(cfg.theme_dir)
+    site_title = escape_html(cfg.site_title)
+
+    dark_mode_meta = '<meta name="color-scheme" content="light dark">' if has_dark else ""
+    dark_mode_script = (
+        """<script>(function(){try{var m=localStorage.getItem('theme');if(m==='light'||(!m&&window.matchMedia('(prefers-color-scheme: light)').matches)){document.documentElement.classList.add('light')}}catch(e){}})();</script>"""
+        if has_dark else ""
+    )
+
+    if cfg.enable_pwa:
+        pwa_meta = f'<meta name="theme-color" content="{escape_attr(cfg.pwa_theme_color)}" media="(prefers-color-scheme: light)"><meta name="theme-color" content="{escape_attr(cfg.pwa_bg_color)}" media="(prefers-color-scheme: dark)">'
+        pwa_manifest = '<link rel="manifest" href="/manifest.json">'
+    else:
+        pwa_meta = ""
+        pwa_manifest = ""
+
+    vt_meta = '<meta name="view-transition" content="same-origin">' if cfg.enable_view_transitions else ""
+    search_script = '<script src="/search.js" defer></script>' if cfg.enable_search else ""
+    nav = _nav_links(cfg, standalones, current_path)
+    theme_toggle = '<button class="theme-toggle" aria-label="切换主题" onclick="var d=document.documentElement;d.classList.toggle(\'light\');try{localStorage.setItem(\'theme\',d.classList.contains(\'light\')?\'light\':\'dark\')}catch(e){}">🌓</button>' if has_dark else ''
+
+    return {
+        "cfg": cfg,
+        "site_title": site_title,
+        "theme_css": theme_css,
+        "dark_css": dark_css,
+        "has_dark": has_dark,
+        "dark_mode_meta": dark_mode_meta,
+        "dark_mode_script": dark_mode_script,
+        "pwa_meta": pwa_meta,
+        "pwa_manifest": pwa_manifest,
+        "vt_meta": vt_meta,
+        "search_script": search_script,
+        "nav": nav,
+        "theme_toggle": theme_toggle,
+    }
+
+
 def load_theme_css(theme_dir: Path) -> tuple[str, str, bool]:
     """Load base and optional dark theme CSS, appending Pygments syntax highlighting if available."""
     base_file = theme_dir / "theme.css"
@@ -143,10 +178,8 @@ def generate_article_html(
         backlinks_html: Backlinks section HTML
         related_articles: List of ArticleMeta for related articles section
     """
-    cfg = config or Config()
-    if not theme_css:
-        theme_css, dark_css, has_dark = load_theme_css(cfg.theme_dir)
-    site_title = escape_html(cfg.site_title)
+    ctx = _build_common_context(config, theme_css, dark_css, has_dark, standalones, f"/article/{slug}.html")
+    cfg = ctx["cfg"]
     page_title = escape_html(title)
     safe_date = escape_html(date)
     safe_summary = escape_html(summary)
@@ -167,24 +200,6 @@ def generate_article_html(
     draft_badge = ""
     if status.lower() == "draft":
         draft_badge = '<span class="draft-badge">草稿</span>'
-
-    # Dark mode support
-    dark_mode_meta = '<meta name="color-scheme" content="light dark">' if has_dark else ""
-    dark_mode_script = (
-        """<script>(function(){try{var m=localStorage.getItem('theme');if(m==='dark'||(!m&&window.matchMedia('(prefers-color-scheme: dark)').matches)){document.documentElement.classList.add('dark')}}catch(e){}})();</script>"""
-        if has_dark else ""
-    )
-
-    # PWA
-    pwa_meta = ""
-    pwa_manifest = ""
-    if cfg.enable_pwa:
-        pwa_meta = f"""<meta name="theme-color" content="{cfg.pwa_theme_color}" media="(prefers-color-scheme: light)">
-<meta name="theme-color" content="{cfg.pwa_bg_color}" media="(prefers-color-scheme: dark)">"""
-        pwa_manifest = '<link rel="manifest" href="/manifest.json">'
-
-    # View transitions
-    vt_meta = '<meta name="view-transition" content="same-origin">' if cfg.enable_view_transitions else ""
 
     # Open Graph & Twitter Cards
     og_html = ""
@@ -209,9 +224,6 @@ def generate_article_html(
             author=cfg.site_author,
         )
 
-    # Search script injection
-    search_script = '<script src="/search.js" defer></script>' if cfg.enable_search else ""
-
     # Mermaid script for diagrams
     mermaid_script = '<script src="https://cdn.jsdelivr.net/npm/mermaid@10/dist/mermaid.min.js"></script><script>mermaid.initialize({startOnLoad:true,theme:document.documentElement.classList.contains(\'dark\')?\'dark\':\'default\',securityLevel:\'strict\'});</script>'
 
@@ -219,9 +231,6 @@ def generate_article_html(
     share_html = ""
     if cfg.site_url:
         share_html = f"""<button class="share-btn" onclick="navigator.share?.({{title:'{page_title}',text:'{safe_summary}',url:'{escape_attr(cfg.site_url)}/article/{slug}.html'}}).catch(()=>{{}})" hidden>分享</button>"""
-
-    nav = _nav_links(cfg, standalones, f"/article/{slug}.html")
-    theme_toggle = '<button class="theme-toggle" aria-label="切换主题" onclick="document.documentElement.classList.toggle(\'dark\');try{localStorage.setItem(\'theme\',document.documentElement.classList.contains(\'dark\')?\'dark\':\'light\')}catch(e){}">🌓</button>' if has_dark else ''
 
     # Related articles HTML
     related_html = ""
@@ -263,25 +272,25 @@ def generate_article_html(
 
     return render_skeleton(
         "article",
-        site_title=site_title,
+        site_title=ctx["site_title"],
         page_title=page_title,
         description=safe_summary,
         body_content=body_content,
-        theme_css=theme_css,
-        dark_css=dark_css,
-        has_dark=has_dark,
-        nav_links=nav,
-        theme_toggle=theme_toggle,
+        theme_css=ctx["theme_css"],
+        dark_css=ctx["dark_css"],
+        has_dark=ctx["has_dark"],
+        nav_links=ctx["nav"],
+        theme_toggle=ctx["theme_toggle"],
         footer_text=cfg.footer_text or "",
         lang=cfg.lang,
-        dark_mode_meta=dark_mode_meta,
-        pwa_meta=pwa_meta,
-        vt_meta=vt_meta,
+        dark_mode_meta=ctx["dark_mode_meta"],
+        pwa_meta=ctx["pwa_meta"],
+        vt_meta=ctx["vt_meta"],
         og_html=og_html,
         json_ld_html=json_ld_html,
-        pwa_manifest=pwa_manifest,
-        dark_mode_script=dark_mode_script,
-        search_script=search_script,
+        pwa_manifest=ctx["pwa_manifest"],
+        dark_mode_script=ctx["dark_mode_script"],
+        search_script=ctx["search_script"],
         mermaid_script=mermaid_script,
     )
 
@@ -296,10 +305,8 @@ def generate_list_page(
     standalones: list[ArticleMeta] | None = None,
 ) -> str:
     """Generate list/index page with article previews."""
-    cfg = config or Config()
-    if not theme_css:
-        theme_css, dark_css, has_dark = load_theme_css(cfg.theme_dir)
-    site_title = escape_html(cfg.site_title)
+    ctx = _build_common_context(config, theme_css, dark_css, has_dark, standalones, "/")
+    cfg = ctx["cfg"]
     page_title = f"第{page_info.current}页" if page_info.current > 1 else "首页"
 
     items_html: list[str] = []
@@ -350,25 +357,6 @@ def generate_list_page(
   <div class="page-numbers">{''.join(page_numbers)}</div>
 </nav>"""
 
-    dark_mode_meta = '<meta name="color-scheme" content="light dark">' if has_dark else ""
-    dark_mode_script = (
-        """<script>(function(){try{var m=localStorage.getItem('theme');if(m==='dark'||(!m&&window.matchMedia('(prefers-color-scheme: dark)').matches)){document.documentElement.classList.add('dark')}}catch(e){}})();</script>"""
-        if has_dark else ""
-    )
-
-    pwa_meta = ""
-    pwa_manifest = ""
-    if cfg.enable_pwa:
-        pwa_meta = f"""<meta name="theme-color" content="{cfg.pwa_theme_color}" media="(prefers-color-scheme: light)">
-<meta name="theme-color" content="{cfg.pwa_bg_color}" media="(prefers-color-scheme: dark)">"""
-        pwa_manifest = '<link rel="manifest" href="/manifest.json">'
-
-    vt_meta = '<meta name="view-transition" content="same-origin">' if cfg.enable_view_transitions else ""
-    search_script = '<script src="/search.js" defer></script>' if cfg.enable_search else ""
-
-    nav = _nav_links(cfg, standalones, "/")
-    theme_toggle = '<button class="theme-toggle" aria-label="切换主题" onclick="document.documentElement.classList.toggle(\'dark\');try{localStorage.setItem(\'theme\',document.documentElement.classList.contains(\'dark\')?\'dark\':\'light\')}catch(e){}">🌓</button>' if has_dark else ''
-
     body_content = f"""<h1 class="page-title" style="position:absolute;left:-9999px;">文章列表</h1>
     <div class="posts">
       {''.join(items_html)}
@@ -377,24 +365,24 @@ def generate_list_page(
 
     return render_skeleton(
         "list",
-        site_title=site_title,
+        site_title=ctx["site_title"],
         page_title=page_title,
         description=escape_html(cfg.site_description),
         body_content=body_content,
-        theme_css=theme_css,
-        dark_css=dark_css,
-        has_dark=has_dark,
-        nav_links=nav,
-        theme_toggle=theme_toggle,
+        theme_css=ctx["theme_css"],
+        dark_css=ctx["dark_css"],
+        has_dark=ctx["has_dark"],
+        nav_links=ctx["nav"],
+        theme_toggle=ctx["theme_toggle"],
         footer_text=cfg.footer_text or "",
         lang=cfg.lang,
-        dark_mode_meta=dark_mode_meta,
-        pwa_meta=pwa_meta,
-        vt_meta=vt_meta,
+        dark_mode_meta=ctx["dark_mode_meta"],
+        pwa_meta=ctx["pwa_meta"],
+        vt_meta=ctx["vt_meta"],
         og_html="",
-        pwa_manifest=pwa_manifest,
-        dark_mode_script=dark_mode_script,
-        search_script=search_script,
+        pwa_manifest=ctx["pwa_manifest"],
+        dark_mode_script=ctx["dark_mode_script"],
+        search_script=ctx["search_script"],
     )
 
 
@@ -406,25 +394,8 @@ def generate_search_page(
     standalones: list[ArticleMeta] | None = None,
 ) -> str:
     """Generate search page."""
-    cfg = config or Config()
-    if not theme_css:
-        theme_css, dark_css, has_dark = load_theme_css(cfg.theme_dir)
-    site_title = escape_html(cfg.site_title)
-
-    dark_mode_meta = '<meta name="color-scheme" content="light dark">' if has_dark else ""
-    dark_mode_script = (
-        """<script>(function(){try{var m=localStorage.getItem('theme');if(m==='dark'||(!m&&window.matchMedia('(prefers-color-scheme: dark)').matches)){document.documentElement.classList.add('dark')}}catch(e){}})();</script>"""
-        if has_dark else ""
-    )
-
-    pwa_meta = ""
-    pwa_manifest = ""
-    if cfg.enable_pwa:
-        pwa_meta = f"""<meta name="theme-color" content="{cfg.pwa_theme_color}">"""
-        pwa_manifest = '<link rel="manifest" href="/manifest.json">'
-
-    nav = _nav_links(cfg, standalones, "/search.html")
-    theme_toggle = '<button class="theme-toggle" aria-label="切换主题" onclick="document.documentElement.classList.toggle(\'dark\');try{localStorage.setItem(\'theme\',document.documentElement.classList.contains(\'dark\')?\'dark\':\'light\')}catch(e){}">🌓</button>' if has_dark else ''
+    ctx = _build_common_context(config, theme_css, dark_css, has_dark, standalones, "/search.html")
+    cfg = ctx["cfg"]
 
     body_content = """<h1 class="page-title">搜索文章</h1>
     <div class="search-box">
@@ -434,24 +405,24 @@ def generate_search_page(
 
     return render_skeleton(
         "search",
-        site_title=site_title,
+        site_title=ctx["site_title"],
         page_title="搜索",
         description="搜索站内文章",
         body_content=body_content,
-        theme_css=theme_css,
-        dark_css=dark_css,
-        has_dark=has_dark,
-        nav_links=nav,
-        theme_toggle=theme_toggle,
+        theme_css=ctx["theme_css"],
+        dark_css=ctx["dark_css"],
+        has_dark=ctx["has_dark"],
+        nav_links=ctx["nav"],
+        theme_toggle=ctx["theme_toggle"],
         footer_text=cfg.footer_text or "",
         lang=cfg.lang,
-        dark_mode_meta=dark_mode_meta,
-        pwa_meta=pwa_meta,
+        dark_mode_meta=ctx["dark_mode_meta"],
+        pwa_meta=ctx["pwa_meta"],
         vt_meta="",
         og_html="",
-        pwa_manifest=pwa_manifest,
-        dark_mode_script=dark_mode_script,
-        search_script='<script src="/search.js" defer></script>',
+        pwa_manifest=ctx["pwa_manifest"],
+        dark_mode_script=ctx["dark_mode_script"],
+        search_script=ctx["search_script"],
     )
 
 
@@ -466,28 +437,10 @@ def generate_standalone_html(
     standalones: list[ArticleMeta] | None = None,
 ) -> str:
     """Generate a standalone page (e.g. About, Projects)."""
-    cfg = config or Config()
-    if not theme_css:
-        theme_css, dark_css, has_dark = load_theme_css(cfg.theme_dir)
-    site_title = escape_html(cfg.site_title)
+    ctx = _build_common_context(config, theme_css, dark_css, has_dark, standalones, "/")
+    cfg = ctx["cfg"]
     page_title = escape_html(title)
     safe_summary = escape_html(summary)
-
-    dark_mode_meta = '<meta name="color-scheme" content="light dark">' if has_dark else ""
-    dark_mode_script = (
-        """<script>(function(){try{var m=localStorage.getItem('theme');if(m==='dark'||(!m&&window.matchMedia('(prefers-color-scheme: dark)').matches)){document.documentElement.classList.add('dark')}}catch(e){}})();</script>"""
-        if has_dark else ""
-    )
-
-    pwa_meta = ""
-    pwa_manifest = ""
-    if cfg.enable_pwa:
-        pwa_meta = f"""<meta name="theme-color" content="{cfg.pwa_theme_color}" media="(prefers-color-scheme: light)">
-<meta name="theme-color" content="{cfg.pwa_bg_color}" media="(prefers-color-scheme: dark)">"""
-        pwa_manifest = '<link rel="manifest" href="/manifest.json">'
-
-    vt_meta = '<meta name="view-transition" content="same-origin">' if cfg.enable_view_transitions else ""
-    search_script = '<script src="/search.js" defer></script>' if cfg.enable_search else ""
 
     og_html = ""
     if cfg.site_url:
@@ -495,9 +448,6 @@ def generate_standalone_html(
 <meta property="og:description" content="{safe_summary}">
 <meta property="og:type" content="website">
 <meta name="twitter:card" content="summary">"""
-
-    nav = _nav_links(cfg, standalones, "/")
-    theme_toggle = '<button class="theme-toggle" aria-label="切换主题" onclick="document.documentElement.classList.toggle(\'dark\');try{localStorage.setItem(\'theme\',document.documentElement.classList.contains(\'dark\')?\'dark\':\'light\')}catch(e){}">🌓</button>' if has_dark else ''
 
     body_content = f"""<article class="post standalone">
       <header class="post-header">
@@ -510,24 +460,24 @@ def generate_standalone_html(
 
     return render_skeleton(
         "standalone",
-        site_title=site_title,
+        site_title=ctx["site_title"],
         page_title=page_title,
         description=safe_summary,
         body_content=body_content,
-        theme_css=theme_css,
-        dark_css=dark_css,
-        has_dark=has_dark,
-        nav_links=nav,
-        theme_toggle=theme_toggle,
+        theme_css=ctx["theme_css"],
+        dark_css=ctx["dark_css"],
+        has_dark=ctx["has_dark"],
+        nav_links=ctx["nav"],
+        theme_toggle=ctx["theme_toggle"],
         footer_text=cfg.footer_text or "",
         lang=cfg.lang,
-        dark_mode_meta=dark_mode_meta,
-        pwa_meta=pwa_meta,
-        vt_meta=vt_meta,
+        dark_mode_meta=ctx["dark_mode_meta"],
+        pwa_meta=ctx["pwa_meta"],
+        vt_meta=ctx["vt_meta"],
         og_html=og_html,
-        pwa_manifest=pwa_manifest,
-        dark_mode_script=dark_mode_script,
-        search_script=search_script,
+        pwa_manifest=ctx["pwa_manifest"],
+        dark_mode_script=ctx["dark_mode_script"],
+        search_script=ctx["search_script"],
     )
 
 
@@ -541,10 +491,8 @@ def generate_category_page(
     standalones: list[ArticleMeta] | None = None,
 ) -> str:
     """Generate a category index page."""
-    cfg = config or Config()
-    if not theme_css:
-        theme_css, dark_css, has_dark = load_theme_css(cfg.theme_dir)
-    site_title = escape_html(cfg.site_title)
+    ctx = _build_common_context(config, theme_css, dark_css, has_dark, standalones, f"/category/{category}.html")
+    cfg = ctx["cfg"]
     safe_category = escape_html(category)
 
     items_html: list[str] = []
@@ -562,25 +510,6 @@ def generate_category_page(
 </article>
 """)
 
-    dark_mode_meta = '<meta name="color-scheme" content="light dark">' if has_dark else ""
-    dark_mode_script = (
-        """<script>(function(){try{var m=localStorage.getItem('theme');if(m==='dark'||(!m&&window.matchMedia('(prefers-color-scheme: dark)').matches)){document.documentElement.classList.add('dark')}}catch(e){}})();</script>"""
-        if has_dark else ""
-    )
-
-    pwa_meta = ""
-    pwa_manifest = ""
-    if cfg.enable_pwa:
-        pwa_meta = f"""<meta name="theme-color" content="{cfg.pwa_theme_color}" media="(prefers-color-scheme: light)">
-<meta name="theme-color" content="{cfg.pwa_bg_color}" media="(prefers-color-scheme: dark)">"""
-        pwa_manifest = '<link rel="manifest" href="/manifest.json">'
-
-    vt_meta = '<meta name="view-transition" content="same-origin">' if cfg.enable_view_transitions else ""
-    search_script = '<script src="/search.js" defer></script>' if cfg.enable_search else ""
-
-    nav = _nav_links(cfg, standalones, f"/category/{category}.html")
-    theme_toggle = '<button class="theme-toggle" aria-label="切换主题" onclick="document.documentElement.classList.toggle(\'dark\');try{localStorage.setItem(\'theme\',document.documentElement.classList.contains(\'dark\')?\'dark\':\'light\')}catch(e){}">🌓</button>' if has_dark else ''
-
     body_content = f"""<h1 class="page-title">分类：{safe_category}</h1>
     <p style="color:#666;margin-bottom:1.5rem;">共 {len(articles)} 篇文章</p>
     <div class="posts">
@@ -589,24 +518,24 @@ def generate_category_page(
 
     return render_skeleton(
         "category",
-        site_title=site_title,
+        site_title=ctx["site_title"],
         page_title=f"分类：{safe_category}",
-        description=f"{safe_category} 分类下的文章 - {site_title}",
+        description=f"{safe_category} 分类下的文章 - {ctx['site_title']}",
         body_content=body_content,
-        theme_css=theme_css,
-        dark_css=dark_css,
-        has_dark=has_dark,
-        nav_links=nav,
-        theme_toggle=theme_toggle,
+        theme_css=ctx["theme_css"],
+        dark_css=ctx["dark_css"],
+        has_dark=ctx["has_dark"],
+        nav_links=ctx["nav"],
+        theme_toggle=ctx["theme_toggle"],
         footer_text=cfg.footer_text or "",
         lang=cfg.lang,
-        dark_mode_meta=dark_mode_meta,
-        pwa_meta=pwa_meta,
-        vt_meta=vt_meta,
+        dark_mode_meta=ctx["dark_mode_meta"],
+        pwa_meta=ctx["pwa_meta"],
+        vt_meta=ctx["vt_meta"],
         og_html="",
-        pwa_manifest=pwa_manifest,
-        dark_mode_script=dark_mode_script,
-        search_script=search_script,
+        pwa_manifest=ctx["pwa_manifest"],
+        dark_mode_script=ctx["dark_mode_script"],
+        search_script=ctx["search_script"],
     )
 
 
@@ -764,16 +693,19 @@ def generate_static_pages(
 
     # Standalone pages
     if standalones:
+        from .content import _extract_body_from_html
+        from .parsers import render_markdown as _render_md
+
         st_dir = cfg.root_dir / "standalone"
         st_dir.mkdir(parents=True, exist_ok=True)
         for page in standalones:
             path = cfg.standalone_dir / page.file
             if path.is_file():
                 content = path.read_text(encoding="utf-8")
-                body = _get_extract_body()(content)
+                body = _extract_body_from_html(content)
                 html = generate_standalone_html(
                     title=page.title or page.file,
-                    content=_get_render_markdown()(body) if body else "",
+                    content=_render_md(body) if body else "",
                     summary=page.summary,
                     config=cfg,
                     theme_css=theme_css,

@@ -1,7 +1,18 @@
-/* Dark mode overrides - loaded via media query or .dark class */
+/* TinyPage Cyber-Lime Theme — Dark mode enhancements */
 
-/* When .dark is explicitly set on html element */
-html.dark body {
-  background: var(--bg);
-  color: var(--text);
+/* Default dark is already in theme.css :root; this adds subtle enhancements */
+html.dark,
+:root {
+  --primary: #ccff00;
+  --accent: #39ff14;
+  --text: #e8e8e8;
+  --text-light: #888888;
+  --bg: #0a0a0a;
+  --surface: #141414;
+  --surface-hover: #1a1a1a;
+  --border: #2a2a2a;
+  --code-bg: #0d0d0d;
+  --shadow: rgba(0, 0, 0, 0.6);
+  --glow: rgba(204, 255, 0, 0.35);
+  --glow-strong: rgba(204, 255, 0, 0.6);
 }

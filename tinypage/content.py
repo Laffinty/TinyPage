@@ -288,10 +288,10 @@ def write_article(
         # Highlight code blocks
         html_body = highlight_code_blocks(html_body)
 
-        # Lazy import to avoid circular dependency
-        from .generator import generate_article_html
+        if html_generator is None:
+            from .generator import generate_article_html as html_generator
 
-        full_html = generate_article_html(
+        full_html = html_generator(
             title=title,
             date=date,
             slug=slug,
