@@ -25,8 +25,11 @@ def site(tmp_path):
     for sub in ("article", "standalone", "list", "static"):
         (cfg.root_dir / sub).mkdir(parents=True, exist_ok=True)
 
-    # Config.theme_dir is relative to CWD; point it at this fixture's themes.
-    cfg = cfg.merge(theme_name=str(themes).replace("\\", "/").split("/")[-1])
+    # NOTE: Config.theme_dir is `Path("themes") / theme_name`, resolved against
+    # the *current working directory* (P2-2). It cannot be pointed at tmp_path
+    # without a code change, so these tests exercise whatever `themes/<name>`
+    # exists relative to the repo root. Do not "fix" this fixture by faking a
+    # theme_name -- that silently tests the real theme directory instead.
     return cfg
 
 

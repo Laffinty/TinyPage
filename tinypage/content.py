@@ -518,7 +518,22 @@ def get_raw_content(path: Path) -> str:
                 logger.warning(f"[MIGRATE] Could not write {src.name}: {e}")
             return body
 
-        # No embedded body at all: fall back to summary.
+        # No embedded body. A hand-written article keeps its text in the
+        # rendered page's post-content div -- recover that rather than the
+        # summary, which parse_meta() truncates to ~200 characters. Falling
+        # through to the summary here would silently discard the rest of the
+        # article, and writing it to the .md would make that loss permanent.
+        if "<div class=\"post-content\">" in text:
+            extracted = _extract_body_from_html(text)
+            if extracted:
+                try:
+                    write_source(path, extracted)
+                    logger.info(f"[MIGRATE] Recovered body from rendered page to {src.name}")
+                except OSError as e:
+                    logger.warning(f"[MIGRATE] Could not write {src.name}: {e}")
+                return extracted
+
+        # Genuinely bodiless file: fall back to summary.
         meta = parse_meta(path, 10 * 1024 * 1024)
         return meta.summary or "" if meta else ""
     except Exception:

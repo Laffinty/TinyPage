@@ -4,7 +4,6 @@ from __future__ import annotations
 
 import logging
 import os
-import shutil
 import sys
 import time
 from pathlib import Path
@@ -35,26 +34,8 @@ def _setup_directories(cfg) -> None:
         d.mkdir(parents=True, exist_ok=True)
 
 
-def _get_template_static() -> str:
-    """Return minimal static directory template."""
-    return """/* TinyPage Static Files */
-:root {
-    --tp-color: #2c3e50;
-}
-"""
-
-
-def _get_template_article(title: str) -> str:
-    """Return a template article file in the current on-disk format."""
-    from .content import _meta_header
-    from .security import slugify
-
-    date = time.strftime("%Y-%m-%d %H:%M")
-    return _meta_header(title, date, slugify(title), "", "A new article", "", "published")
-
-
 def _get_template_article_body(title: str) -> str:
-    """Return the markdown source that pairs with _get_template_article()."""
+    """Return the markdown source for a new article."""
     return f"""# {title}
 
 ## Introduction
@@ -71,8 +52,8 @@ Wrap up your article.
 """
 
 
-def _get_template_standalone(title: str, fname: str) -> str:
-    """Return a template standalone page in the current on-disk format."""
+def _get_template_standalone(title: str) -> str:
+    """Return the metadata header for a standalone page."""
     from .core.article_store import meta_value
 
     return (
@@ -82,7 +63,7 @@ def _get_template_standalone(title: str, fname: str) -> str:
 
 
 def _get_template_standalone_body(title: str, fname: str = "about") -> str:
-    """Return the markdown source that pairs with _get_template_standalone()."""
+    """Return the markdown source for a standalone page."""
     return f"""# {title}
 
 This is a standalone page. Edit `pages/standalone/{fname}` or the matching
@@ -341,7 +322,7 @@ code { background: var(--code-bg); padding: 0.2em 0.4em; border-radius: 3px; }
     )
 
     (target / "pages/standalone/about.html").write_text(
-        _get_template_standalone("About", "about.html"), encoding="utf-8"
+        _get_template_standalone("About"), encoding="utf-8"
     )
     (target / "pages/standalone/about.md").write_text(
         _get_template_standalone_body("About", "about.html"), encoding="utf-8"

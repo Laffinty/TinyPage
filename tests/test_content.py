@@ -143,6 +143,34 @@ def test_delete_article_removes_markdown_source(site, article_body):
     assert not list(site.article_dir.glob("*.backup"))
 
 
+def test_hand_written_article_is_not_truncated(site):
+    """A hand-written article keeps its text in the rendered page.
+
+    parse_meta() derives a ~200-character summary from that text. Falling back
+    to the summary discarded the rest of the article on the first build, and
+    once bodies live in .md files that truncation would have become the
+    permanent source of truth.
+    """
+    body = " ".join(f"sentence{i}" for i in range(120))
+    path = site.article_dir / "2026-01-09-hand.html"
+    path.write_text(
+        "<!-- title: Hand -->\n<!-- date: 2026-01-09 00:00 -->\n"
+        "<!-- slug: hand -->\n<!-- tags:  -->\n<!-- summary:  -->\n"
+        "<!-- category:  -->\n<!-- status: published -->\n"
+        f'<div class="post-content"><p>{body}</p></div>\n',
+        encoding="utf-8",
+    )
+
+    assert len(C.parse_meta(path).summary) < len(body)  # summary is a truncation
+    assert C.get_raw_content(path) == body
+
+    C.regenerate_all_articles(
+        C.list_articles(site.article_dir), site.article_dir, site
+    )
+    assert C.get_raw_content(path) == body
+    assert len(source_path(path).read_text(encoding="utf-8")) == len(body)
+
+
 def test_migrated_file_has_no_embedded_body(article_body):
     """A migrated file carries metadata only; the body lives in the .md."""
     migrated = "<!-- title: T -->\n<!-- status: published -->\n<!DOCTYPE html><html></html>"
