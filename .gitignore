@@ -28,33 +28,48 @@ ENV/
 #.idea/
 
 # -----------------------------------------------------------------------------
-# TinyPage project specific / TinyPage 项目特定
+# TinyPage 项目特定规则
 # -----------------------------------------------------------------------------
 
-# Runtime secrets / 运行时密码
+# 运行时密钥
 admin_password.txt
+*.pem
+*.key
 
-# Runtime logs / 运行时日志
+# 运行时日志
 run.log
 run.err
 security_audit.log
 
-# Snapshot files / 快照文件
+# 旧版本残留备份（重构前的单体 admin.py.bak 曾在库中 81KB）
+*.bak
+
+# 原子写入的中间产物（异常中断时可能残留）
+*.html.tmp
+*.md.tmp
+*.html.backup
+*.md.backup
+
+# 快照文件
 snapshot_*.html
 
 # Windows artifact
 nul
 
-# Generated site output / 生成的站点输出
+# -----------------------------------------------------------------------------
+# 生成物（可随时由 tinypage build 重建，不应入库）
+# -----------------------------------------------------------------------------
+# 注意：pages/article/ 与 pages/standalone/ 是用户内容，**必须入库**。
+# 其中 *.md 是正文唯一真相源，*.html 是元数据 + 渲染产物。
+# 早期版本把这两个目录整个 ignore 掉了，与 README 宣称的
+# "Git-friendly: Version control your content" 直接矛盾。
 pages/index.html
 pages/search.html
-pages/robots.txt
 pages/rss.xml
 pages/sitemap.xml
 pages/search-index.json
-pages/article/
+pages/robots.txt
 pages/list/
 pages/category/
-pages/standalone/
 pages/static/
 pages/.tinypage/
