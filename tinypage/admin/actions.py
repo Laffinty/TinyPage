@@ -34,7 +34,7 @@ from .responses import redirect_response, error_response, json_error_response, h
 logger = logging.getLogger(__name__)
 
 
-def create_article(environ: dict, cfg: Config, post_data: dict) -> list[bytes]:
+def create_article(environ: dict, start_response: StartResponse, cfg: Config, post_data: dict) -> list[bytes]:
     title = post_data.get("title", [""])[0]
     date = post_data.get("date", [""])[0]
     content = post_data.get("content", [""])[0]
@@ -64,7 +64,7 @@ def create_article(environ: dict, cfg: Config, post_data: dict) -> list[bytes]:
     return redirect_response(start_response, "/")
 
 
-def save_article(environ: dict, cfg: Config, post_data: dict) -> list[bytes]:
+def save_article(environ: dict, start_response: StartResponse, cfg: Config, post_data: dict) -> list[bytes]:
     fname = post_data.get("file", [""])[0]
     title = post_data.get("title", [""])[0]
     date = post_data.get("date", [""])[0]
@@ -93,7 +93,7 @@ def save_article(environ: dict, cfg: Config, post_data: dict) -> list[bytes]:
     return redirect_response(start_response, "/")
 
 
-def delete_article_action(environ: dict, cfg: Config, post_data: dict) -> list[bytes]:
+def delete_article_action(environ: dict, start_response: StartResponse, cfg: Config, post_data: dict) -> list[bytes]:
     fname = post_data.get("file", [""])[0]
     client_ip = get_real_ip(environ)
     if not validate_filename(fname):
@@ -114,7 +114,7 @@ def delete_article_action(environ: dict, cfg: Config, post_data: dict) -> list[b
     return redirect_response(start_response, "/")
 
 
-def create_page(environ: dict, cfg: Config, post_data: dict) -> list[bytes]:
+def create_page(environ: dict, start_response: StartResponse, cfg: Config, post_data: dict) -> list[bytes]:
     from ..content import validate_page_filename
 
     title = post_data.get("title", [""])[0]
@@ -140,7 +140,7 @@ def create_page(environ: dict, cfg: Config, post_data: dict) -> list[bytes]:
     return redirect_response(start_response, "/pages")
 
 
-def save_page(environ: dict, cfg: Config, post_data: dict) -> list[bytes]:
+def save_page(environ: dict, start_response: StartResponse, cfg: Config, post_data: dict) -> list[bytes]:
     from ..content import validate_page_filename
 
     fname = post_data.get("file", [""])[0]
@@ -168,7 +168,7 @@ def save_page(environ: dict, cfg: Config, post_data: dict) -> list[bytes]:
     return redirect_response(start_response, "/pages")
 
 
-def delete_page_action(environ: dict, cfg: Config, post_data: dict) -> list[bytes]:
+def delete_page_action(environ: dict, start_response: StartResponse, cfg: Config, post_data: dict) -> list[bytes]:
     from ..content import validate_page_filename
 
     fname = post_data.get("file", [""])[0]
@@ -191,7 +191,7 @@ def delete_page_action(environ: dict, cfg: Config, post_data: dict) -> list[byte
     return redirect_response(start_response, "/pages")
 
 
-def upload_image(environ: dict, cfg: Config, post_data: dict) -> list[bytes]:
+def upload_image(environ: dict, start_response: StartResponse, cfg: Config, post_data: dict) -> list[bytes]:
     client_ip = get_real_ip(environ)
     filename = post_data.get("filename", [""])[0]
     data_b64 = post_data.get("data", [""])[0]
@@ -265,7 +265,7 @@ def upload_image(environ: dict, cfg: Config, post_data: dict) -> list[bytes]:
     return [json.dumps({"success": True, "url": rel_path}).encode("utf-8")]
 
 
-def regenerate(environ: dict, cfg: Config) -> list[bytes]:
+def regenerate(environ: dict, start_response: StartResponse, cfg: Config) -> list[bytes]:
     client_ip = get_real_ip(environ)
     arts = list_articles(cfg.article_dir, cfg.max_file_size)
     standalones = list_standalones(cfg.standalone_dir, cfg.max_file_size)
@@ -282,7 +282,7 @@ def regenerate(environ: dict, cfg: Config) -> list[bytes]:
     return redirect_response(start_response, "/")
 
 
-def live_preview(environ: dict, cfg: Config, post_data: dict) -> list[bytes]:
+def live_preview(environ: dict, start_response: StartResponse, cfg: Config, post_data: dict) -> list[bytes]:
     from ..parsers import render_markdown
     from ..security import get_security_headers
 
@@ -293,7 +293,7 @@ def live_preview(environ: dict, cfg: Config, post_data: dict) -> list[bytes]:
     return [html.encode("utf-8")]
 
 
-def ai_assist(environ: dict, cfg: Config, post_data: dict) -> list[bytes]:
+def ai_assist(environ: dict, start_response: StartResponse, cfg: Config, post_data: dict) -> list[bytes]:
     from ..core.ai_assistance import build_ai_assistance, AIAssistanceError
 
     action = post_data.get("action", [""])[0]
@@ -329,7 +329,7 @@ def ai_assist(environ: dict, cfg: Config, post_data: dict) -> list[bytes]:
     return [json.dumps(result).encode("utf-8")]
 
 
-def translate_article_action(environ: dict, cfg: Config, post_data: dict) -> list[bytes]:
+def translate_article_action(environ: dict, start_response: StartResponse, cfg: Config, post_data: dict) -> list[bytes]:
     fname = post_data.get("file", [""])[0]
     target_lang = post_data.get("lang", ["en"])[0]
     client_ip = get_real_ip(environ)
@@ -345,7 +345,7 @@ def translate_article_action(environ: dict, cfg: Config, post_data: dict) -> lis
         return error_response(start_response, "400 Bad Request", result.get("error", "翻译失败"))
 
 
-def set_theme(environ: dict, cfg: Config, post_data: dict) -> list[bytes]:
+def set_theme(environ: dict, start_response: StartResponse, cfg: Config, post_data: dict) -> list[bytes]:
     theme_name = post_data.get("theme", [""])[0]
     if not theme_name:
         return error_response(start_response, "400 Bad Request", "Missing theme name")
@@ -387,6 +387,17 @@ def login_handler(environ: dict, start_response: StartResponse, cfg: Config, pos
 
     if not validate_csrf_token(environ, csrf_token, cfg.admin_port, cfg.bind_domain):
         return redirect_response(start_response, "/login?error=1")
+
+    # Defense in depth: bootstrap.prepare_config() guarantees a non-empty
+    # password, but if an entry point ever bypasses it, an empty expected
+    # password would make compare_digest("", "") succeed for anyone.
+    if not cfg.admin_pass:
+        logger.error("[AUTH-BLOCK] admin_pass is empty -- refusing all logins")
+        return error_response(
+            start_response,
+            "503 Service Unavailable",
+            "Admin password is not configured. Set ADMIN_PASS and restart.",
+        )
 
     if auth_tracker.is_locked_out(client_ip):
         return redirect_response(start_response, "/login?locked=1")

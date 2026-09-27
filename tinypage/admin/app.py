@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import io
+import inspect
 import json
 import logging
 from typing import Any
@@ -28,6 +29,27 @@ from . import views
 from . import actions
 
 logger = logging.getLogger(__name__)
+
+
+def _verify_handler_arities() -> None:
+    """Fail loudly at import time if a handler's signature drifts.
+
+    The regression this guards against is concrete: ``actions.*`` were called
+    with ``(environ, start_response, cfg, post_data)`` while every handler was
+    defined with three parameters, so all 12 write actions returned 500. A
+    request-time ``TypeError`` is easy to miss; an import-time failure is not.
+    """
+    problems: list[str] = []
+    for route, handler in AdminApp._POST_HANDLERS.items():
+        count = len(inspect.signature(handler).parameters)
+        if count != 4:
+            problems.append(f"{route} -> {handler.__name__}: {count} params, dispatch passes 4")
+    for route, handler in AdminApp._POST_HANDLERS_NO_BODY.items():
+        count = len(inspect.signature(handler).parameters)
+        if count != 3:
+            problems.append(f"{route} -> {handler.__name__}: {count} params, dispatch passes 3")
+    if problems:
+        raise TypeError("AdminApp route/handler contract broken:\n  - " + "\n  - ".join(problems))
 
 
 class AdminApp:
@@ -65,6 +87,32 @@ class AdminApp:
     }
 
     _CSRF_EXEMPT_POST: set[str] = {"/upload"}
+
+    # Table-driven dispatch. This used to be a 24-line if/elif chain that called
+    # every handler with a hard-coded argument list; when the handlers' signatures
+    # drifted (start_response was never a parameter, so all 12 write actions
+    # raised TypeError) nothing caught it. The arity guard below now fails at
+    # import time instead of at request time.
+    #
+    # Handlers that read POST form fields.
+    _POST_HANDLERS: dict[str, Any] = {
+        "upload_image": actions.upload_image,
+        "create_article": actions.create_article,
+        "save_article": actions.save_article,
+        "delete_article": actions.delete_article_action,
+        "create_page": actions.create_page,
+        "save_page": actions.save_page,
+        "delete_page": actions.delete_page_action,
+        "live_preview": actions.live_preview,
+        "set_theme": actions.set_theme,
+        "ai_assist": actions.ai_assist,
+        "translate_article": actions.translate_article_action,
+    }
+
+    # Handlers that ignore the POST body.
+    _POST_HANDLERS_NO_BODY: dict[str, Any] = {
+        "regenerate": actions.regenerate,
+    }
 
     def __init__(self, config: Config):
         self.cfg = config
@@ -211,33 +259,16 @@ class AdminApp:
             if not is_valid_csrf:
                 return error_response(start_response, "403 Forbidden", "CSRF validation failed")
 
-        # Dispatch to action handlers
-        if route == "upload_image":
-            return actions.upload_image(environ, start_response, self.cfg, post_data)
-        elif route == "create_article":
-            return actions.create_article(environ, start_response, self.cfg, post_data)
-        elif route == "save_article":
-            return actions.save_article(environ, start_response, self.cfg, post_data)
-        elif route == "delete_article":
-            return actions.delete_article_action(environ, start_response, self.cfg, post_data)
-        elif route == "create_page":
-            return actions.create_page(environ, start_response, self.cfg, post_data)
-        elif route == "save_page":
-            return actions.save_page(environ, start_response, self.cfg, post_data)
-        elif route == "delete_page":
-            return actions.delete_page_action(environ, start_response, self.cfg, post_data)
-        elif route == "regenerate":
-            return actions.regenerate(environ, start_response, self.cfg)
-        elif route == "live_preview":
-            return actions.live_preview(environ, start_response, self.cfg, post_data)
-        elif route == "set_theme":
-            return actions.set_theme(environ, start_response, self.cfg, post_data)
-        elif route == "ai_assist":
-            return actions.ai_assist(environ, start_response, self.cfg, post_data)
-        elif route == "translate_article":
-            return actions.translate_article_action(environ, start_response, self.cfg, post_data)
-        else:
-            return self._send_404(start_response)
+        # Dispatch to action handlers (table-driven; see _POST_HANDLERS)
+        handler = self._POST_HANDLERS.get(route)
+        if handler is not None:
+            return handler(environ, start_response, self.cfg, post_data)
+
+        handler = self._POST_HANDLERS_NO_BODY.get(route)
+        if handler is not None:
+            return handler(environ, start_response, self.cfg)
+
+        return self._send_404(start_response)
 
     def _route_login_post(self, environ: dict, start_response: StartResponse) -> list[bytes]:
         post_data = self._get_post_data(environ)
@@ -296,3 +327,8 @@ class AdminApp:
         data = environ["wsgi.input"].read(cl)
         environ["wsgi.input"] = io.BytesIO(data)
         return parse_qs(data.decode("utf-8", errors="replace"))
+
+
+# Runs after the class body exists. A mismatch is a programming error, not a
+# runtime condition, so fail at import rather than on the first request.
+_verify_handler_arities()

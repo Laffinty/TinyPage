@@ -11,6 +11,12 @@ from datetime import datetime
 from pathlib import Path
 from typing import Optional
 
+from .core.article_store import (
+    decode_content,
+    meta_value,
+    source_path,
+    write_source,
+)
 from .models import ArticleMeta
 from .parsers import (
     render_markdown,
@@ -24,7 +30,6 @@ from .parsers import (
     build_article_title_map,
 )
 from .security import (
-    escape_html,
     validate_filename,
     slugify,
 )
@@ -115,22 +120,33 @@ def extract_bidirectional_links(content: str) -> list[str]:
 
 
 def delete_article(path: Path) -> None:
-    """Safely delete an article with backup-and-verify."""
+    """Safely delete an article (and its markdown source) with backup-and-verify."""
     import shutil
 
     if not path.is_file():
         return
     backup = path.with_suffix(".html.backup")
+    src = source_path(path)
+    src_backup = src.with_suffix(".md.backup")
     try:
         shutil.copy2(path, backup)
+        had_src = src.is_file()
+        if had_src:
+            shutil.copy2(src, src_backup)
         path.unlink()
+        if had_src and src.exists():
+            src.unlink()
         if path.exists():
             raise OSError("File deletion verification failed")
         backup.unlink()
+        if had_src and src_backup.exists():
+            src_backup.unlink()
         logger.info(f"[DELETE] Article: {path.name}")
     except Exception:
         if backup.exists():
             shutil.move(backup, path)
+        if src_backup.exists():
+            shutil.move(src_backup, src)
         raise
 
 
@@ -306,15 +322,10 @@ def write_article(
 
     temp_path = path.with_suffix(".html.tmp")
     try:
+        # Body goes to the sibling .md; the HTML carries metadata + rendered page.
+        write_source(path, content)
         with open(temp_path, "w", encoding="utf-8") as f:
-            f.write(f"<!-- title: {escape_html(title)} -->\n")
-            f.write(f"<!-- date: {escape_html(date)} -->\n")
-            f.write(f"<!-- slug: {escape_html(slug)} -->\n")
-            f.write(f"<!-- tags: {escape_html(tags)} -->\n")
-            f.write(f"<!-- summary: {escape_html(summary)} -->\n")
-            f.write(f"<!-- category: {escape_html(category)} -->\n")
-            f.write(f"<!-- status: {escape_html(status)} -->\n")
-            f.write(f"<!-- markdown: {escape_html(content)} -->\n")
+            f.write(_meta_header(title, date, slug, tags, summary, category, status))
             f.write(full_html)
         os.replace(temp_path, path)
         logger.info(f"[WRITE] Article: {fname}")
@@ -323,6 +334,32 @@ def write_article(
             temp_path.unlink()
         logger.error(f"[WRITE-FAILED] Article: {fname}, error: {e}")
         raise
+
+
+def _meta_header(
+    title: str,
+    date: str,
+    slug: str,
+    tags: str,
+    summary: str,
+    category: str,
+    status: str,
+) -> str:
+    """Render the metadata comment header.
+
+    Values are flattened onto single lines so ``parse_meta``'s line-based
+    reader cannot be broken by a newline in a title or summary.
+    """
+    fields = (
+        ("title", title),
+        ("date", date),
+        ("slug", slug),
+        ("tags", tags),
+        ("summary", summary),
+        ("category", category),
+        ("status", status),
+    )
+    return "".join(f"<!-- {k}: {meta_value(v)} -->\n" for k, v in fields)
 
 
 # ---------- Phase 3: Digital Garden Features ----------
@@ -455,22 +492,35 @@ def build_backlink_index(
 
 def get_raw_content(path: Path) -> str:
     """
-    Extract raw markdown content from article HTML file.
-    Tries to extract <!-- markdown: ... --> comment, or returns summary.
+    Read the raw markdown body for an article.
+
+    Prefers the sibling ``.md`` source file. If it is missing -- a legacy site
+    that has not been built since the upgrade, or a file whose body is still
+    embedded in an HTML comment -- the body is recovered from the HTML and the
+    ``.md`` is written, so migration happens on first read with no manual step.
     """
     try:
         if not path.is_file():
             return ""
 
-        content = path.read_text(encoding="utf-8")
+        src = source_path(path)
+        if src.is_file():
+            return src.read_text(encoding="utf-8")
 
-        # Look for <!-- markdown: ... --> comment
-        markdown_match = re.search(r"<!-- markdown:\s*(.*?)\s*-->", content, re.DOTALL)
-        if markdown_match:
-            return markdown_match.group(1)
+        # Lazy migration from an embedded body.
+        text = path.read_text(encoding="utf-8")
+        body = decode_content(text)
+        if body is not None:
+            try:
+                write_source(path, body)
+                logger.info(f"[MIGRATE] Extracted body to {src.name}")
+            except OSError as e:
+                logger.warning(f"[MIGRATE] Could not write {src.name}: {e}")
+            return body
 
-        # Fallback: extract from summary
-        return parse_meta(path, 10 * 1024 * 1024).summary or ""
+        # No embedded body at all: fall back to summary.
+        meta = parse_meta(path, 10 * 1024 * 1024)
+        return meta.summary or "" if meta else ""
     except Exception:
         return ""
 
@@ -573,15 +623,14 @@ def regenerate_all_articles(
         # Save the updated article
         temp_path = path.with_suffix(".html.tmp")
         try:
+            write_source(path, raw_content)
             with open(temp_path, "w", encoding="utf-8") as f:
-                f.write(f"<!-- title: {escape_html(art.title)} -->\n")
-                f.write(f"<!-- date: {escape_html(art.date)} -->\n")
-                f.write(f"<!-- slug: {escape_html(art.slug)} -->\n")
-                f.write(f"<!-- tags: {escape_html(art.tags)} -->\n")
-                f.write(f"<!-- summary: {escape_html(art.summary)} -->\n")
-                f.write(f"<!-- category: {escape_html(art.category)} -->\n")
-                f.write(f"<!-- status: {escape_html(art.status)} -->\n")
-                f.write(f"<!-- markdown: {escape_html(raw_content)} -->\n")
+                f.write(
+                    _meta_header(
+                        art.title, art.date, art.slug, art.tags,
+                        art.summary, art.category, art.status,
+                    )
+                )
                 f.write(full_html)
             os.replace(temp_path, path)
             count += 1
@@ -668,9 +717,10 @@ def write_standalone(
 
     temp_path = path.with_suffix(".html.tmp")
     try:
+        write_source(path, content)
         with open(temp_path, "w", encoding="utf-8") as f:
-            f.write(f"<!-- title: {escape_html(title)} -->\n")
-            f.write(f"<!-- summary: {escape_html(summary)} -->\n")
+            f.write(f"<!-- title: {meta_value(title)} -->\n")
+            f.write(f"<!-- summary: {meta_value(summary)} -->\n")
             f.write(full_html)
         os.replace(temp_path, path)
         logger.info(f"[WRITE] Standalone: {fname}")

@@ -5,7 +5,6 @@ from __future__ import annotations
 import logging
 import os
 import sys
-import tempfile
 import threading
 from pathlib import Path
 
@@ -14,6 +13,7 @@ if hasattr(sys.stdout, "reconfigure"):
     sys.stdout.reconfigure(encoding="utf-8")
     sys.stderr.reconfigure(encoding="utf-8")
 
+from .bootstrap import prepare_config
 from .config import Config
 from .content import list_articles
 from .frontend import StaticApp
@@ -21,51 +21,6 @@ from .generator import generate_static_pages
 from .admin import AdminApp
 
 logger = logging.getLogger(__name__)
-
-_PASSWORD_CACHE_FILE = Path(tempfile.gettempdir()) / ".tinypage_admin_pass"
-
-
-def ensure_admin_password(cfg: Config) -> str:
-    """Get or generate admin password. Persist generated password to temp dir."""
-    password = cfg.admin_pass
-    if password:
-        return password
-
-    # Try to read cached password from temp dir
-    if _PASSWORD_CACHE_FILE.exists():
-        try:
-            cached = _PASSWORD_CACHE_FILE.read_text(encoding="utf-8").strip()
-            if cached and len(cached) >= 24:
-                logger.info("[INIT] Reusing cached admin password from temp file")
-                return cached
-        except (OSError, ValueError):
-            pass
-
-    # Generate new random password
-    import secrets
-
-    base = secrets.token_urlsafe(24)
-    suffix = secrets.choice(["#", "+", "%"])
-    password = base[:31] + suffix
-
-    # Save to system temp directory instead of project dir
-    try:
-        _PASSWORD_CACHE_FILE.write_text(password, encoding="utf-8")
-        try:
-            _PASSWORD_CACHE_FILE.chmod(0o600)  # Restrict permissions on Unix
-        except OSError:
-            # Windows doesn't fully support chmod, but write_text still works
-            pass
-    except OSError as e:
-        logger.error(f"[INIT-FAILED] Cannot save password cache: {e}")
-
-    print(f"\n{'=' * 70}")
-    print("WARNING: ADMIN_PASS is not set!")
-    print(f"Random password generated and cached to: {_PASSWORD_CACHE_FILE}")
-    print("Set ADMIN_PASS environment variable for persistent authentication.")
-    print(f"{'=' * 70}\n")
-    logger.warning(f"[INIT] Random password cached to {_PASSWORD_CACHE_FILE}")
-    return password
 
 
 def setup_logging() -> None:
@@ -108,18 +63,9 @@ def main() -> None:
     cfg.article_dir.mkdir(parents=True, exist_ok=True)
     cfg.list_dir.mkdir(parents=True, exist_ok=True)
 
-    # Ensure admin password
-    password = ensure_admin_password(cfg)
-    cfg = cfg.merge(admin_pass=password)
-
-    # Configure trusted proxies if bind_domain is set (implies reverse proxy)
-    if cfg.bind_domain:
-        from .security import configure_trusted_proxies
-        configure_trusted_proxies({"127.0.0.1", "::1", "172.17.0.1"})
-
-    # Validate config and show warnings
-    for warning in cfg.validate_startup():
-        logger.warning(f"[CONFIG] {warning}")
+    # Ensure admin password + trusted proxies + config warnings.
+    # Shared with the `tinypage serve` CLI entry point.
+    cfg = prepare_config(cfg)
 
     # Generate initial pages
     index_path = cfg.root_dir / "index.html"

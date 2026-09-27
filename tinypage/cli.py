@@ -45,21 +45,21 @@ def _get_template_static() -> str:
 
 
 def _get_template_article(title: str) -> str:
-    """Return a template article file."""
+    """Return a template article file in the current on-disk format."""
+    from .content import _meta_header
+    from .security import slugify
+
     date = time.strftime("%Y-%m-%d %H:%M")
-    slug = title.lower().replace(" ", "-")
-    return f"""<!-- title: {title} -->
-<!-- date: {date} -->
-<!-- slug: {slug} -->
-<!-- tags: -->
-<!-- summary: A new article -->
-<!-- category: -->
-<!-- status: published -->
-<!-- markdown: Start writing your article here...
+    return _meta_header(title, date, slugify(title), "", "A new article", "", "published")
+
+
+def _get_template_article_body(title: str) -> str:
+    """Return the markdown source that pairs with _get_template_article()."""
+    return f"""# {title}
 
 ## Introduction
 
-Write your content in Markdown format.
+Start writing your article here in Markdown.
 
 ## Section 1
 
@@ -68,25 +68,25 @@ More content goes here.
 ## Conclusion
 
 Wrap up your article.
--->
-
-<h1>{title}</h1>
-<p>This is a template article. Edit the <code>markdown:</code> section above to write your content.</p>
 """
 
 
 def _get_template_standalone(title: str, fname: str) -> str:
-    """Return a template standalone page."""
-    return f"""<!-- title: {title} -->
-<!-- summary: A standalone page -->
-<!-- markdown: Write your standalone page content here...
+    """Return a template standalone page in the current on-disk format."""
+    from .core.article_store import meta_value
 
-## {title}
+    return (
+        f"<!-- title: {meta_value(title)} -->\n"
+        f"<!-- summary: {meta_value('A standalone page')} -->\n"
+    )
 
-This is a standalone page. Edit the content above.
--->
-<h1>{title}</h1>
-<p>Edit this template to create your standalone page.</p>
+
+def _get_template_standalone_body(title: str, fname: str = "about") -> str:
+    """Return the markdown source that pairs with _get_template_standalone()."""
+    return f"""# {title}
+
+This is a standalone page. Edit `pages/standalone/{fname}` or the matching
+`.md` file to customise it.
 """
 
 
@@ -179,6 +179,7 @@ def serve(host: str, port: int, admin_port: int, source: str, no_admin: bool):
         tinypage serve --no-admin          # Static server only
     """
     import threading
+    from .bootstrap import prepare_config
     from .config import Config
     from .content import list_articles, list_standalones
     from .frontend import StaticApp
@@ -192,6 +193,11 @@ def serve(host: str, port: int, admin_port: int, source: str, no_admin: bool):
         static_port=port,
         admin_port=admin_port,
     )
+
+    # Ensure an admin password exists, configure trusted proxies and surface
+    # config warnings. Must run for this entry point too -- skipping it left
+    # admin_pass empty, and an empty password passed the login comparison.
+    cfg = prepare_config(cfg)
 
     _setup_directories(cfg)
 
@@ -263,6 +269,8 @@ def new_site(name: str, template: str, dir: str | None):
 
     target.mkdir(parents=True, exist_ok=True)
 
+    from .content import _meta_header
+
     dirs = ["pages/article", "pages/list", "pages/standalone", "pages/static", "themes/default", "static"]
     for d in dirs:
         (target / d).mkdir(parents=True, exist_ok=True)
@@ -319,62 +327,25 @@ code { background: var(--code-bg); padding: 0.2em 0.4em; border-radius: 3px; }
 """
     (target / "themes/default/manifest.json").write_text(manifest, encoding="utf-8")
 
-    article_content = """<!-- title: Welcome to TinyPage -->
-<!-- date: 2024-01-01 00:00 -->
-<!-- slug: welcome -->
-<!-- tags: getting-started -->
-<!-- summary: Welcome to your new TinyPage site! -->
-<!-- category: -->
-<!-- status: published -->
-<!-- markdown: # Welcome to TinyPage!
+    # Filename must carry a YYYY-MM-DD- prefix or list_articles() skips it.
+    welcome_html = (
+        _meta_header("Welcome to TinyPage", "2024-01-01 00:00", "welcome",
+                     "getting-started", "Welcome to your new TinyPage site!",
+                     "", "published")
+    )
+    (target / "pages/article/2024-01-01-welcome.html").write_text(
+        welcome_html, encoding="utf-8"
+    )
+    (target / "pages/article/2024-01-01-welcome.md").write_text(
+        _get_template_article_body("Welcome to TinyPage!"), encoding="utf-8"
+    )
 
-Congratulations on creating your new site. Here's how to get started:
-
-## Writing Articles
-
-Create new `.html` files in `pages/article/` with the following format:
-
-```
-<!-- title: Your Title -->
-<!-- date: 2024-01-01 00:00 -->
-<!-- tags: tag1, tag2 -->
-<!-- summary: Brief description -->
-<!-- status: published -->
-<!-- markdown: Your content in **Markdown** format.
--->
-```
-
-## Features
-
-- **Bidirectional links**: Use `[[Page Title]]` syntax
-- **Table of Contents**: Auto-generated from headings
-- **Footnotes**: Use `[^1]` syntax
-- **Code highlighting**: Syntax highlighting for code blocks
-- **Dark mode**: Automatic theme switching
-
-## Admin Panel
-
-Start the server with `tinypage serve` and visit http://127.0.0.1:8081
-
-## Documentation
-
-See the README for more information.
--->
-<h1>Welcome to TinyPage!</h1>
-<p>Congratulations on creating your new site.</p>
-"""
-    (target / "pages/article/welcome.html").write_text(article_content, encoding="utf-8")
-
-    standalone_about = """<!-- title: About -->
-<!-- summary: About this site -->
-<!-- markdown: # About
-
-This is a TinyPage site. Edit `pages/standalone/about.html` to customize this page.
--->
-<h1>About</h1>
-<p>Edit this page to tell visitors about yourself or your project.</p>
-"""
-    (target / "pages/standalone/about.html").write_text(standalone_about, encoding="utf-8")
+    (target / "pages/standalone/about.html").write_text(
+        _get_template_standalone("About", "about.html"), encoding="utf-8"
+    )
+    (target / "pages/standalone/about.md").write_text(
+        _get_template_standalone_body("About", "about.html"), encoding="utf-8"
+    )
 
     readme_content = f"""# {name}
 

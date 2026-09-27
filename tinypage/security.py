@@ -274,7 +274,10 @@ def safe_path_check(path_str: str, base_dir: Path) -> Tuple[bool, Optional[Path]
         if path_str.startswith("/"):
             path_str = path_str[1:]
         target = (base / path_str).resolve()
-        if not str(target).startswith(str(base)):
+        # NOTE: must be a path-containment check, not a string prefix check.
+        # str(target).startswith(str(base)) also accepts sibling directories that
+        # merely share a name prefix (e.g. "pages-evil" for base "pages").
+        if target != base and not target.is_relative_to(base):
             logger.warning(f"[BLOCK] Path traversal: {path_str} -> {target}")
             return False, None
         safe_exts = {".html", ".xml", ".json", ".txt", ".js", ".css", ".png", ".jpg", ".jpeg", ".gif", ".svg", ".ico", ".woff2"}
