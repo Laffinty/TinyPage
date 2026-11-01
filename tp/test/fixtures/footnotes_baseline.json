@@ -1,0 +1,220 @@
+{
+  "adjacent_refs": {
+    "cleaned": "a[^1]b[^2]c\n\n\n\n",
+    "footnotes": [
+      {
+        "key": "1",
+        "text": "one"
+      },
+      {
+        "key": "2",
+        "text": "two"
+      }
+    ],
+    "html": "\n<section class=\"footnotes\">\n  <hr>\n  <ol>\n    <li id=\"fn-1\">one <a href=\"#fnref-1\">↩</a></li><li id=\"fn-2\">two <a href=\"#fnref-2\">↩</a></li>\n  </ol>\n</section>",
+    "refs": "a<sup><a href=\"#fn-1\" id=\"fnref-1\">[1]</a></sup>b<sup><a href=\"#fn-2\" id=\"fnref-2\">[2]</a></sup>c\n\n\n\n",
+    "render_raw": "a<sup><a href=\"#fn-1\" id=\"fnref-1\">[1]</a></sup>b<sup><a href=\"#fn-2\" id=\"fnref-2\">[2]</a></sup>c\n\n[^1]: one\n[^2]: two\n",
+    "src": "a[^1]b[^2]c\n\n[^1]: one\n[^2]: two\n"
+  },
+  "basic": {
+    "cleaned": "段落一[^1]，补充说明[^2]。\n\n\n\n",
+    "footnotes": [
+      {
+        "key": "1",
+        "text": "第一个脚注"
+      },
+      {
+        "key": "2",
+        "text": "第二个脚注"
+      }
+    ],
+    "html": "\n<section class=\"footnotes\">\n  <hr>\n  <ol>\n    <li id=\"fn-1\">第一个脚注 <a href=\"#fnref-1\">↩</a></li><li id=\"fn-2\">第二个脚注 <a href=\"#fnref-2\">↩</a></li>\n  </ol>\n</section>",
+    "refs": "段落一<sup><a href=\"#fn-1\" id=\"fnref-1\">[1]</a></sup>，补充说明<sup><a href=\"#fn-2\" id=\"fnref-2\">[2]</a></sup>。\n\n\n\n",
+    "render_raw": "段落一<sup><a href=\"#fn-1\" id=\"fnref-1\">[1]</a></sup>，补充说明<sup><a href=\"#fn-2\" id=\"fnref-2\">[2]</a></sup>。\n\n[^1]: 第一个脚注\n[^2]: 第二个脚注\n",
+    "src": "段落一[^1]，补充说明[^2]。\n\n[^1]: 第一个脚注\n[^2]: 第二个脚注\n"
+  },
+  "cjk_key": {
+    "cleaned": "中文键[^键值]测试。\n\n\n",
+    "footnotes": [
+      {
+        "key": "键值",
+        "text": "中文键的脚注"
+      }
+    ],
+    "html": "\n<section class=\"footnotes\">\n  <hr>\n  <ol>\n    <li id=\"fn-键值\">中文键的脚注 <a href=\"#fnref-键值\">↩</a></li>\n  </ol>\n</section>",
+    "refs": "中文键<sup><a href=\"#fn-键值\" id=\"fnref-键值\">[键值]</a></sup>测试。\n\n\n",
+    "render_raw": "中文键<sup><a href=\"#fn-键值\" id=\"fnref-键值\">[键值]</a></sup>测试。\n\n[^键值]: 中文键的脚注\n",
+    "src": "中文键[^键值]测试。\n\n[^键值]: 中文键的脚注\n"
+  },
+  "colon_in_key": {
+    "cleaned": "键含冒号[^a:b]。\n\n\n",
+    "footnotes": [
+      {
+        "key": "a:b",
+        "text": "值"
+      }
+    ],
+    "html": "\n<section class=\"footnotes\">\n  <hr>\n  <ol>\n    <li id=\"fn-a:b\">值 <a href=\"#fnref-a:b\">↩</a></li>\n  </ol>\n</section>",
+    "refs": "键含冒号<sup><a href=\"#fn-a:b\" id=\"fnref-a:b\">[a:b]</a></sup>。\n\n\n",
+    "render_raw": "键含冒号<sup><a href=\"#fn-a:b\" id=\"fnref-a:b\">[a:b]</a></sup>。\n\n[^a:b]: 值\n",
+    "src": "键含冒号[^a:b]。\n\n[^a:b]: 值\n"
+  },
+  "def_no_ref": {
+    "cleaned": "\n前面没有引用。\n",
+    "footnotes": [
+      {
+        "key": "lonely",
+        "text": "孤独定义"
+      }
+    ],
+    "html": "\n<section class=\"footnotes\">\n  <hr>\n  <ol>\n    <li id=\"fn-lonely\">孤独定义 <a href=\"#fnref-lonely\">↩</a></li>\n  </ol>\n</section>",
+    "refs": "\n前面没有引用。\n",
+    "render_raw": "[^lonely]: 孤独定义\n前面没有引用。\n",
+    "src": "[^lonely]: 孤独定义\n前面没有引用。\n"
+  },
+  "def_value_stripped": {
+    "cleaned": "\n正文。\n",
+    "footnotes": [
+      {
+        "key": "s",
+        "text": "两端空格"
+      }
+    ],
+    "html": "\n<section class=\"footnotes\">\n  <hr>\n  <ol>\n    <li id=\"fn-s\">两端空格 <a href=\"#fnref-s\">↩</a></li>\n  </ol>\n</section>",
+    "refs": "\n正文。\n",
+    "render_raw": "[^s]:   两端空格   \n正文。\n",
+    "src": "[^s]:   两端空格   \n正文。\n"
+  },
+  "direct_render_skip_defs": {
+    "cleaned": "x",
+    "footnotes": [
+      {
+        "key": "a",
+        "text": "v and ref[^b]"
+      }
+    ],
+    "html": "\n<section class=\"footnotes\">\n  <hr>\n  <ol>\n    <li id=\"fn-a\">v and ref[^b] <a href=\"#fnref-a\">↩</a></li>\n  </ol>\n</section>",
+    "refs": "x",
+    "render_raw": "x[^a]: v and ref<sup><a href=\"#fn-b\" id=\"fnref-b\">[b]</a></sup>",
+    "src": "x[^a]: v and ref[^b]"
+  },
+  "guard_dup_def": {
+    "cleaned": "dup \nalso \nend\n",
+    "footnotes": [
+      {
+        "key": "d",
+        "text": "first"
+      }
+    ],
+    "html": "\n<section class=\"footnotes\">\n  <hr>\n  <ol>\n    <li id=\"fn-d\">first <a href=\"#fnref-d\">↩</a></li>\n  </ol>\n</section>",
+    "refs": "dup \nalso \nend\n",
+    "render_raw": "dup [^d]: first\nalso [^d]: second\nend\n",
+    "src": "dup [^d]: first\nalso [^d]: second\nend\n"
+  },
+  "guard_empty_def_eol": {
+    "cleaned": "no content [^e]:",
+    "footnotes": [],
+    "html": "",
+    "refs": "no content [^e]:",
+    "render_raw": "no content [^e]:",
+    "src": "no content [^e]:"
+  },
+  "guard_midline_def": {
+    "cleaned": "def at mid ",
+    "footnotes": [
+      {
+        "key": "z",
+        "text": "value"
+      }
+    ],
+    "html": "\n<section class=\"footnotes\">\n  <hr>\n  <ol>\n    <li id=\"fn-z\">value <a href=\"#fnref-z\">↩</a></li>\n  </ol>\n</section>",
+    "refs": "def at mid ",
+    "render_raw": "def at mid [^z]: value",
+    "src": "def at mid [^z]: value"
+  },
+  "guard_newline_def": {
+    "cleaned": "before \nsecond line\nafter",
+    "footnotes": [
+      {
+        "key": "x",
+        "text": "first line"
+      }
+    ],
+    "html": "\n<section class=\"footnotes\">\n  <hr>\n  <ol>\n    <li id=\"fn-x\">first line <a href=\"#fnref-x\">↩</a></li>\n  </ol>\n</section>",
+    "refs": "before \nsecond line\nafter",
+    "render_raw": "before [^x]: first line\nsecond line\nafter",
+    "src": "before [^x]: first line\nsecond line\nafter"
+  },
+  "html_in_text": {
+    "cleaned": "脚注含 HTML[^h]。\n\n\n",
+    "footnotes": [
+      {
+        "key": "h",
+        "text": "<b>粗</b> & \"引号\" <tag> 'q'"
+      }
+    ],
+    "html": "\n<section class=\"footnotes\">\n  <hr>\n  <ol>\n    <li id=\"fn-h\">&lt;b&gt;粗&lt;/b&gt; &amp; &quot;引号&quot; &lt;tag&gt; &#x27;q&#x27; <a href=\"#fnref-h\">↩</a></li>\n  </ol>\n</section>",
+    "refs": "脚注含 HTML<sup><a href=\"#fn-h\" id=\"fnref-h\">[h]</a></sup>。\n\n\n",
+    "render_raw": "脚注含 HTML<sup><a href=\"#fn-h\" id=\"fnref-h\">[h]</a></sup>。\n\n[^h]: <b>粗</b> & \"引号\" <tag> 'q'\n",
+    "src": "脚注含 HTML[^h]。\n\n[^h]: <b>粗</b> & \"引号\" <tag> 'q'\n"
+  },
+  "mixed_defs_and_refs": {
+    "cleaned": "句[^a]尾。\n\n第二行保留\n\n",
+    "footnotes": [
+      {
+        "key": "a",
+        "text": "一行定义"
+      },
+      {
+        "key": "b",
+        "text": "后一个"
+      }
+    ],
+    "html": "\n<section class=\"footnotes\">\n  <hr>\n  <ol>\n    <li id=\"fn-a\">一行定义 <a href=\"#fnref-a\">↩</a></li><li id=\"fn-b\">后一个 <a href=\"#fnref-b\">↩</a></li>\n  </ol>\n</section>",
+    "refs": "句<sup><a href=\"#fn-a\" id=\"fnref-a\">[a]</a></sup>尾。\n\n第二行保留\n\n",
+    "render_raw": "句<sup><a href=\"#fn-a\" id=\"fnref-a\">[a]</a></sup>尾。\n[^a]: 一行定义\n第二行保留\n[^b]: 后一个\n",
+    "src": "句[^a]尾。\n[^a]: 一行定义\n第二行保留\n[^b]: 后一个\n"
+  },
+  "multi_ref_same_key": {
+    "cleaned": "同一个键[^k]出现两次[^k]。\n\n\n",
+    "footnotes": [
+      {
+        "key": "k",
+        "text": "重复引用"
+      }
+    ],
+    "html": "\n<section class=\"footnotes\">\n  <hr>\n  <ol>\n    <li id=\"fn-k\">重复引用 <a href=\"#fnref-k\">↩</a></li>\n  </ol>\n</section>",
+    "refs": "同一个键<sup><a href=\"#fn-k\" id=\"fnref-k\">[k]</a></sup>出现两次<sup><a href=\"#fn-k\" id=\"fnref-k\">[k]</a></sup>。\n\n\n",
+    "render_raw": "同一个键<sup><a href=\"#fn-k\" id=\"fnref-k\">[k]</a></sup>出现两次<sup><a href=\"#fn-k\" id=\"fnref-k\">[k]</a></sup>。\n\n[^k]: 重复引用\n",
+    "src": "同一个键[^k]出现两次[^k]。\n\n[^k]: 重复引用\n"
+  },
+  "no_footnotes": {
+    "cleaned": "普通段落，无脚注。\n",
+    "footnotes": [],
+    "html": "",
+    "refs": "普通段落，无脚注。\n",
+    "render_raw": "普通段落，无脚注。\n",
+    "src": "普通段落，无脚注。\n"
+  },
+  "ref_no_def": {
+    "cleaned": "引用没有定义[^ghost]，保持原样。\n",
+    "footnotes": [],
+    "html": "",
+    "refs": "引用没有定义<sup><a href=\"#fn-ghost\" id=\"fnref-ghost\">[ghost]</a></sup>，保持原样。\n",
+    "render_raw": "引用没有定义<sup><a href=\"#fn-ghost\" id=\"fnref-ghost\">[ghost]</a></sup>，保持原样。\n",
+    "src": "引用没有定义[^ghost]，保持原样。\n"
+  },
+  "single_ref": {
+    "cleaned": "正文[^note]结尾。\n\n\n",
+    "footnotes": [
+      {
+        "key": "note",
+        "text": "单个脚注"
+      }
+    ],
+    "html": "\n<section class=\"footnotes\">\n  <hr>\n  <ol>\n    <li id=\"fn-note\">单个脚注 <a href=\"#fnref-note\">↩</a></li>\n  </ol>\n</section>",
+    "refs": "正文<sup><a href=\"#fn-note\" id=\"fnref-note\">[note]</a></sup>结尾。\n\n\n",
+    "render_raw": "正文<sup><a href=\"#fn-note\" id=\"fnref-note\">[note]</a></sup>结尾。\n\n[^note]: 单个脚注\n",
+    "src": "正文[^note]结尾。\n\n[^note]: 单个脚注\n"
+  }
+}

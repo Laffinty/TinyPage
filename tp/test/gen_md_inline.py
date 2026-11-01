@@ -201,7 +201,7 @@ def main():
         'LET MUT(end, LEN(s))',
         C('WHILE', '&&(<(start, end), ==(SUB(s, start, 1), "-"))',
           [C('SET', 'start', '+(start, 1)')]),
-        C('WHILE', '&&(>(start, end), ==(SUB(s, -(end, 1), 1), "-"))',
+        C('WHILE', '&&(<(start, end), ==(SUB(s, -(end, 1), 1), "-"))',
           [C('SET', 'end', '-(end, 1)')]),
         'IF(<=(start, end), SUB(s, start, -(end, start)), "")',
     ], '// 去掉首尾的 "-"（对齐 .strip("-")）')

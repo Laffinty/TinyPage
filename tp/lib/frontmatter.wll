@@ -1,0 +1,86 @@
+// tp/lib/frontmatter.wll —— front-matter 元数据模块
+//
+// ⚠ 本文件由 tp/test/gen_frontmatter.py 生成 —— 请勿手改。
+//   改实现请改生成器（WLWL 的括号诊断不告诉你缺了几层）。
+//
+// 对齐目标（真 Python）：
+//   PARSE_META  == tinypage.content.parse_meta 的头部注释读取部分
+//   META_VALUE  == tinypage.core.article_store.meta_value
+//   META_HEADER == tinypage.content._meta_header
+// 逐字节对照基准：tp/test/fixtures/frontmatter_baseline.json
+//   （由 tp/test/gen_frontmatter_baseline.py 用真 Python 生成）
+//
+// 语义要点：
+//   · PARSE_META 只读**前 7 行**；每行先 strip；白名单外的键静默忽略；
+//     `(.*)` 贪婪 ⇒ 值吃到最后一个 `-->` 之前的全部内容；
+//     没读到 status（或为空串）⇒ 兜底 "published"。
+//   · META_VALUE 顺序：STR(v) → 连续换行压成一个空格 → HTML 转义 → TRIM
+//     （顺序不可换：转义后就没有裸换行可压了）。
+//   · META_HEADER 7 行固定顺序，恰好落在 PARSE_META 的前 7 行里（自洽）。
+//
+// 已知边界（与 Python 的细微口径差，详见生成器 docstring）：
+//   · 正则 \w / \s 为 ASCII-only；值两端只保证 ASCII 空白的 strip 一致。
+//   · 单独 \r 不切行（SPLIT_LINES 按 \n 切）；测试用 \n 与 \r\n。
+
+IMPORT("wlwl:std.str", ["SPLIT_LINES", "CAT"]);
+IMPORT("wlwl:std.regex", ["RE", "RE_SEARCH", "RE_REPLACE"]);
+IMPORT("./esc.wll", ["ESCAPE_HTML"]);
+
+// 头部注释正则 —— 逐字复刻 Python
+//   re.match(r"<!--\s*(\w+):\s*(.*)\s*-->", line.strip())
+// `(?m)` 使 RE_SEARCH 的 ^ 按行锚定：行已 strip ⇒ 与 re.match 等价。
+// ⚠ 文件里必须写 `\\s`（WLWL 字符串 `\s` → 正则 \s；写 \s 会 E0001）。
+LET(META_RE, RE("(?m)^<!--\\s*(\\w+):\\s*(.*)\\s*-->"));
+
+// meta_value 的 _UNSAFE_META = re.compile(r"[\r\n]+")：
+// 连续 \r/\n 序列压成**一个**空格（"a\n\n\nb" → "a b"，不是三个空格）。
+LET(UNSAFE_META_RE, RE("[\\r\\n]+"));
+
+// // 键是否在 8 键白名单里（白名单外静默忽略）
+     LET(is_allowed_key, FUN((key), (
+               ||(||(||(||(||(||(||(==(key, "title"), ==(key, "date")), ==(key, "slug")), ==(key, "tags")), ==(key, "summary")), ==(key, "category")), ==(key, "status")), ==(key, "markdown"))
+     )));
+
+// // 元数据值 → 单行安全串（对齐 meta_value）
+     LET(META_VALUE, FUN((v), (
+               // 顺序必须是：STR(v) → 压连续换行 → ESCAPE_HTML → TRIM;
+               // （TRIM 放最后：html.escape 不动两端空白，压完换行才轮到 trim 收口）;
+               TRIM(ESCAPE_HTML(RE_REPLACE(UNSAFE_META_RE, STR(v), " ")))
+     )));
+
+// // 读 .html 头部元数据 → DICT（对齐 parse_meta 的头部读取部分）
+     LET(PARSE_META, FUN((text), (
+               LET(lines, SPLIT_LINES(text));
+               // 只读前 7 行（Python: for i, line in enumerate(f): if i >= 7: break）;
+               LET(limit, IF(>(LEN(lines), 7), 7, LEN(lines)));
+               LET MUT(meta, DICT());
+               LET MUT(i, 0);
+               WHILE(<(i, limit), (
+                    LET(line, TRIM(lines[i]));
+                    LET(m, RE_SEARCH(META_RE, line));
+                    IF(==(TYPE(m), "NULL"), NULL, (
+                         // groups = [整体匹配, key, val]（RE_SEARCH 形状）;
+                         LET(g, m["groups"]);
+                         LET(key, g[1]);
+                         LET(val, TRIM(g[2]));
+                         IF(is_allowed_key(key), (
+                              // 白名单内才记录；INDEX_SET 同键后写覆盖先写（与 setattr 一致）;
+                              SET(meta, INDEX_SET(meta, key, val));
+                              NULL
+                         ), NULL)
+                    ));
+                    SET(i, +(i, 1))
+               ));
+               // if not meta.status: meta.status = "published"（缺省或空串都兜底）;
+               IF(==(AT_K(meta, "status", ""), ""), (SET(meta, INDEX_SET(meta, "status", "published")); NULL), NULL);
+               meta
+     )));
+
+// // 元数据注释头（对齐 _meta_header）
+     LET(META_HEADER, FUN((title, date, slug, tags, summary, category, status), (
+               // 7 字段固定顺序，每行 `<!-- {k}: {META_VALUE(v)} -->` 以 \n 结尾、;
+               // 各行无额外分隔直接相连 ⇒ 正好 7 行，落在 PARSE_META 的前 7 行里;
+               CAT("<!-- title: ", META_VALUE(title), " -->\n", "<!-- date: ", META_VALUE(date), " -->\n", "<!-- slug: ", META_VALUE(slug), " -->\n", "<!-- tags: ", META_VALUE(tags), " -->\n", "<!-- summary: ", META_VALUE(summary), " -->\n", "<!-- category: ", META_VALUE(category), " -->\n", "<!-- status: ", META_VALUE(status), " -->\n")
+     )));
+
+EXPORT(["PARSE_META", "META_VALUE", "META_HEADER"]);

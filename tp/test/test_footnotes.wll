@@ -1,0 +1,286 @@
+// tp/test/test_footnotes.wll —— 脚注模块测试（对照真 Python footnotes.py）
+//
+// ⚠ 本文件由 tp/test/gen_test_footnotes.py 生成 —— 请勿手改。
+//
+// 验收方式：每个用例都与**真 Python** tinypage.parsers.footnotes 逐字节对照。
+// 基准：tp/test/fixtures/footnotes_baseline.json
+//   （由 tp/test/gen_footnotes_baseline.py 用真 Python 生成；
+//    footnotes 顺序已按**定义出现顺序**重排 —— Python set 顺序跨进程不确定，
+//    WLWL 实现取确定性插入序，两边因此可逐字节对照。）
+//
+// ⚠ RUN_TESTS() 的失败**不影响退出码**（规范明载）⇒ 本文件自己把关。
+IMPORT("wlwl:std.test", ["TEST", "ASSERT", "ASSERT_EQ", "RUN_TESTS"]);
+IMPORT("./../lib/footnotes.wll", ["PARSE_FOOTNOTES", "RENDER_FOOTNOTE_REFS", "BUILD_FOOTNOTES_HTML", "PROCESS_FOOTNOTES"]);
+
+// adjacent_refs: 'a[^1]b[^2]c\n\n[^1]: one\n[^2]: two\n'
+LET(src_adjacent_refs, "a[^1]b[^2]c\n\n[^1]: one\n[^2]: two\n");
+LET(want_cleaned_adjacent_refs, "a[^1]b[^2]c\n\n\n\n");
+LET(want_refs_adjacent_refs, "a<sup><a href=\"#fn-1\" id=\"fnref-1\">[1]</a></sup>b<sup><a href=\"#fn-2\" id=\"fnref-2\">[2]</a></sup>c\n\n\n\n");
+LET(want_raw_adjacent_refs, "a<sup><a href=\"#fn-1\" id=\"fnref-1\">[1]</a></sup>b<sup><a href=\"#fn-2\" id=\"fnref-2\">[2]</a></sup>c\n\n[^1]: one\n[^2]: two\n");
+LET(want_html_adjacent_refs, "\n<section class=\"footnotes\">\n  <hr>\n  <ol>\n    <li id=\"fn-1\">one <a href=\"#fnref-1\">↩</a></li><li id=\"fn-2\">two <a href=\"#fnref-2\">↩</a></li>\n  </ol>\n</section>");
+
+// basic: '段落一[^1]，补充说明[^2]。\n\n[^1]: 第一个脚注\n[^2]: 第二个脚注\n'
+LET(src_basic, "段落一[^1]，补充说明[^2]。\n\n[^1]: 第一个脚注\n[^2]: 第二个脚注\n");
+LET(want_cleaned_basic, "段落一[^1]，补充说明[^2]。\n\n\n\n");
+LET(want_refs_basic, "段落一<sup><a href=\"#fn-1\" id=\"fnref-1\">[1]</a></sup>，补充说明<sup><a href=\"#fn-2\" id=\"fnref-2\">[2]</a></sup>。\n\n\n\n");
+LET(want_raw_basic, "段落一<sup><a href=\"#fn-1\" id=\"fnref-1\">[1]</a></sup>，补充说明<sup><a href=\"#fn-2\" id=\"fnref-2\">[2]</a></sup>。\n\n[^1]: 第一个脚注\n[^2]: 第二个脚注\n");
+LET(want_html_basic, "\n<section class=\"footnotes\">\n  <hr>\n  <ol>\n    <li id=\"fn-1\">第一个脚注 <a href=\"#fnref-1\">↩</a></li><li id=\"fn-2\">第二个脚注 <a href=\"#fnref-2\">↩</a></li>\n  </ol>\n</section>");
+
+// cjk_key: '中文键[^键值]测试。\n\n[^键值]: 中文键的脚注\n'
+LET(src_cjk_key, "中文键[^键值]测试。\n\n[^键值]: 中文键的脚注\n");
+LET(want_cleaned_cjk_key, "中文键[^键值]测试。\n\n\n");
+LET(want_refs_cjk_key, "中文键<sup><a href=\"#fn-键值\" id=\"fnref-键值\">[键值]</a></sup>测试。\n\n\n");
+LET(want_raw_cjk_key, "中文键<sup><a href=\"#fn-键值\" id=\"fnref-键值\">[键值]</a></sup>测试。\n\n[^键值]: 中文键的脚注\n");
+LET(want_html_cjk_key, "\n<section class=\"footnotes\">\n  <hr>\n  <ol>\n    <li id=\"fn-键值\">中文键的脚注 <a href=\"#fnref-键值\">↩</a></li>\n  </ol>\n</section>");
+
+// colon_in_key: '键含冒号[^a:b]。\n\n[^a:b]: 值\n'
+LET(src_colon_in_key, "键含冒号[^a:b]。\n\n[^a:b]: 值\n");
+LET(want_cleaned_colon_in_key, "键含冒号[^a:b]。\n\n\n");
+LET(want_refs_colon_in_key, "键含冒号<sup><a href=\"#fn-a:b\" id=\"fnref-a:b\">[a:b]</a></sup>。\n\n\n");
+LET(want_raw_colon_in_key, "键含冒号<sup><a href=\"#fn-a:b\" id=\"fnref-a:b\">[a:b]</a></sup>。\n\n[^a:b]: 值\n");
+LET(want_html_colon_in_key, "\n<section class=\"footnotes\">\n  <hr>\n  <ol>\n    <li id=\"fn-a:b\">值 <a href=\"#fnref-a:b\">↩</a></li>\n  </ol>\n</section>");
+
+// def_no_ref: '[^lonely]: 孤独定义\n前面没有引用。\n'
+LET(src_def_no_ref, "[^lonely]: 孤独定义\n前面没有引用。\n");
+LET(want_cleaned_def_no_ref, "\n前面没有引用。\n");
+LET(want_refs_def_no_ref, "\n前面没有引用。\n");
+LET(want_raw_def_no_ref, "[^lonely]: 孤独定义\n前面没有引用。\n");
+LET(want_html_def_no_ref, "\n<section class=\"footnotes\">\n  <hr>\n  <ol>\n    <li id=\"fn-lonely\">孤独定义 <a href=\"#fnref-lonely\">↩</a></li>\n  </ol>\n</section>");
+
+// def_value_stripped: '[^s]:   两端空格   \n正文。\n'
+LET(src_def_value_stripped, "[^s]:   两端空格   \n正文。\n");
+LET(want_cleaned_def_value_stripped, "\n正文。\n");
+LET(want_refs_def_value_stripped, "\n正文。\n");
+LET(want_raw_def_value_stripped, "[^s]:   两端空格   \n正文。\n");
+LET(want_html_def_value_stripped, "\n<section class=\"footnotes\">\n  <hr>\n  <ol>\n    <li id=\"fn-s\">两端空格 <a href=\"#fnref-s\">↩</a></li>\n  </ol>\n</section>");
+
+// direct_render_skip_defs: 'x[^a]: v and ref[^b]'
+LET(src_direct_render_skip_defs, "x[^a]: v and ref[^b]");
+LET(want_cleaned_direct_render_skip_defs, "x");
+LET(want_refs_direct_render_skip_defs, "x");
+LET(want_raw_direct_render_skip_defs, "x[^a]: v and ref<sup><a href=\"#fn-b\" id=\"fnref-b\">[b]</a></sup>");
+LET(want_html_direct_render_skip_defs, "\n<section class=\"footnotes\">\n  <hr>\n  <ol>\n    <li id=\"fn-a\">v and ref[^b] <a href=\"#fnref-a\">↩</a></li>\n  </ol>\n</section>");
+
+// guard_dup_def: 'dup [^d]: first\nalso [^d]: second\nend\n'
+LET(src_guard_dup_def, "dup [^d]: first\nalso [^d]: second\nend\n");
+LET(want_cleaned_guard_dup_def, "dup \nalso \nend\n");
+LET(want_refs_guard_dup_def, "dup \nalso \nend\n");
+LET(want_raw_guard_dup_def, "dup [^d]: first\nalso [^d]: second\nend\n");
+LET(want_html_guard_dup_def, "\n<section class=\"footnotes\">\n  <hr>\n  <ol>\n    <li id=\"fn-d\">first <a href=\"#fnref-d\">↩</a></li>\n  </ol>\n</section>");
+
+// guard_empty_def_eol: 'no content [^e]:'
+LET(src_guard_empty_def_eol, "no content [^e]:");
+LET(want_cleaned_guard_empty_def_eol, "no content [^e]:");
+LET(want_refs_guard_empty_def_eol, "no content [^e]:");
+LET(want_raw_guard_empty_def_eol, "no content [^e]:");
+LET(want_html_guard_empty_def_eol, "");
+
+// guard_midline_def: 'def at mid [^z]: value'
+LET(src_guard_midline_def, "def at mid [^z]: value");
+LET(want_cleaned_guard_midline_def, "def at mid ");
+LET(want_refs_guard_midline_def, "def at mid ");
+LET(want_raw_guard_midline_def, "def at mid [^z]: value");
+LET(want_html_guard_midline_def, "\n<section class=\"footnotes\">\n  <hr>\n  <ol>\n    <li id=\"fn-z\">value <a href=\"#fnref-z\">↩</a></li>\n  </ol>\n</section>");
+
+// guard_newline_def: 'before [^x]: first line\nsecond line\nafter'
+LET(src_guard_newline_def, "before [^x]: first line\nsecond line\nafter");
+LET(want_cleaned_guard_newline_def, "before \nsecond line\nafter");
+LET(want_refs_guard_newline_def, "before \nsecond line\nafter");
+LET(want_raw_guard_newline_def, "before [^x]: first line\nsecond line\nafter");
+LET(want_html_guard_newline_def, "\n<section class=\"footnotes\">\n  <hr>\n  <ol>\n    <li id=\"fn-x\">first line <a href=\"#fnref-x\">↩</a></li>\n  </ol>\n</section>");
+
+// html_in_text: '脚注含 HTML[^h]。\n\n[^h]: <b>粗</b> & "引号" <tag> \'q\'\n'
+LET(src_html_in_text, "脚注含 HTML[^h]。\n\n[^h]: <b>粗</b> & \"引号\" <tag> 'q'\n");
+LET(want_cleaned_html_in_text, "脚注含 HTML[^h]。\n\n\n");
+LET(want_refs_html_in_text, "脚注含 HTML<sup><a href=\"#fn-h\" id=\"fnref-h\">[h]</a></sup>。\n\n\n");
+LET(want_raw_html_in_text, "脚注含 HTML<sup><a href=\"#fn-h\" id=\"fnref-h\">[h]</a></sup>。\n\n[^h]: <b>粗</b> & \"引号\" <tag> 'q'\n");
+LET(want_html_html_in_text, "\n<section class=\"footnotes\">\n  <hr>\n  <ol>\n    <li id=\"fn-h\">&lt;b&gt;粗&lt;/b&gt; &amp; &quot;引号&quot; &lt;tag&gt; &#x27;q&#x27; <a href=\"#fnref-h\">↩</a></li>\n  </ol>\n</section>");
+
+// mixed_defs_and_refs: '句[^a]尾。\n[^a]: 一行定义\n第二行保留\n[^b]: 后一个\n'
+LET(src_mixed_defs_and_refs, "句[^a]尾。\n[^a]: 一行定义\n第二行保留\n[^b]: 后一个\n");
+LET(want_cleaned_mixed_defs_and_refs, "句[^a]尾。\n\n第二行保留\n\n");
+LET(want_refs_mixed_defs_and_refs, "句<sup><a href=\"#fn-a\" id=\"fnref-a\">[a]</a></sup>尾。\n\n第二行保留\n\n");
+LET(want_raw_mixed_defs_and_refs, "句<sup><a href=\"#fn-a\" id=\"fnref-a\">[a]</a></sup>尾。\n[^a]: 一行定义\n第二行保留\n[^b]: 后一个\n");
+LET(want_html_mixed_defs_and_refs, "\n<section class=\"footnotes\">\n  <hr>\n  <ol>\n    <li id=\"fn-a\">一行定义 <a href=\"#fnref-a\">↩</a></li><li id=\"fn-b\">后一个 <a href=\"#fnref-b\">↩</a></li>\n  </ol>\n</section>");
+
+// multi_ref_same_key: '同一个键[^k]出现两次[^k]。\n\n[^k]: 重复引用\n'
+LET(src_multi_ref_same_key, "同一个键[^k]出现两次[^k]。\n\n[^k]: 重复引用\n");
+LET(want_cleaned_multi_ref_same_key, "同一个键[^k]出现两次[^k]。\n\n\n");
+LET(want_refs_multi_ref_same_key, "同一个键<sup><a href=\"#fn-k\" id=\"fnref-k\">[k]</a></sup>出现两次<sup><a href=\"#fn-k\" id=\"fnref-k\">[k]</a></sup>。\n\n\n");
+LET(want_raw_multi_ref_same_key, "同一个键<sup><a href=\"#fn-k\" id=\"fnref-k\">[k]</a></sup>出现两次<sup><a href=\"#fn-k\" id=\"fnref-k\">[k]</a></sup>。\n\n[^k]: 重复引用\n");
+LET(want_html_multi_ref_same_key, "\n<section class=\"footnotes\">\n  <hr>\n  <ol>\n    <li id=\"fn-k\">重复引用 <a href=\"#fnref-k\">↩</a></li>\n  </ol>\n</section>");
+
+// no_footnotes: '普通段落，无脚注。\n'
+LET(src_no_footnotes, "普通段落，无脚注。\n");
+LET(want_cleaned_no_footnotes, "普通段落，无脚注。\n");
+LET(want_refs_no_footnotes, "普通段落，无脚注。\n");
+LET(want_raw_no_footnotes, "普通段落，无脚注。\n");
+LET(want_html_no_footnotes, "");
+
+// ref_no_def: '引用没有定义[^ghost]，保持原样。\n'
+LET(src_ref_no_def, "引用没有定义[^ghost]，保持原样。\n");
+LET(want_cleaned_ref_no_def, "引用没有定义[^ghost]，保持原样。\n");
+LET(want_refs_ref_no_def, "引用没有定义<sup><a href=\"#fn-ghost\" id=\"fnref-ghost\">[ghost]</a></sup>，保持原样。\n");
+LET(want_raw_ref_no_def, "引用没有定义<sup><a href=\"#fn-ghost\" id=\"fnref-ghost\">[ghost]</a></sup>，保持原样。\n");
+LET(want_html_ref_no_def, "");
+
+// single_ref: '正文[^note]结尾。\n\n[^note]: 单个脚注\n'
+LET(src_single_ref, "正文[^note]结尾。\n\n[^note]: 单个脚注\n");
+LET(want_cleaned_single_ref, "正文[^note]结尾。\n\n\n");
+LET(want_refs_single_ref, "正文<sup><a href=\"#fn-note\" id=\"fnref-note\">[note]</a></sup>结尾。\n\n\n");
+LET(want_raw_single_ref, "正文<sup><a href=\"#fn-note\" id=\"fnref-note\">[note]</a></sup>结尾。\n\n[^note]: 单个脚注\n");
+LET(want_html_single_ref, "\n<section class=\"footnotes\">\n  <hr>\n  <ol>\n    <li id=\"fn-note\">单个脚注 <a href=\"#fnref-note\">↩</a></li>\n  </ol>\n</section>");
+
+// ── 用例（对照真 Python 基准） ─────────────────────────
+// adjacent_refs
+LET(body_0, FUN(() ,
+    (LET(p, PARSE_FOOTNOTES(src_adjacent_refs)); ASSERT_EQ(p[0], want_cleaned_adjacent_refs); ASSERT_EQ(LEN(p[1]), 2); ASSERT_EQ(AT_K(p[1][0], "key", "?"), "1"); ASSERT_EQ(AT_K(p[1][0], "text", "?"), "one"); ASSERT_EQ(AT_K(p[1][1], "key", "?"), "2"); ASSERT_EQ(AT_K(p[1][1], "text", "?"), "two"); ASSERT_EQ(RENDER_FOOTNOTE_REFS(src_adjacent_refs), want_raw_adjacent_refs); LET(pr, PROCESS_FOOTNOTES(src_adjacent_refs)); ASSERT_EQ(pr[0], want_refs_adjacent_refs); ASSERT_EQ(pr[1], want_html_adjacent_refs));
+    TRUE));
+TEST("fn/adjacent_refs", body_0);
+
+// basic
+LET(body_1, FUN(() ,
+    (LET(p, PARSE_FOOTNOTES(src_basic)); ASSERT_EQ(p[0], want_cleaned_basic); ASSERT_EQ(LEN(p[1]), 2); ASSERT_EQ(AT_K(p[1][0], "key", "?"), "1"); ASSERT_EQ(AT_K(p[1][0], "text", "?"), "第一个脚注"); ASSERT_EQ(AT_K(p[1][1], "key", "?"), "2"); ASSERT_EQ(AT_K(p[1][1], "text", "?"), "第二个脚注"); ASSERT_EQ(RENDER_FOOTNOTE_REFS(src_basic), want_raw_basic); LET(pr, PROCESS_FOOTNOTES(src_basic)); ASSERT_EQ(pr[0], want_refs_basic); ASSERT_EQ(pr[1], want_html_basic));
+    TRUE));
+TEST("fn/basic", body_1);
+
+// cjk_key
+LET(body_2, FUN(() ,
+    (LET(p, PARSE_FOOTNOTES(src_cjk_key)); ASSERT_EQ(p[0], want_cleaned_cjk_key); ASSERT_EQ(LEN(p[1]), 1); ASSERT_EQ(AT_K(p[1][0], "key", "?"), "键值"); ASSERT_EQ(AT_K(p[1][0], "text", "?"), "中文键的脚注"); ASSERT_EQ(RENDER_FOOTNOTE_REFS(src_cjk_key), want_raw_cjk_key); LET(pr, PROCESS_FOOTNOTES(src_cjk_key)); ASSERT_EQ(pr[0], want_refs_cjk_key); ASSERT_EQ(pr[1], want_html_cjk_key));
+    TRUE));
+TEST("fn/cjk_key", body_2);
+
+// colon_in_key
+LET(body_3, FUN(() ,
+    (LET(p, PARSE_FOOTNOTES(src_colon_in_key)); ASSERT_EQ(p[0], want_cleaned_colon_in_key); ASSERT_EQ(LEN(p[1]), 1); ASSERT_EQ(AT_K(p[1][0], "key", "?"), "a:b"); ASSERT_EQ(AT_K(p[1][0], "text", "?"), "值"); ASSERT_EQ(RENDER_FOOTNOTE_REFS(src_colon_in_key), want_raw_colon_in_key); LET(pr, PROCESS_FOOTNOTES(src_colon_in_key)); ASSERT_EQ(pr[0], want_refs_colon_in_key); ASSERT_EQ(pr[1], want_html_colon_in_key));
+    TRUE));
+TEST("fn/colon_in_key", body_3);
+
+// def_no_ref
+LET(body_4, FUN(() ,
+    (LET(p, PARSE_FOOTNOTES(src_def_no_ref)); ASSERT_EQ(p[0], want_cleaned_def_no_ref); ASSERT_EQ(LEN(p[1]), 1); ASSERT_EQ(AT_K(p[1][0], "key", "?"), "lonely"); ASSERT_EQ(AT_K(p[1][0], "text", "?"), "孤独定义"); ASSERT_EQ(RENDER_FOOTNOTE_REFS(src_def_no_ref), want_raw_def_no_ref); LET(pr, PROCESS_FOOTNOTES(src_def_no_ref)); ASSERT_EQ(pr[0], want_refs_def_no_ref); ASSERT_EQ(pr[1], want_html_def_no_ref));
+    TRUE));
+TEST("fn/def_no_ref", body_4);
+
+// def_value_stripped
+LET(body_5, FUN(() ,
+    (LET(p, PARSE_FOOTNOTES(src_def_value_stripped)); ASSERT_EQ(p[0], want_cleaned_def_value_stripped); ASSERT_EQ(LEN(p[1]), 1); ASSERT_EQ(AT_K(p[1][0], "key", "?"), "s"); ASSERT_EQ(AT_K(p[1][0], "text", "?"), "两端空格"); ASSERT_EQ(RENDER_FOOTNOTE_REFS(src_def_value_stripped), want_raw_def_value_stripped); LET(pr, PROCESS_FOOTNOTES(src_def_value_stripped)); ASSERT_EQ(pr[0], want_refs_def_value_stripped); ASSERT_EQ(pr[1], want_html_def_value_stripped));
+    TRUE));
+TEST("fn/def_value_stripped", body_5);
+
+// direct_render_skip_defs
+LET(body_6, FUN(() ,
+    (LET(p, PARSE_FOOTNOTES(src_direct_render_skip_defs)); ASSERT_EQ(p[0], want_cleaned_direct_render_skip_defs); ASSERT_EQ(LEN(p[1]), 1); ASSERT_EQ(AT_K(p[1][0], "key", "?"), "a"); ASSERT_EQ(AT_K(p[1][0], "text", "?"), "v and ref[^b]"); ASSERT_EQ(RENDER_FOOTNOTE_REFS(src_direct_render_skip_defs), want_raw_direct_render_skip_defs); LET(pr, PROCESS_FOOTNOTES(src_direct_render_skip_defs)); ASSERT_EQ(pr[0], want_refs_direct_render_skip_defs); ASSERT_EQ(pr[1], want_html_direct_render_skip_defs));
+    TRUE));
+TEST("fn/direct_render_skip_defs", body_6);
+
+// guard_dup_def
+LET(body_7, FUN(() ,
+    (LET(p, PARSE_FOOTNOTES(src_guard_dup_def)); ASSERT_EQ(p[0], want_cleaned_guard_dup_def); ASSERT_EQ(LEN(p[1]), 1); ASSERT_EQ(AT_K(p[1][0], "key", "?"), "d"); ASSERT_EQ(AT_K(p[1][0], "text", "?"), "first"); ASSERT_EQ(RENDER_FOOTNOTE_REFS(src_guard_dup_def), want_raw_guard_dup_def); LET(pr, PROCESS_FOOTNOTES(src_guard_dup_def)); ASSERT_EQ(pr[0], want_refs_guard_dup_def); ASSERT_EQ(pr[1], want_html_guard_dup_def));
+    TRUE));
+TEST("fn/guard_dup_def", body_7);
+
+// guard_empty_def_eol
+LET(body_8, FUN(() ,
+    (LET(p, PARSE_FOOTNOTES(src_guard_empty_def_eol)); ASSERT_EQ(p[0], want_cleaned_guard_empty_def_eol); ASSERT_EQ(LEN(p[1]), 0); ASSERT_EQ(RENDER_FOOTNOTE_REFS(src_guard_empty_def_eol), want_raw_guard_empty_def_eol); LET(pr, PROCESS_FOOTNOTES(src_guard_empty_def_eol)); ASSERT_EQ(pr[0], want_refs_guard_empty_def_eol); ASSERT_EQ(pr[1], want_html_guard_empty_def_eol));
+    TRUE));
+TEST("fn/guard_empty_def_eol", body_8);
+
+// guard_midline_def
+LET(body_9, FUN(() ,
+    (LET(p, PARSE_FOOTNOTES(src_guard_midline_def)); ASSERT_EQ(p[0], want_cleaned_guard_midline_def); ASSERT_EQ(LEN(p[1]), 1); ASSERT_EQ(AT_K(p[1][0], "key", "?"), "z"); ASSERT_EQ(AT_K(p[1][0], "text", "?"), "value"); ASSERT_EQ(RENDER_FOOTNOTE_REFS(src_guard_midline_def), want_raw_guard_midline_def); LET(pr, PROCESS_FOOTNOTES(src_guard_midline_def)); ASSERT_EQ(pr[0], want_refs_guard_midline_def); ASSERT_EQ(pr[1], want_html_guard_midline_def));
+    TRUE));
+TEST("fn/guard_midline_def", body_9);
+
+// guard_newline_def
+LET(body_10, FUN(() ,
+    (LET(p, PARSE_FOOTNOTES(src_guard_newline_def)); ASSERT_EQ(p[0], want_cleaned_guard_newline_def); ASSERT_EQ(LEN(p[1]), 1); ASSERT_EQ(AT_K(p[1][0], "key", "?"), "x"); ASSERT_EQ(AT_K(p[1][0], "text", "?"), "first line"); ASSERT_EQ(RENDER_FOOTNOTE_REFS(src_guard_newline_def), want_raw_guard_newline_def); LET(pr, PROCESS_FOOTNOTES(src_guard_newline_def)); ASSERT_EQ(pr[0], want_refs_guard_newline_def); ASSERT_EQ(pr[1], want_html_guard_newline_def));
+    TRUE));
+TEST("fn/guard_newline_def", body_10);
+
+// html_in_text
+LET(body_11, FUN(() ,
+    (LET(p, PARSE_FOOTNOTES(src_html_in_text)); ASSERT_EQ(p[0], want_cleaned_html_in_text); ASSERT_EQ(LEN(p[1]), 1); ASSERT_EQ(AT_K(p[1][0], "key", "?"), "h"); ASSERT_EQ(AT_K(p[1][0], "text", "?"), "<b>粗</b> & \"引号\" <tag> 'q'"); ASSERT_EQ(RENDER_FOOTNOTE_REFS(src_html_in_text), want_raw_html_in_text); LET(pr, PROCESS_FOOTNOTES(src_html_in_text)); ASSERT_EQ(pr[0], want_refs_html_in_text); ASSERT_EQ(pr[1], want_html_html_in_text));
+    TRUE));
+TEST("fn/html_in_text", body_11);
+
+// mixed_defs_and_refs
+LET(body_12, FUN(() ,
+    (LET(p, PARSE_FOOTNOTES(src_mixed_defs_and_refs)); ASSERT_EQ(p[0], want_cleaned_mixed_defs_and_refs); ASSERT_EQ(LEN(p[1]), 2); ASSERT_EQ(AT_K(p[1][0], "key", "?"), "a"); ASSERT_EQ(AT_K(p[1][0], "text", "?"), "一行定义"); ASSERT_EQ(AT_K(p[1][1], "key", "?"), "b"); ASSERT_EQ(AT_K(p[1][1], "text", "?"), "后一个"); ASSERT_EQ(RENDER_FOOTNOTE_REFS(src_mixed_defs_and_refs), want_raw_mixed_defs_and_refs); LET(pr, PROCESS_FOOTNOTES(src_mixed_defs_and_refs)); ASSERT_EQ(pr[0], want_refs_mixed_defs_and_refs); ASSERT_EQ(pr[1], want_html_mixed_defs_and_refs));
+    TRUE));
+TEST("fn/mixed_defs_and_refs", body_12);
+
+// multi_ref_same_key
+LET(body_13, FUN(() ,
+    (LET(p, PARSE_FOOTNOTES(src_multi_ref_same_key)); ASSERT_EQ(p[0], want_cleaned_multi_ref_same_key); ASSERT_EQ(LEN(p[1]), 1); ASSERT_EQ(AT_K(p[1][0], "key", "?"), "k"); ASSERT_EQ(AT_K(p[1][0], "text", "?"), "重复引用"); ASSERT_EQ(RENDER_FOOTNOTE_REFS(src_multi_ref_same_key), want_raw_multi_ref_same_key); LET(pr, PROCESS_FOOTNOTES(src_multi_ref_same_key)); ASSERT_EQ(pr[0], want_refs_multi_ref_same_key); ASSERT_EQ(pr[1], want_html_multi_ref_same_key));
+    TRUE));
+TEST("fn/multi_ref_same_key", body_13);
+
+// no_footnotes
+LET(body_14, FUN(() ,
+    (LET(p, PARSE_FOOTNOTES(src_no_footnotes)); ASSERT_EQ(p[0], want_cleaned_no_footnotes); ASSERT_EQ(LEN(p[1]), 0); ASSERT_EQ(RENDER_FOOTNOTE_REFS(src_no_footnotes), want_raw_no_footnotes); LET(pr, PROCESS_FOOTNOTES(src_no_footnotes)); ASSERT_EQ(pr[0], want_refs_no_footnotes); ASSERT_EQ(pr[1], want_html_no_footnotes));
+    TRUE));
+TEST("fn/no_footnotes", body_14);
+
+// ref_no_def
+LET(body_15, FUN(() ,
+    (LET(p, PARSE_FOOTNOTES(src_ref_no_def)); ASSERT_EQ(p[0], want_cleaned_ref_no_def); ASSERT_EQ(LEN(p[1]), 0); ASSERT_EQ(RENDER_FOOTNOTE_REFS(src_ref_no_def), want_raw_ref_no_def); LET(pr, PROCESS_FOOTNOTES(src_ref_no_def)); ASSERT_EQ(pr[0], want_refs_ref_no_def); ASSERT_EQ(pr[1], want_html_ref_no_def));
+    TRUE));
+TEST("fn/ref_no_def", body_15);
+
+// single_ref
+LET(body_16, FUN(() ,
+    (LET(p, PARSE_FOOTNOTES(src_single_ref)); ASSERT_EQ(p[0], want_cleaned_single_ref); ASSERT_EQ(LEN(p[1]), 1); ASSERT_EQ(AT_K(p[1][0], "key", "?"), "note"); ASSERT_EQ(AT_K(p[1][0], "text", "?"), "单个脚注"); ASSERT_EQ(RENDER_FOOTNOTE_REFS(src_single_ref), want_raw_single_ref); LET(pr, PROCESS_FOOTNOTES(src_single_ref)); ASSERT_EQ(pr[0], want_refs_single_ref); ASSERT_EQ(pr[1], want_html_single_ref));
+    TRUE));
+TEST("fn/single_ref", body_16);
+
+// ── 反向守卫 ──────────────────────────────────────────
+// G1 定义含换行 ⇒ 只取第一行，第二行保留在正文
+LET(body_17, FUN(() ,
+    (LET(p, PARSE_FOOTNOTES(src_guard_newline_def)); ASSERT_EQ(p[0], want_cleaned_guard_newline_def); ASSERT_EQ(LEN(p[1]), 1); ASSERT_EQ(AT_K(p[1][0], "key", "?"), "x"); ASSERT_EQ(AT_K(p[1][0], "text", "?"), "first line"));
+    TRUE));
+TEST("guard/def_newline_takes_first_line_only", body_17);
+
+// G2 重复定义 ⇒ 值取第一个，但两个定义行都被删除
+LET(body_18, FUN(() ,
+    (LET(p, PARSE_FOOTNOTES(src_guard_dup_def)); ASSERT_EQ(p[0], want_cleaned_guard_dup_def); ASSERT_EQ(LEN(p[1]), 1); ASSERT_EQ(AT_K(p[1][0], "key", "?"), "d"); ASSERT_EQ(AT_K(p[1][0], "text", "?"), "first"));
+    TRUE));
+TEST("guard/dup_def_value_first_all_lines_removed", body_18);
+
+// G3 行中间的定义（无行首锚定）也必须被识别
+LET(body_19, FUN(() ,
+    (LET(p, PARSE_FOOTNOTES(src_guard_midline_def)); ASSERT_EQ(p[0], want_cleaned_guard_midline_def); ASSERT_EQ(LEN(p[1]), 1); ASSERT_EQ(AT_K(p[1][0], "key", "?"), "z"); ASSERT_EQ(AT_K(p[1][0], "text", "?"), "value"));
+    TRUE));
+TEST("guard/midline_def_recognized", body_19);
+
+// G4 空定义 [^e]: 不得被转成 <sup>（对齐 (?!:)）
+LET(body_20, FUN(() ,
+    (LET(pr, PROCESS_FOOTNOTES(src_guard_empty_def_eol)); ASSERT_EQ(pr[0], src_guard_empty_def_eol); ASSERT_EQ(pr[1], ""); ASSERT_EQ(RENDER_FOOTNOTE_REFS(src_guard_empty_def_eol), src_guard_empty_def_eol));
+    TRUE));
+TEST("guard/empty_def_not_superscript", body_20);
+
+// G5 无脚注 ⇒ BUILD_FOOTNOTES_HTML 返回 ""
+LET(body_21, FUN(() ,
+    (ASSERT_EQ(BUILD_FOOTNOTES_HTML([]), ""); ASSERT_EQ(PROCESS_FOOTNOTES(src_no_footnotes)[1], ""));
+    TRUE));
+TEST("guard/no_footnotes_html_empty", body_21);
+
+// G6 直接 render：[^a]: 跳过、[^b] 替换（无前瞻等价）
+LET(body_22, FUN(() ,
+    (ASSERT_EQ(RENDER_FOOTNOTE_REFS(src_direct_render_skip_defs), want_raw_direct_render_skip_defs); LET(pr, PROCESS_FOOTNOTES(src_direct_render_skip_defs)); ASSERT_EQ(pr[0], want_refs_direct_render_skip_defs));
+    TRUE));
+TEST("guard/direct_render_skips_def_colon", body_22);
+
+// ── 跑测试 ──────────────────────────────────────────────
+LET(records, RUN_TESTS());
+PRINT("test_footnotes: ", LEN(records), " test(s) run");
+
+LET MUT(failed, 0);
+FOR(rec, records,
+    (IF(AT_K(rec, "passed", FALSE),
+        PRINT("  PASS ", AT_K(rec, "name", "?")),
+        (SET(failed, +(failed, 1));
+         PRINT("  FAIL ", AT_K(rec, "name", "?"))))));
+PRINT("test_footnotes: failed=", failed);
+IF(>(failed, 0), (PRINT_ERR("test_footnotes: FAILED"); PANIC("footnotes tests failed")), NULL);
+PRINT("test_footnotes: OK");

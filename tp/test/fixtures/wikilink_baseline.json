@@ -1,0 +1,361 @@
+{
+  "case_00": {
+    "extracted": [
+      "Page"
+    ],
+    "found": [
+      {
+        "display": "Page",
+        "title": "Page",
+        "url": "/article/page.html"
+      }
+    ],
+    "map": {},
+    "processed": "见 [Page](/article/page.html) 一文。",
+    "src": "见 [[Page]] 一文。"
+  },
+  "case_01": {
+    "extracted": [
+      "Page"
+    ],
+    "found": [
+      {
+        "display": "显示名",
+        "title": "Page",
+        "url": "/article/page.html"
+      }
+    ],
+    "map": {},
+    "processed": "[显示名](/article/page.html)",
+    "src": "[[Page|显示名]]"
+  },
+  "case_02": {
+    "extracted": [
+      "中文标题"
+    ],
+    "found": [
+      {
+        "display": "中文标题",
+        "title": "中文标题",
+        "url": "/article/中文标题.html"
+      }
+    ],
+    "map": {},
+    "processed": "[中文标题](/article/中文标题.html)",
+    "src": "[[中文标题]]"
+  },
+  "case_03": {
+    "extracted": [
+      "Another"
+    ],
+    "found": [
+      {
+        "display": "Another",
+        "title": "Another",
+        "url": "/article/other.html"
+      }
+    ],
+    "map": {
+      "another": [
+        "another",
+        "/article/other.html"
+      ]
+    },
+    "processed": "[Another](/article/other.html)",
+    "src": "[[Another]]"
+  },
+  "case_04": {
+    "extracted": [
+      "Missing Page"
+    ],
+    "found": [
+      {
+        "display": "Missing Page",
+        "title": "Missing Page",
+        "url": "/article/missing-page.html"
+      }
+    ],
+    "map": {
+      "another": [
+        "another",
+        "/article/other.html"
+      ]
+    },
+    "processed": "[Missing Page](/article/missing-page.html)",
+    "src": "[[Missing Page]]"
+  },
+  "case_05": {
+    "extracted": [
+      "a",
+      "b"
+    ],
+    "found": [
+      {
+        "display": "a",
+        "title": "a",
+        "url": "/article/a.html"
+      },
+      {
+        "display": "B",
+        "title": "b",
+        "url": "/article/b.html"
+      }
+    ],
+    "map": {},
+    "processed": "[a](/article/a.html) 和 [B](/article/b.html) 结束",
+    "src": "[[a]] 和 [[b|B]] 结束"
+  },
+  "case_06": {
+    "extracted": [
+      "a",
+      "b"
+    ],
+    "found": [
+      {
+        "display": "a",
+        "title": "a",
+        "url": "/article/a.html"
+      },
+      {
+        "display": "b",
+        "title": "b",
+        "url": "/article/b.html"
+      }
+    ],
+    "map": {},
+    "processed": "[a](/article/a.html)[b](/article/b.html)",
+    "src": "[[a]][[b]]"
+  },
+  "case_07": {
+    "extracted": [
+      "Foo",
+      "Bar"
+    ],
+    "found": [
+      {
+        "display": "Foo",
+        "title": "Foo",
+        "url": "/article/foo.html"
+      },
+      {
+        "display": "条",
+        "title": "Bar",
+        "url": "/article/bar.html"
+      }
+    ],
+    "map": {},
+    "processed": "# 标题\n\n正文 [Foo](/article/foo.html)，见 [条](/article/bar.html)。\n",
+    "src": "# 标题\n\n正文 [[Foo]]，见 [[Bar|条]]。\n"
+  },
+  "case_08": {
+    "extracted": [
+      "a"
+    ],
+    "found": [
+      {
+        "display": "a",
+        "title": "a",
+        "url": "/article/a.html"
+      }
+    ],
+    "map": {},
+    "processed": "[a](/article/a.html)",
+    "src": "[[ a ]]"
+  },
+  "case_09": {
+    "extracted": [
+      "a"
+    ],
+    "found": [
+      {
+        "display": "b",
+        "title": "a",
+        "url": "/article/a.html"
+      }
+    ],
+    "map": {},
+    "processed": "[b](/article/a.html)",
+    "src": "[[ a | b ]]"
+  },
+  "case_10": {
+    "extracted": [
+      "Hello, World!"
+    ],
+    "found": [
+      {
+        "display": "Hello, World!",
+        "title": "Hello, World!",
+        "url": "/article/hello-world.html"
+      }
+    ],
+    "map": {},
+    "processed": "[Hello, World!](/article/hello-world.html)",
+    "src": "[[Hello, World!]]"
+  },
+  "case_11": {
+    "extracted": [
+      "Another"
+    ],
+    "found": [
+      {
+        "display": "去看看",
+        "title": "Another",
+        "url": "/article/other.html"
+      }
+    ],
+    "map": {
+      "another": [
+        "another",
+        "/article/other.html"
+      ]
+    },
+    "processed": "[去看看](/article/other.html)",
+    "src": "[[Another|去看看]]"
+  },
+  "case_12": {
+    "extracted": [
+      "MyPage"
+    ],
+    "found": [
+      {
+        "display": "MyPage",
+        "title": "MyPage",
+        "url": "/custom/x.html"
+      }
+    ],
+    "map": {
+      "mypage": [
+        "custom",
+        "/custom/x.html"
+      ]
+    },
+    "processed": "[MyPage](/custom/x.html)",
+    "src": "[[MyPage]]"
+  },
+  "case_13": {
+    "extracted": [
+      "你好"
+    ],
+    "found": [
+      {
+        "display": "hi",
+        "title": "你好",
+        "url": "/article/nihao.html"
+      }
+    ],
+    "map": {
+      "你好": [
+        "你好",
+        "/article/nihao.html"
+      ]
+    },
+    "processed": "[hi](/article/nihao.html)",
+    "src": "[[你好|hi]]"
+  },
+  "case_14": {
+    "extracted": [
+      "a"
+    ],
+    "found": [
+      {
+        "display": "b|c",
+        "title": "a",
+        "url": "/article/a.html"
+      }
+    ],
+    "map": {},
+    "processed": "[b|c](/article/a.html)",
+    "src": "[[a|b|c]]"
+  },
+  "case_15": {
+    "extracted": [],
+    "found": [],
+    "map": {},
+    "processed": "没有任何链接的普通段落。",
+    "src": "没有任何链接的普通段落。"
+  },
+  "case_16": {
+    "extracted": [
+      "C++ / R&D"
+    ],
+    "found": [
+      {
+        "display": "C++ / R&D",
+        "title": "C++ / R&D",
+        "url": "/article/c-r-d.html"
+      }
+    ],
+    "map": {},
+    "processed": "[C++ / R&D](/article/c-r-d.html)",
+    "src": "[[C++ / R&D]]"
+  },
+  "case_17": {
+    "extracted": [],
+    "found": [],
+    "map": {},
+    "processed": "前 [[|b]] 后 [[x 前",
+    "src": "前 [[|b]] 后 [[x 前"
+  },
+  "case_18": {
+    "extracted": [
+      "Tab"
+    ],
+    "found": [
+      {
+        "display": "Tab",
+        "title": "Tab",
+        "url": "/article/tab.html"
+      }
+    ],
+    "map": {},
+    "processed": "[Tab](/article/tab.html)",
+    "src": "[[\tTab\t]]"
+  },
+  "case_19": {
+    "extracted": [
+      "x"
+    ],
+    "found": [
+      {
+        "display": "",
+        "title": "x",
+        "url": "/article/x.html"
+      }
+    ],
+    "map": {},
+    "processed": "[](/article/x.html) end",
+    "src": "[[x| ]] end"
+  },
+  "case_20": {
+    "extracted": [
+      "café"
+    ],
+    "found": [
+      {
+        "display": "café",
+        "title": "café",
+        "url": "/article/café.html"
+      }
+    ],
+    "known_divergence": "非 ASCII 非 CJK 字母：Python slug café，WLWL slug caf",
+    "map": {},
+    "processed": "[café](/article/café.html)",
+    "src": "[[café]]"
+  },
+  "case_21": {
+    "extracted": [
+      "ひらがな"
+    ],
+    "found": [
+      {
+        "display": "ひらがな",
+        "title": "ひらがな",
+        "url": "/article/ひらがな.html"
+      }
+    ],
+    "known_divergence": "假名在 \\u4e00-\\u9fa5 之外：Python slug ひらがな，WLWL slug untitled",
+    "map": {},
+    "processed": "[ひらがな](/article/ひらがな.html)",
+    "src": "[[ひらがな]]"
+  }
+}

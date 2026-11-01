@@ -79,18 +79,25 @@ jobs:
         shell: pwsh
         run: |
           $ErrorActionPreference = 'Stop'
-          python tp\test\gen_md_inline.py
-          python tp\test\gen_test_md_inline.py
-          python tp\test\gen_smoke.py
+          # auto-discover: every tp/test/gen_*.py (incl. gen_test_*.py and
+          # gen_*_baseline.py) - new modules are covered without editing CI
+          $gens = @(Get-ChildItem -Path tp\test -Filter 'gen_*.py' -File | Sort-Object Name)
+          if ($gens.Count -eq 0) { Write-Error 'no generators found'; exit 1 }
+          foreach ($g in $gens) {
+            Write-Host "regen $($g.Name)"
+            python $g.FullName
+            if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+          }
 
-          $diff = git diff --stat -- 'tp/lib/*.wll' 'tp/test/*.wll'
+          # both .wll products and the JSON baselines must be reproducible
+          $diff = git diff --stat -- 'tp/lib/*.wll' 'tp/test/*.wll' 'tp/test/fixtures/*.json'
           if ($diff) {
-            Write-Host "::error::Generated .wll files are out of sync with their generators."
+            Write-Host "::error::Generated artifacts are out of sync with their generators."
             Write-Host $diff
-            Write-Host "Run: python tp\test\gen_md_inline.py (and the other generators), then commit."
+            Write-Host "Run: python tp\test\gen_<module>.py then commit."
             exit 1
           }
-          Write-Host "generated artifacts are in sync"
+          Write-Host "generated artifacts are in sync ($($gens.Count) generators)"
 
       # --- 3) static checks (fast, more precise than the compiler) ---
       - name: Static checks (paren / semicolon / generator args)
@@ -100,10 +107,15 @@ jobs:
           $wll = @(Get-ChildItem -Path tp\lib,tp\test -Filter *.wll -File |
                    Where-Object { $_.FullName -notlike '*broken*' })
           python tp\test\paren_check.py @($wll | ForEach-Object { $_.FullName })
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
           python tp\test\check_semis.py @($wll | ForEach-Object { $_.FullName })
-          python tp\test\check_c_args.py tp\test\gen_md_inline.py
-          python tp\test\check_c_args.py tp\test\gen_test_md_inline.py
-          python tp\test\check_c_args.py tp\test\gen_smoke.py
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+          $gens = @(Get-ChildItem -Path tp\test -Filter 'gen_*.py' -File | Sort-Object Name)
+          foreach ($g in $gens) {
+            Write-Host "check_c_args $($g.Name)"
+            python tp\test\check_c_args.py $g.FullName
+            if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+          }
 
       # --- 4) compile ---
       - name: wlwl check
@@ -153,7 +165,13 @@ jobs:
         shell: pwsh
         run: |
           $ErrorActionPreference = 'Stop'
+          # smoke first (it is not named test_*.wll), then every test file
           & wlwl.exe run tp\test\smoke.wll
           if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
-          & wlwl.exe run tp\test\test_md_inline.wll
-          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+          $tests = @(Get-ChildItem -Path tp\test -Filter 'test_*.wll' -File | Sort-Object Name)
+          foreach ($t in $tests) {
+            Write-Host "run $($t.Name)"
+            & wlwl.exe run $t.FullName
+            if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+          }
+          Write-Host "$($tests.Count + 1) test file(s) passed"

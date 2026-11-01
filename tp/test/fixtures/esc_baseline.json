@@ -1,0 +1,70 @@
+{
+  "case_00": {
+    "html": "&lt;a&gt;&quot;b&quot;&amp;c",
+    "src": "<a>\"b\"&c"
+  },
+  "case_01": {
+    "html": "&lt;a&gt;&#x27;b&#x27;&amp;c",
+    "src": "<a>'b'&c"
+  },
+  "case_02": {
+    "html": "&amp;&lt;&gt;&quot;&#x27;",
+    "src": "&<>\"'"
+  },
+  "case_03": {
+    "html": "普通中文 &amp; &lt;script&gt;",
+    "src": "普通中文 & <script>"
+  },
+  "case_04": {
+    "html": "tab\there &quot;x&quot;",
+    "src": "tab\there \"x\""
+  },
+  "case_05": {
+    "html": "line1\nline2",
+    "src": "line1\nline2"
+  },
+  "case_06": {
+    "html": "",
+    "src": ""
+  },
+  "case_07": {
+    "html": "&#x27;",
+    "src": "'"
+  },
+  "case_08": {
+    "html": "it&#x27;s a &#x27;test&#x27;",
+    "src": "it's a 'test'"
+  },
+  "case_09": {
+    "html": "&amp;#39;",
+    "src": "&#39;"
+  },
+  "case_10": {
+    "html": "&amp;amp;#39;",
+    "src": "&amp;#39;"
+  },
+  "case_11": {
+    "html": "&amp;lt;",
+    "src": "&lt;"
+  },
+  "case_12": {
+    "html": "**bold** &amp; `code`",
+    "src": "**bold** & `code`"
+  },
+  "case_13": {
+    "html": "[link](http://x.y/?a=1&amp;b=2)",
+    "src": "[link](http://x.y/?a=1&b=2)"
+  },
+  "case_14": {
+    "html": "C:\\path\\to\\file",
+    "src": "C:\\path\\to\\file"
+  },
+  "case_15": {
+    "html": "a = b &lt; c &gt; d",
+    "src": "a = b < c > d"
+  },
+  "case_16": {
+    "html": "&amp;amp;",
+    "src": "&amp;"
+  }
+}

@@ -1,0 +1,292 @@
+{
+  "addids": [
+    {
+      "html": "<h1>Title</h1>\n<h2>Sub</h2>\n<p>body</p>\n",
+      "md": "# Title\n## Sub\n",
+      "name": "basic",
+      "want": "<h1 id=\"title\">Title</h1>\n<h2 id=\"sub\">Sub</h2>\n<p>body</p>\n"
+    },
+    {
+      "html": "<h2 class=\"hl\">Sub</h2>\n",
+      "md": "## Sub\n",
+      "name": "attrs_after_id",
+      "want": "<h2 id=\"sub\" class=\"hl\">Sub</h2>\n"
+    },
+    {
+      "html": "<h1 id=\"keep\">Title</h1>\n",
+      "md": "# Title\n",
+      "name": "existing_id",
+      "want": "<h1 id=\"keep\">Title</h1>\n"
+    },
+    {
+      "html": "<h2>line one\nline two</h2>\n",
+      "md": "## line one\n",
+      "name": "multiline_content",
+      "want": "<h2 id=\"line-one\">line one\nline two</h2>\n"
+    },
+    {
+      "html": "<h2>Mystery</h2>\n",
+      "md": "## Other\n",
+      "name": "no_match",
+      "want": "<h2>Mystery</h2>\n"
+    },
+    {
+      "html": "<h2>Intro Section</h2>\n",
+      "md": "## Intro\n",
+      "name": "substring_content",
+      "want": "<h2 id=\"intro\">Intro Section</h2>\n"
+    },
+    {
+      "html": "<h1></h1>\n",
+      "md": "# Title\n",
+      "name": "empty_content",
+      "want": "<h1></h1>\n"
+    },
+    {
+      "html": "<h2>Same</h2>\n",
+      "md": "## Same\n## Same\n",
+      "name": "dup_override",
+      "want": "<h2 id=\"same-2\">Same</h2>\n"
+    }
+  ],
+  "extract": [
+    {
+      "md": "# Title\n## Sub A\n### Deep\n## Sub B\n",
+      "name": "levels",
+      "want": [
+        {
+          "id": "title",
+          "level": 1,
+          "text": "Title"
+        },
+        {
+          "id": "sub-a",
+          "level": 2,
+          "text": "Sub A"
+        },
+        {
+          "id": "deep",
+          "level": 3,
+          "text": "Deep"
+        },
+        {
+          "id": "sub-b",
+          "level": 2,
+          "text": "Sub B"
+        }
+      ]
+    },
+    {
+      "md": "## Usage\n## Usage\n## Usage\n",
+      "name": "dup_three",
+      "want": [
+        {
+          "id": "usage",
+          "level": 2,
+          "text": "Usage"
+        },
+        {
+          "id": "usage-2",
+          "level": 2,
+          "text": "Usage"
+        },
+        {
+          "id": "usage-3",
+          "level": 2,
+          "text": "Usage"
+        }
+      ]
+    },
+    {
+      "md": "## Hello World!\n## Hello World\n",
+      "name": "dup_diff_text",
+      "want": [
+        {
+          "id": "hello-world",
+          "level": 2,
+          "text": "Hello World!"
+        },
+        {
+          "id": "hello-world-2",
+          "level": 2,
+          "text": "Hello World"
+        }
+      ]
+    },
+    {
+      "md": "## 第一章\n## 第一章\n## 中文 标题\n",
+      "name": "cjk_dup",
+      "want": [
+        {
+          "id": "第一章",
+          "level": 2,
+          "text": "第一章"
+        },
+        {
+          "id": "第一章-2",
+          "level": 2,
+          "text": "第一章"
+        },
+        {
+          "id": "中文-标题",
+          "level": 2,
+          "text": "中文 标题"
+        }
+      ]
+    },
+    {
+      "md": "#NoSpace\n#\n##\nNot a heading\n ## Indented heading\n####### seven\n###### six\n",
+      "name": "noise_lines",
+      "want": [
+        {
+          "id": "indented-heading",
+          "level": 2,
+          "text": "Indented heading"
+        },
+        {
+          "id": "six",
+          "level": 6,
+          "text": "six"
+        }
+      ]
+    },
+    {
+      "md": "## Using `code` and **bold**\n## [Link](http://x.y/?a=1&b=2)\n",
+      "name": "inline_md",
+      "want": [
+        {
+          "id": "using-code-and-bold",
+          "level": 2,
+          "text": "Using `code` and **bold**"
+        },
+        {
+          "id": "linkhttpxya1b2",
+          "level": 2,
+          "text": "[Link](http://x.y/?a=1&b=2)"
+        }
+      ]
+    },
+    {
+      "md": "",
+      "name": "empty",
+      "want": []
+    },
+    {
+      "md": "##\tTab title\n",
+      "name": "tab_sep",
+      "want": [
+        {
+          "id": "tab-title",
+          "level": 2,
+          "text": "Tab title"
+        }
+      ]
+    }
+  ],
+  "slug": [
+    {
+      "name": "punct_ascii",
+      "src": "Hello, World!",
+      "want": "hello-world"
+    },
+    {
+      "name": "cjk_only",
+      "src": "中文标题",
+      "want": "中文标题"
+    },
+    {
+      "name": "ws_edges",
+      "src": "  Leading and trailing  ",
+      "want": "leading-and-trailing"
+    },
+    {
+      "name": "ws_collapse",
+      "src": "Multiple   spaces\tand tabs",
+      "want": "multiple-spaces-and-tabs"
+    },
+    {
+      "name": "already",
+      "src": "already-slugged",
+      "want": "alreadyslugged"
+    },
+    {
+      "name": "underscore_amp",
+      "src": "Under_scores & symbols!",
+      "want": "underscores-symbols"
+    },
+    {
+      "name": "dashes_only",
+      "src": "---",
+      "want": "heading"
+    },
+    {
+      "name": "bangs_only",
+      "src": "!!!",
+      "want": "heading"
+    },
+    {
+      "name": "mixed_cjk_ascii",
+      "src": "Mixed汉字 and ASCII 123",
+      "want": "mixed汉字-and-ascii-123"
+    },
+    {
+      "name": "dash_collapse",
+      "src": "a--b---c",
+      "want": "abc"
+    },
+    {
+      "name": "dash_edges",
+      "src": "-leading-trailing-",
+      "want": "leadingtrailing"
+    },
+    {
+      "name": "upper",
+      "src": "UPPERCASE",
+      "want": "uppercase"
+    }
+  ],
+  "toc": [
+    {
+      "max": 3,
+      "md": "# Top\n## Sub A\n### Deep\n#### Deeper\n## Sub B\n",
+      "min": 2,
+      "name": "h2h3",
+      "want": "\n<nav class=\"toc\" aria-label=\"文章目录\">\n  <details open>\n    <summary>目录</summary>\n    <ul>\n      <li><a href=\"#sub-a\">Sub A</a></li>  <li><a href=\"#deep\">Deep</a></li><li><a href=\"#sub-b\">Sub B</a></li>\n    </ul>\n  </details>\n</nav>"
+    },
+    {
+      "max": 6,
+      "md": "# Top\n## A\n### B\n#### C\n##### D\n###### E\n",
+      "min": 1,
+      "name": "full_1_6",
+      "want": "\n<nav class=\"toc\" aria-label=\"文章目录\">\n  <details open>\n    <summary>目录</summary>\n    <ul>\n      <li><a href=\"#top\">Top</a></li>  <li><a href=\"#a\">A</a></li>    <li><a href=\"#b\">B</a></li>      <li><a href=\"#c\">C</a></li>        <li><a href=\"#d\">D</a></li>          <li><a href=\"#e\">E</a></li>\n    </ul>\n  </details>\n</nav>"
+    },
+    {
+      "max": 3,
+      "md": "# Only one\n# Only two\n",
+      "min": 2,
+      "name": "all_filtered",
+      "want": ""
+    },
+    {
+      "max": 3,
+      "md": "## Use <tag> & \"quotes\" 'single'\n",
+      "min": 2,
+      "name": "escapes",
+      "want": "\n<nav class=\"toc\" aria-label=\"文章目录\">\n  <details open>\n    <summary>目录</summary>\n    <ul>\n      <li><a href=\"#use-tag-quotes-single\">Use &lt;tag&gt; &amp; &quot;quotes&quot; &#x27;single&#x27;</a></li>\n    </ul>\n  </details>\n</nav>"
+    },
+    {
+      "max": 4,
+      "md": "## Level Two\n#### Level Four\n",
+      "min": 2,
+      "name": "deep_indent",
+      "want": "\n<nav class=\"toc\" aria-label=\"文章目录\">\n  <details open>\n    <summary>目录</summary>\n    <ul>\n      <li><a href=\"#level-two\">Level Two</a></li>    <li><a href=\"#level-four\">Level Four</a></li>\n    </ul>\n  </details>\n</nav>"
+    },
+    {
+      "max": 3,
+      "md": "## Two\n### Three\n## Two B\n",
+      "min": 3,
+      "name": "h3_only",
+      "want": "\n<nav class=\"toc\" aria-label=\"文章目录\">\n  <details open>\n    <summary>目录</summary>\n    <ul>\n      <li><a href=\"#three\">Three</a></li>\n    </ul>\n  </details>\n</nav>"
+    }
+  ]
+}

@@ -1,0 +1,25 @@
+// tp/lib/esc.wll —— HTML 转义共享工具
+//
+// ⚠ 本文件由 tp/test/gen_esc.py 生成 —— 请勿手改。
+//   改实现请改生成器（WLWL 的括号诊断不告诉你缺了几层）。
+//
+// 对齐目标：Python html.escape(s, quote=True)
+//   （== tinypage.security.escape_html）
+// 逐字节对照基准：tp/test/fixtures/esc_baseline.json
+//
+// 为什么必须后处理：WLWL 内建 HTML_ESCAPE 把 ' 转成 &#39;，
+// Python 转成 &#x27; —— 语义等价但逐字节不同 ⇒ 用 RE_REPLACE 换过去。
+// 安全性：HTML_ESCAPE 已把 & 转成 &amp; ⇒ 输出里的 &#39; 必然是它自己
+// 生成的单引号；输入的字面 &#39; 变成 &amp;#39;（& 后跟 a）不会被误伤。
+
+IMPORT("wlwl:std.sanitize", ["HTML_ESCAPE"]);
+IMPORT("wlwl:std.regex", ["RE", "RE_REPLACE"]);
+
+// // HTML 转义（逐字节对齐 Python html.escape(quote=True)）
+     LET(ESCAPE_HTML, FUN((s), (
+               // 对齐 Python html.escape(s, quote=True)：;
+               // & < > " ' → &amp; &lt; &quot; &#x27;（内建已做前四个，' 要换写法）;
+               RE_REPLACE(RE("&#39;"), HTML_ESCAPE(s), "&#x27;")
+     )));
+
+EXPORT(["ESCAPE_HTML"]);

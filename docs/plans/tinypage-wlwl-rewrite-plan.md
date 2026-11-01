@@ -32,7 +32,7 @@
 | S1-1b 开发工具链 | ✅ 完成 | `tp/test/` 下 5 个静态检查器（括号/中缀/分号/生成器参数/逐函数编译）+ 逐行深度追踪 |
 | S1-2 行内解析器 | ✅ 完成 | `tp/lib/md_inline.wll`（生成器产出）；**21/21 测试通过**，含 3 个反向守卫 |
 | S1-3 块级解析器 | ✅ 完成 | `tp/lib/md.wll`（生成器产出）；**28/28 对照 mistune 3.2.1 逐字节通过**（25 基准 + 3 守卫）；链接去掉自加的 `rel` 属性以逐字节对齐 |
-| S1-4 front-matter/TOC/脚注 | ⬜ 未开始 | `frontmatter.wll` / `toc.wll` / `footnotes.wll` / `wikilink.wll` |
+| S1-4 front-matter/TOC/脚注/wikilink | ✅ 完成 | `frontmatter.wll` / `toc.wll` / `footnotes.wll` / `wikilink.wll` + 共享 `esc.wll`（全部生成器产出）；**38/38 + 41/41 + 23/23 + 28/28 + esc 19/19 全绿**；本地 CI 5 步全过（21 生成器 / 21 产物无 drift） |
 | S2 内容模型与生成器 | ⬜ 未开始 | `content.wll` + `generator.wll` + 站点产物 |
 | S3 前台静态服务（TLS） | ⬜ 未开始 | `serve_public.wll`（TLS 终止 + 静态文件） |
 | S4 Admin 后台 | ⬜ 未开始 | `serve_admin.wll` + 会话/CSRF/限流/CRUD |
@@ -56,20 +56,31 @@
 3. **测试必须自己把关退出码**：`RUN_TESTS()` 的失败**不影响退出码**（规范明载）
    ⇒ 测试文件末尾要 `IF(>(failed, 0), (PRINT_ERR(...); PANIC(...)), NULL);`，
    否则「测试失败但 CI 绿」。
-4. **实测得到的十条 WLWL 陷阱**见 `tp/README.md` 的对照表（无中缀算术、`CAT` 不拼数组、
+4. **实测得到的十九条 WLWL 陷阱**见 `tp/README.md` 的对照表（无中缀算术、`CAT` 不拼数组、
    `WHILE` 值为 NULL、顶层语句缺分号、`std.*` 须 IMPORT、`&&`/`||` 而非 `AND`/`OR`、
-   字符串转义白名单、布尔大写、递归上限 2000、`SORT` 二次复杂度）。
+   字符串转义白名单、布尔大写、递归上限 2000、`SORT` 二次复杂度、`FUN` 两组括号、
+   闭包读写外层 `LET MUT`、`CAT` 遇 NULL 拼出字面 `NULL`、无逗号表达式、
+   `RE_TEST` 整串锚定、正则无前瞻、`$1` 而非 `\1`、`\w` 不含非 ASCII、内建 `HTML_ESCAPE` 出 `&#39;`）。
 5. **项目根 = 含 `wlwl.toml` 的最近祖先目录** ⇒ `tp/wlwl.toml` 必须存在，
    否则 `tp/test/` 里的 `IMPORT("./../lib/...")` 越界（`E0040`）。
-6. **CI 已就位**（`.github/workflows/wlwl.yml`，Windows runner，9 步）：
+6. **共享工具只留一份**：HTML 转义统一走 `tp/lib/esc.wll::ESCAPE_HTML`
+   （对齐 Python `html.escape(quote=True)`，含单引号 → `&#x27;`）。
+   任何需要「输出转义 HTML」的模块都 `IMPORT("./esc.wll", [...])`，**不得**自己再实现。
+7. **CI 已就位**（`.github/workflows/wlwl.yml`，Windows runner，9 步）：
    ① 下载官方 WLWL 0.12.1 Windows zip（**校验 sha256**）② 验证版本
    ③ **重跑生成器并要求 `git diff` 为空**（产物与生成器必须一致）
    ④ 静态检查器（括号+中缀 / 分号 / 生成器参数）
    ⑤ `wlwl check` 全部 `.wll` ⑥ **反向守卫**（坏文件必须被 check 拒掉）
-   ⑦ 跑 `smoke.wll` 与 `test_md_inline.wll`。
+   ⑦ 跑 `smoke.wll` 与全部 `test_*.wll`。
    ⇒ 本地可一键复现全部步骤：`powershell -File tp\test\ci_local_check.ps1`。
    ⚠ 生成器**不得**硬编码绝对路径（CI 上仓库在别处）⇒ 产物路径由 `__file__` 推导。
-   ✅ **实测状态：GitHub Actions run 41317062756 ⇒ 9/9 步全绿**。
+   ✅ **实测状态：GitHub Actions run 41317062756 ⇒ 9/9 步全绿**（S1-3 后 run #37 仍全绿）。
+
+   **⚠ 第 ③④⑦ 步已改为「自动发现」**（S1-4 期间发现的缺口）：原先是**硬编码的
+   生成器/测试清单**，导致 S1-3 的 `gen_md.py`/`gen_test_md.py` **没被 no-drift 守卫、
+   `test_md.wll` 没被跑**。现改为 `Get-ChildItem tp\test -Filter 'gen_*.py'` /
+   `'test_*.wll'` 全量遍历 ⇒ 新增模块无需改 CI；drift 检查范围同时纳入
+   `tp/test/fixtures/*.json`（基准也必须可复现）。本地脚本同步改造。
 
    **⚠ 写 CI 时踩到的三个坑（都已在配置里规避并注释）**：
    | # | 坑 | 症状 | 规避 |
@@ -129,6 +140,15 @@
 | F6 | `std.*` 成员**不是全局名**，必须 `IMPORT` | `BYTE_LEN` 未 import → `E0020`；`CAT` 未 import → handler failed |
 | F7 | **`SLEEP_ASYNC` 放进任务里的 `WHILE` 循环会挂死**（段首重放重置计数器） | `tp/probe/probe_blocking.wll` 首版即挂死 60s 超时 |
 | F8 | `ERR` 未消费会报 `E0103`；`IS_ERR` 只观察不解除 | WLWL v1.0 错误模型，skill §8.6 |
+| F9 | **`RE_TEST` 整串锚定且忽略 `(?m)`**；行锚定只有 `RE_SEARCH`/`RE_REPLACE`/`RE_FIND_ALL` 认 `(?m)` | `RE_TEST(RE("(?m)^b$"), "a\nb\nc")` = FALSE；`RE_SEARCH` 同模式 = `[matched: b, start: 2, end: 3]` |
+| F10 | **正则不支持前瞻/后顾**（与 F3 同源，但会当场 `E0030`） | `RE("\\[\\^[^\\]]+\\](?!:)")` → `E0030: lookahead is not supported (it would break linear time)` |
+| F11 | **`RE_REPLACE` 的组引用是 `$1` 不是 `\1`**；`RE_SEARCH` 返回 `[matched, start, end, groups]`，start/end 是**码点**下标 | `RE_REPLACE(RE("(\\d+)-(\\d+)"), "a 12-34 b", "$2/$1")` = `a 34/12 b` |
+| F12 | **`\w` 的 Unicode 语义与 Python 不同**：WLWL 的 `\w` **不含**非 ASCII 字母 | `RE_REPLACE(RE("[^\\w\\u4e00-\\u9fa5-]"), "café", "-")` = `caf-`；Python 同模式 = `café` |
+| F13 | **内建 `HTML_ESCAPE` 出 `&#39;`，Python `html.escape` 出 `&#x27;`** ⇒ 逐字节对照必红 | `HTML_ESCAPE("<a>'b'&c")` = `&lt;a&gt;&#39;b&#39;&amp;c`；Python = `&#x27;b&#x27;` ⇒ 统一走 `tp/lib/esc.wll::ESCAPE_HTML` |
+| F14 | **`CAT` 遇 `NULL` 拼出字面 `"NULL"`**（不是空串） | `CAT("A", NULL, "B")` = `ANULLB` |
+| F15 | **`FUN` 是两个括号组** `FUN((params), (body))`；零参写 `FUN((), (body))` | `FUN((body))` → `E0010: expected parameter name, got If` |
+| F16 | **闭包可读可写外层 `LET MUT`**（`SET` 直达外层绑定） | 探针：`LET MUT(y, "Y0"); LET(g, FUN((), (SET(y, CAT(y, "+g"))))); g(); g();` ⇒ `y = Y0+g+g` |
+| F17 | **WLWL 正则不认 `\uXXXX`**：未知转义 `\u` 退化成**字面 `u`** ⇒ `\u4e00-\u9fa5` 匹配的是文本 `u4e00-u9fa5` 而**不是 CJK**。Python `re` 则认得它（`re.match(r"[一-龥]", "中")` → True） | 探针（wlwl 0.12.1）：`RE_TEST(RE("^[一-龥]+$"), "中文")` → **TRUE**；`RE_TEST(RE("^\\u4e00-\\u9fa5$"), "中")` → **FALSE**；同式对 `"u4e00-u9fa5"` → **TRUE** ⇒ 证明是字面匹配。**写字符类一律用字面 `一-龥`**（toc.wll 实测与 Python 逐字节一致） |
 
 ### 2.2 标准库能力（`wlwl namespace` 实测导出）
 
@@ -542,22 +562,58 @@ TinyPage/
 
 - **依赖**：S1-3
 - **交付物**：`frontmatter.wll`、`toc.wll`、`footnotes.wll`、`wikilink.wll`
+  + **`esc.wll`（本轮新增的共享地基）** —— 三个模块都要输出「对齐 Python
+  `html.escape(quote=True)`」的 HTML，只留一份实现（见 §0.2「共享工具」）。
 - **行为对齐点**（逐条照搬 Python 语义，**不改数据格式**）：
   - 元数据：只读**前 7 行**；键白名单 `title/date/slug/tags/summary/category/status/markdown`；多余键静默忽略
-  - 元数据写回：`html.escape(quote=True)` 等价 + 换行压成空格（保证单行可回读）
+  - 元数据写回：`html.escape(quote=True)` 等价 + **连续** `\r`/`\n` 序列压成**一个**空格（`re.sub(r"[\r\n]+", " ", v)`，注意 `+` ⇒ 不是每行一个空格）
   - TOC：正则 `^(#{1,6})\s+(.+)$`；slug = 删非 `[a-zA-Z0-9\u4e00-\u9fa5\s]` → 空白转 `-` → 小写；**重复加 `-2`/`-3`**；默认层级 2–3
-  - 脚注：定义 `^\[\^([^\]]+)\]:\s*(.+)$`（**单行**）；引用 `\[\^([^\]]+)\](?![:])`；渲染前替换
+  - 脚注：定义 `\[\^([^\]]+)\]:\s*(.+)$`（**无行首锚定** ⇒ 行中间的定义也会被识别；`(?m)` 使 `$` 落在行尾、`.` 不跨行 ⇒ **只取第一行**）；引用 `\[\^([^\]]+)\]` + 手工跳过冒号后随（**WLWL 无前瞻**，见 §2.1 F10）；渲染前替换
   - wikilink：`[[标题]]` / `[[标题|显示]]`，渲染前替换为标准 Markdown 链接
+- **⚠ 实测发现的与 Python 差异（已登记，非缺陷）**：
+  - **脚注顺序**：Python 用 `set` 收集键 ⇒ `build_footnotes_html` 的 `<li>`
+    顺序**跨进程不确定**（父进程实测 5 次运行给出 4 种顺序）⇒ 逐字节对照无法
+    依赖它。WLWL 侧取**定义出现顺序**（确定性），基准序列化前重排。
+  - **`\w`**（§2.1 F12）：只影响 wikilink 的 slug；该路径复用 S1-2 已交付并已
+    测试的 `md_inline.wll::WIKILINK_TARGET`，不重写 slug 规则。
 - **验收命令**：
   ```
+  D:\wlwl_v0.12.1\wlwl.exe run tp\test\test_esc.wll
   D:\wlwl_v0.12.1\wlwl.exe run tp\test\test_frontmatter.wll
   D:\wlwl_v0.12.1\wlwl.exe run tp\test\test_toc.wll
+  D:\wlwl_v0.12.1\wlwl.exe run tp\test\test_footnotes.wll
+  D:\wlwl_v0.12.1\wlwl.exe run tp\test\test_wikilink.wll
   ```
 - **反向守卫**：
   - 元数据第 8 行的键 ⇒ **不得**被读入
   - 两个同名标题 ⇒ slug 必须是 `x` 与 `x-2`，**不得**都是 `x`
   - 脚注定义含换行 ⇒ 只取第一行（对齐 Python）
+  - 单引号必须出 `&#x27;`（不是内建的 `&#39;`）
 - **非目标**：不做 YAML front-matter（保持现有私有格式）
+- **✅ 实测状态（2026-11-02 完成）**：四模块 + `esc.wll` 全部由 4 个 worker 并行交付
+  （文件级互斥），父进程逐个独立复跑核验：
+
+  | 模块 | 构成 | 读数 |
+  |---|---|---|
+  | `esc.wll` | 17 基准 + 2 守卫 | **19/19**，exit 0 |
+  | `frontmatter.wll` | 33 基准 + 5 守卫 | **38/38**，exit 0 |
+  | `toc.wll` | 34 基准 + 7 守卫 | **41/41**，exit 0 |
+  | `footnotes.wll` | 17 基准 + 6 守卫 | **23/23**，exit 0 |
+  | `wikilink.wll` | 22 基准 + 6 守卫 | **28/28**，exit 0 |
+
+  本地 CI 5 步全过：21 生成器 / 21 产物无 drift、静态检查、15 文件 `wlwl check`、
+  反向守卫、8 个测试文件全绿。
+- **🔧 本卡揪出并修复的上游真 bug（S1-2 交付物）**：
+  `gen_md_inline.py` 的 `trim_dashes` **尾部循环条件写反** —— 写成
+  `WHILE(&&(>(start, end), …))`，而 `start` 从 0 起、`end = LEN(s)` ⇒ `start > end`
+  **恒为假** ⇒ 尾部 `-` **一次都没裁过**（首部条件 `<(start, end)` 是对的）。
+  - 影响面：`WIKILINK_TARGET` 与 `INLINE_WITH_MAP` **两个导出**（不是 wikilink 单点）。
+  - **为什么此前 21 条测试没抓到**：所有用例的标题都不以非词字符结尾 ⇒ 测试盲区。
+  - 修复：条件改 `<(start, end)`，重生成 md 系列产物；**新增回归用例**
+    `wiki/slug_strips_both_ends`（4 条断言，期望值取自真 Python `slugify_for_link`）
+    钉住双向裁剪，盲区不再复发。
+  - 连带影响：`café` 的 wikilink 差异钉值由 `/article/caf-.html` 更新为
+    `/article/caf.html`（`\w` 口径差异本身仍在，只是尾 `-` 现在被正确裁掉）。
 
 ### S2 内容模型与生成器
 

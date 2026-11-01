@@ -114,6 +114,12 @@ powershell -File tp\test\ci_local_check.ps1
 | 12 | 闭包可读可写外层 `LET MUT` | — | 实测 SET/读均直达外层绑定（`_probe_closure` 已删，结论入此） |
 | 13 | **`CAT` 遇 `NULL` 拼出字面 `"NULL"`** | 输出里冒出 `NULL` 前缀 | 拼接前保证各参数非 NULL（flush 返回值被 `SET(out, ...)` 吞过一次，见 S1-3） |
 | 14 | **没有逗号表达式** | `(SET(n,1), NULL)` → `E0011` | 多语句用语句序列 `(stmt1; stmt2)`；生成器有 `assert_no_comma_expr` 守卫 |
+| 15 | **`RE_TEST` 整串锚定、忽略 `(?m)`** | 多行模式用它测恒 FALSE | 行锚定用 `RE_SEARCH`/`RE_REPLACE`/`RE_FIND_ALL`（只有它们认 `(?m)`） |
+| 16 | **正则无前瞻/后顾/反向引用** | `RE("(?!:)")` → `E0030 lookahead is not supported` | 手写扫描：`RE_SEARCH` 取 `start`/`end`，看 `end` 后一个字符，再 `SUB` 切片拼接 |
+| 17 | **`RE_REPLACE` 用 `$1` 不是 `\1`** | `"\1"` 是字面量 | `RE_REPLACE(re, s, "$2/$1")`（实测与 Python `\2/\1` 一致） |
+| 18 | **`\w` 不含非 ASCII 字母**（与 Python 不同） | `café` 的 `é` 被判非法 | 别拿 Python 的 `\w` 语义照抄；CJK 用**字面** `一-龥`（⚠ 不是 `\u4e00-\u9fa5`，那个写法在 WLWL 里不生效，见 #20） |
+| 19 | **内建 `HTML_ESCAPE` 出 `&#39;`，Python 出 `&#x27;`** | 逐字节对照红 | `tp/lib/esc.wll` 的 `ESCAPE_HTML` 已做后处理，**统一用它** |
+| 20 | **正则不认 `\uXXXX`**：未知转义 `\u` 退化成**字面 `u`** | `RE("\\u4e00-\\u9fa5")` 匹配的是文本 `u4e00-u9fa5`，对 `"中"` 返回 **FALSE**（Python `re` 同式返回 True） | 字符类一律写字面 `一-龥`。实测：`RE_TEST(RE("^[一-龥]+$"), "中文")` → TRUE |
 
 ## 参考
 

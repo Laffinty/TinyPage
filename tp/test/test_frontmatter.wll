@@ -1,0 +1,294 @@
+// tp/test/test_frontmatter.wll —— front-matter 测试（对照真 Python）
+//
+// ⚠ 本文件由 tp/test/gen_test_frontmatter.py 生成 —— 请勿手改。
+//
+// 验收方式：每个用例都与**真 Python** 的期望值逐字节对照。
+// 基准：tp/test/fixtures/frontmatter_baseline.json
+//   （gen_frontmatter_baseline.py：meta_value/_meta_header 调真函数；
+//     parse_meta 用与 parse_meta 逐字相同的正则与循环逻辑复刻）
+//
+// ⚠ RUN_TESTS() 的失败**不影响退出码**（规范明载）⇒ 本文件自己把关。
+IMPORT("wlwl:std.test", ["TEST", "ASSERT", "ASSERT_EQ", "RUN_TESTS"]);
+IMPORT("./../lib/frontmatter.wll", ["PARSE_META", "META_VALUE", "META_HEADER"]);
+
+// ── parse_meta 基准用例（复刻的 parse_meta_from_text） ──
+// pm_bogus_dropped: '<!-- title: t -->\n<!-- bogus: x -->\n<!-- date: 2026-03-03 -->\n'
+LET(src_pm_bogus_dropped, "<!-- title: t -->\n<!-- bogus: x -->\n<!-- date: 2026-03-03 -->\n");
+LET(want_pm_bogus_dropped, ["date": "2026-03-03", "status": "published", "title": "t"]);
+
+// pm_colon_in_value: '<!-- summary: x: y -->\n'
+LET(src_pm_colon_in_value, "<!-- summary: x: y -->\n");
+LET(want_pm_colon_in_value, ["status": "published", "summary": "x: y"]);
+
+// pm_crlf: '<!-- title: t -->\r\n<!-- date: d -->\r\n<!-- tags: a -->\r\n'
+LET(src_pm_crlf, "<!-- title: t -->\r\n<!-- date: d -->\r\n<!-- tags: a -->\r\n");
+LET(want_pm_crlf, ["date": "d", "status": "published", "tags": "a", "title": "t"]);
+
+// pm_dash_value: '<!-- status: -->\n'
+LET(src_pm_dash_value, "<!-- status: -->\n");
+LET(want_pm_dash_value, ["status": "published"]);
+
+// pm_default_status: '<!-- title: t -->\n<!-- date: d -->\n<!-- tags: a -->\n'
+LET(src_pm_default_status, "<!-- title: t -->\n<!-- date: d -->\n<!-- tags: a -->\n");
+LET(want_pm_default_status, ["date": "d", "status": "published", "tags": "a", "title": "t"]);
+
+// pm_empty: ''
+LET(src_pm_empty, "");
+LET(want_pm_empty, ["status": "published"]);
+
+// pm_full_7keys: '<!-- title: T -->\n<!-- date: 2026-01-01 -->\n<!-- slug: s-1 -->\n<!-- tags: a, b -->\n<!-- summary: sum -->\n<!-- markdown: body -->\n<!-- status: draft -->\n'
+LET(src_pm_full_7keys, "<!-- title: T -->\n<!-- date: 2026-01-01 -->\n<!-- slug: s-1 -->\n<!-- tags: a, b -->\n<!-- summary: sum -->\n<!-- markdown: body -->\n<!-- status: draft -->\n");
+LET(want_pm_full_7keys, ["date": "2026-01-01", "markdown": "body", "slug": "s-1", "status": "draft", "summary": "sum", "tags": "a, b", "title": "T"]);
+
+// pm_full_category: '<!-- title: 标题 -->\n<!-- date: 2026-02-02 -->\n<!-- slug: slug-2 -->\n<!-- tags: x -->\n<!-- summary: 摘要 -->\n<!-- category: cat -->\n<!-- status: published -->\n'
+LET(src_pm_full_category, "<!-- title: 标题 -->\n<!-- date: 2026-02-02 -->\n<!-- slug: slug-2 -->\n<!-- tags: x -->\n<!-- summary: 摘要 -->\n<!-- category: cat -->\n<!-- status: published -->\n");
+LET(want_pm_full_category, ["category": "cat", "date": "2026-02-02", "slug": "slug-2", "status": "published", "summary": "摘要", "tags": "x", "title": "标题"]);
+
+// pm_greedy_tail: '<!-- title: a --> tail -->\n'
+LET(src_pm_greedy_tail, "<!-- title: a --> tail -->\n");
+LET(want_pm_greedy_tail, ["status": "published", "title": "a --> tail"]);
+
+// pm_indented_line: '    <!-- title:  hello world  -->   \n'
+LET(src_pm_indented_line, "    <!-- title:  hello world  -->   \n");
+LET(want_pm_indented_line, ["status": "published", "title": "hello world"]);
+
+// pm_line8_ignored: '<!-- title: t -->\n\n\n\n\n\n\n<!-- slug: toolate -->\n'
+LET(src_pm_line8_ignored, "<!-- title: t -->\n\n\n\n\n\n\n<!-- slug: toolate -->\n");
+LET(want_pm_line8_ignored, ["status": "published", "title": "t"]);
+
+// pm_no_match: 'just text\nmore text\n'
+LET(src_pm_no_match, "just text\nmore text\n");
+LET(want_pm_no_match, ["status": "published"]);
+
+// pm_overflow10: '<!-- title: first -->\n<!-- date: d -->\n<!-- slug: s -->\n<!-- tags: a -->\n<!-- summary: sum -->\n<!-- category: c -->\n<!-- status: draft -->\n<!-- title: later -->\n<!-- slug: even-later -->\n<!-- bogus: nope -->\n'
+LET(src_pm_overflow10, "<!-- title: first -->\n<!-- date: d -->\n<!-- slug: s -->\n<!-- tags: a -->\n<!-- summary: sum -->\n<!-- category: c -->\n<!-- status: draft -->\n<!-- title: later -->\n<!-- slug: even-later -->\n<!-- bogus: nope -->\n");
+LET(want_pm_overflow10, ["category": "c", "date": "d", "slug": "s", "status": "draft", "summary": "sum", "tags": "a", "title": "first"]);
+
+// pm_roundtrip_escaped: '<!-- title: T &amp; &#x27;x&#x27; -->\n<!-- date: 2026-01-01 -->\n<!-- slug: slug-1 -->\n<!-- tags: a, b -->\n<!-- summary: sum mary -->\n<!-- category: cat -->\n<!-- status: draft -->\n'
+LET(src_pm_roundtrip_escaped, "<!-- title: T &amp; &#x27;x&#x27; -->\n<!-- date: 2026-01-01 -->\n<!-- slug: slug-1 -->\n<!-- tags: a, b -->\n<!-- summary: sum mary -->\n<!-- category: cat -->\n<!-- status: draft -->\n");
+LET(want_pm_roundtrip_escaped, ["category": "cat", "date": "2026-01-01", "slug": "slug-1", "status": "draft", "summary": "sum mary", "tags": "a, b", "title": "T &amp; &#x27;x&#x27;"]);
+
+// pm_roundtrip_status_blank: '<!-- title: T -->\n<!-- date: D -->\n<!-- slug: S -->\n<!-- tags: G -->\n<!-- summary: U -->\n<!-- category: C -->\n<!-- status:  -->\n'
+LET(src_pm_roundtrip_status_blank, "<!-- title: T -->\n<!-- date: D -->\n<!-- slug: S -->\n<!-- tags: G -->\n<!-- summary: U -->\n<!-- category: C -->\n<!-- status:  -->\n");
+LET(want_pm_roundtrip_status_blank, ["category": "C", "date": "D", "slug": "S", "status": "published", "summary": "U", "tags": "G", "title": "T"]);
+
+// pm_unclosed: '<!-- title: x\n'
+LET(src_pm_unclosed, "<!-- title: x\n");
+LET(want_pm_unclosed, ["status": "published"]);
+
+// pm_value_inner_spaces: '<!-- summary: a  b -->\n'
+LET(src_pm_value_inner_spaces, "<!-- summary: a  b -->\n");
+LET(want_pm_value_inner_spaces, ["status": "published", "summary": "a  b"]);
+
+// ── meta_value 基准用例（真 meta_value） ────────────────
+// mv_amp: '&'
+LET(src_mv_amp, "&");
+LET(want_mv_amp, "&amp;");
+
+// mv_apostrophe: "it's"
+LET(src_mv_apostrophe, "it's");
+LET(want_mv_apostrophe, "it&#x27;s");
+
+// mv_cjk: '标题 & <正文>'
+LET(src_mv_cjk, "标题 & <正文>");
+LET(want_mv_cjk, "标题 &amp; &lt;正文&gt;");
+
+// mv_collapse_newlines: 'a\n\n\nb'
+LET(src_mv_collapse_newlines, "a\n\n\nb");
+LET(want_mv_collapse_newlines, "a b");
+
+// mv_crlf: 'a\r\nb'
+LET(src_mv_crlf, "a\r\nb");
+LET(want_mv_crlf, "a b");
+
+// mv_empty: ''
+LET(src_mv_empty, "");
+LET(want_mv_empty, "");
+
+// mv_html: '<b>&x</b>'
+LET(src_mv_html, "<b>&x</b>");
+LET(want_mv_html, "&lt;b&gt;&amp;x&lt;/b&gt;");
+
+// mv_int: 42
+LET(src_mv_int, 42);
+LET(want_mv_int, "42");
+
+// mv_lone_newline: '\n'
+LET(src_mv_lone_newline, "\n");
+LET(want_mv_lone_newline, "");
+
+// mv_mixed_newlines: 'a\nb\r\nc'
+LET(src_mv_mixed_newlines, "a\nb\r\nc");
+LET(want_mv_mixed_newlines, "a b c");
+
+// mv_strip_edges: '  pad  '
+LET(src_mv_strip_edges, "  pad  ");
+LET(want_mv_strip_edges, "pad");
+
+// mv_tab_edges: '\tx\t'
+LET(src_mv_tab_edges, "\tx\t");
+LET(want_mv_tab_edges, "x");
+
+// ── meta_header 基准用例（真 _meta_header） ─────────────
+// mh_apostrophe: ["it's", 'D', 'S', 'G', 'U', 'C', 'published']
+LET(want_mh_apostrophe, "<!-- title: it&#x27;s -->\n<!-- date: D -->\n<!-- slug: S -->\n<!-- tags: G -->\n<!-- summary: U -->\n<!-- category: C -->\n<!-- status: published -->\n");
+
+// mh_basic: ['标题', '2026-01-01', 'slug-1', 'a, b', 'sum', 'cat', 'draft']
+LET(want_mh_basic, "<!-- title: 标题 -->\n<!-- date: 2026-01-01 -->\n<!-- slug: slug-1 -->\n<!-- tags: a, b -->\n<!-- summary: sum -->\n<!-- category: cat -->\n<!-- status: draft -->\n");
+
+// mh_empty_fields: ['', '', '', '', '', '', '']
+LET(want_mh_empty_fields, "<!-- title:  -->\n<!-- date:  -->\n<!-- slug:  -->\n<!-- tags:  -->\n<!-- summary:  -->\n<!-- category:  -->\n<!-- status:  -->\n");
+
+// mh_newline_flatten: ['a\nb', 'D', 'S', 'G', 'x\r\ny', 'C', 'published']
+LET(want_mh_newline_flatten, "<!-- title: a b -->\n<!-- date: D -->\n<!-- slug: S -->\n<!-- tags: G -->\n<!-- summary: x y -->\n<!-- category: C -->\n<!-- status: published -->\n");
+
+// ── parse_meta 用例 ────────────────────────────────────
+TEST("fm/parse_meta/pm_bogus_dropped", FUN(() ,
+    (ASSERT_EQ(PARSE_META(src_pm_bogus_dropped), want_pm_bogus_dropped));
+    TRUE));
+TEST("fm/parse_meta/pm_colon_in_value", FUN(() ,
+    (ASSERT_EQ(PARSE_META(src_pm_colon_in_value), want_pm_colon_in_value));
+    TRUE));
+TEST("fm/parse_meta/pm_crlf", FUN(() ,
+    (ASSERT_EQ(PARSE_META(src_pm_crlf), want_pm_crlf));
+    TRUE));
+TEST("fm/parse_meta/pm_dash_value", FUN(() ,
+    (ASSERT_EQ(PARSE_META(src_pm_dash_value), want_pm_dash_value));
+    TRUE));
+TEST("fm/parse_meta/pm_default_status", FUN(() ,
+    (ASSERT_EQ(PARSE_META(src_pm_default_status), want_pm_default_status));
+    TRUE));
+TEST("fm/parse_meta/pm_empty", FUN(() ,
+    (ASSERT_EQ(PARSE_META(src_pm_empty), want_pm_empty));
+    TRUE));
+TEST("fm/parse_meta/pm_full_7keys", FUN(() ,
+    (ASSERT_EQ(PARSE_META(src_pm_full_7keys), want_pm_full_7keys));
+    TRUE));
+TEST("fm/parse_meta/pm_full_category", FUN(() ,
+    (ASSERT_EQ(PARSE_META(src_pm_full_category), want_pm_full_category));
+    TRUE));
+TEST("fm/parse_meta/pm_greedy_tail", FUN(() ,
+    (ASSERT_EQ(PARSE_META(src_pm_greedy_tail), want_pm_greedy_tail));
+    TRUE));
+TEST("fm/parse_meta/pm_indented_line", FUN(() ,
+    (ASSERT_EQ(PARSE_META(src_pm_indented_line), want_pm_indented_line));
+    TRUE));
+TEST("fm/parse_meta/pm_line8_ignored", FUN(() ,
+    (ASSERT_EQ(PARSE_META(src_pm_line8_ignored), want_pm_line8_ignored));
+    TRUE));
+TEST("fm/parse_meta/pm_no_match", FUN(() ,
+    (ASSERT_EQ(PARSE_META(src_pm_no_match), want_pm_no_match));
+    TRUE));
+TEST("fm/parse_meta/pm_overflow10", FUN(() ,
+    (ASSERT_EQ(PARSE_META(src_pm_overflow10), want_pm_overflow10));
+    TRUE));
+TEST("fm/parse_meta/pm_roundtrip_escaped", FUN(() ,
+    (ASSERT_EQ(PARSE_META(src_pm_roundtrip_escaped), want_pm_roundtrip_escaped));
+    TRUE));
+TEST("fm/parse_meta/pm_roundtrip_status_blank", FUN(() ,
+    (ASSERT_EQ(PARSE_META(src_pm_roundtrip_status_blank), want_pm_roundtrip_status_blank));
+    TRUE));
+TEST("fm/parse_meta/pm_unclosed", FUN(() ,
+    (ASSERT_EQ(PARSE_META(src_pm_unclosed), want_pm_unclosed));
+    TRUE));
+TEST("fm/parse_meta/pm_value_inner_spaces", FUN(() ,
+    (ASSERT_EQ(PARSE_META(src_pm_value_inner_spaces), want_pm_value_inner_spaces));
+    TRUE));
+
+// ── meta_value 用例 ────────────────────────────────────
+TEST("fm/meta_value/mv_amp", FUN(() ,
+    (ASSERT_EQ(META_VALUE(src_mv_amp), want_mv_amp));
+    TRUE));
+TEST("fm/meta_value/mv_apostrophe", FUN(() ,
+    (ASSERT_EQ(META_VALUE(src_mv_apostrophe), want_mv_apostrophe));
+    TRUE));
+TEST("fm/meta_value/mv_cjk", FUN(() ,
+    (ASSERT_EQ(META_VALUE(src_mv_cjk), want_mv_cjk));
+    TRUE));
+TEST("fm/meta_value/mv_collapse_newlines", FUN(() ,
+    (ASSERT_EQ(META_VALUE(src_mv_collapse_newlines), want_mv_collapse_newlines));
+    TRUE));
+TEST("fm/meta_value/mv_crlf", FUN(() ,
+    (ASSERT_EQ(META_VALUE(src_mv_crlf), want_mv_crlf));
+    TRUE));
+TEST("fm/meta_value/mv_empty", FUN(() ,
+    (ASSERT_EQ(META_VALUE(src_mv_empty), want_mv_empty));
+    TRUE));
+TEST("fm/meta_value/mv_html", FUN(() ,
+    (ASSERT_EQ(META_VALUE(src_mv_html), want_mv_html));
+    TRUE));
+TEST("fm/meta_value/mv_int", FUN(() ,
+    (ASSERT_EQ(META_VALUE(src_mv_int), want_mv_int));
+    TRUE));
+TEST("fm/meta_value/mv_lone_newline", FUN(() ,
+    (ASSERT_EQ(META_VALUE(src_mv_lone_newline), want_mv_lone_newline));
+    TRUE));
+TEST("fm/meta_value/mv_mixed_newlines", FUN(() ,
+    (ASSERT_EQ(META_VALUE(src_mv_mixed_newlines), want_mv_mixed_newlines));
+    TRUE));
+TEST("fm/meta_value/mv_strip_edges", FUN(() ,
+    (ASSERT_EQ(META_VALUE(src_mv_strip_edges), want_mv_strip_edges));
+    TRUE));
+TEST("fm/meta_value/mv_tab_edges", FUN(() ,
+    (ASSERT_EQ(META_VALUE(src_mv_tab_edges), want_mv_tab_edges));
+    TRUE));
+
+// ── meta_header 用例 ───────────────────────────────────
+TEST("fm/meta_header/mh_apostrophe", FUN(() ,
+    (ASSERT_EQ(META_HEADER("it's", "D", "S", "G", "U", "C", "published"), want_mh_apostrophe));
+    TRUE));
+TEST("fm/meta_header/mh_basic", FUN(() ,
+    (ASSERT_EQ(META_HEADER("标题", "2026-01-01", "slug-1", "a, b", "sum", "cat", "draft"), want_mh_basic));
+    TRUE));
+TEST("fm/meta_header/mh_empty_fields", FUN(() ,
+    (ASSERT_EQ(META_HEADER("", "", "", "", "", "", ""), want_mh_empty_fields));
+    TRUE));
+TEST("fm/meta_header/mh_newline_flatten", FUN(() ,
+    (ASSERT_EQ(META_HEADER("a\nb", "D", "S", "G", "x\r\ny", "C", "published"), want_mh_newline_flatten));
+    TRUE));
+
+// ── 反向守卫 ──────────────────────────────────────────
+// 8 行输入：slug 在第 8 行 ⇒ 不得读入（前 7 行规则）
+LET(src_g1, "<!-- title: t -->\n<!-- date: d -->\n<!-- tags: a -->\n<!-- summary: s -->\n<!-- category: c -->\n<!-- status: draft -->\n<!-- markdown: m -->\n<!-- slug: toolate -->\n");
+LET(want_g1, ["category": "c", "date": "d", "markdown": "m", "status": "draft", "summary": "s", "tags": "a", "title": "t"]);
+TEST("fm/guard/line8_not_read", FUN(() ,
+    (ASSERT_EQ(PARSE_META(src_g1), want_g1));
+    (ASSERT_EQ(HAS(PARSE_META(src_g1), "slug"), FALSE));
+    TRUE));
+
+// 白名单外的 bogus 键静默丢弃
+LET(src_g2, "<!-- title: t -->\n<!-- bogus: x -->\n<!-- date: d -->\n");
+LET(want_g2, ["date": "d", "status": "published", "title": "t"]);
+TEST("fm/guard/non_whitelist_dropped", FUN(() ,
+    (ASSERT_EQ(PARSE_META(src_g2), want_g2));
+    (ASSERT_EQ(HAS(PARSE_META(src_g2), "bogus"), FALSE));
+    TRUE));
+
+// [\r\n]+ 是「一个或多个连续换行符」⇒ "a\n\n\nb" → "a b"
+TEST("fm/guard/newline_collapse", FUN(() ,
+    (ASSERT_EQ(META_VALUE("a\n\n\nb"), "a b"));
+    TRUE));
+
+// 单引号 → &#x27;（不是 WLWL 内建 HTML_ESCAPE 的 &#39;）
+TEST("fm/guard/apostrophe_x27", FUN(() ,
+    (ASSERT_EQ(META_VALUE("it's"), "it&#x27;s"));
+    TRUE));
+
+// (.*) 贪婪：title 的值吃到最后一个 --> 之前 ⇒ "a --> tail"
+TEST("fm/guard/greedy_tail", FUN(() ,
+    (ASSERT_EQ(AT_K(PARSE_META("<!-- title: a --> tail -->\n"), "title", "?"), "a --> tail"));
+    TRUE));
+
+// ── 跑测试 ──────────────────────────────────────────────
+LET(records, RUN_TESTS());
+PRINT("test_frontmatter: ", LEN(records), " test(s) run");
+
+LET MUT(failed, 0);
+FOR(rec, records,
+    (IF(AT_K(rec, "passed", FALSE),
+        PRINT("  PASS ", AT_K(rec, "name", "?")),
+        (SET(failed, +(failed, 1));
+         PRINT("  FAIL ", AT_K(rec, "name", "?"))))));
+PRINT("test_frontmatter: failed=", failed);
+IF(>(failed, 0), (PRINT_ERR("test_frontmatter: FAILED"); PANIC("frontmatter tests failed")), NULL);
+PRINT("test_frontmatter: OK");

@@ -1,0 +1,261 @@
+{
+  "meta_header": {
+    "mh_apostrophe": {
+      "args": [
+        "it's",
+        "D",
+        "S",
+        "G",
+        "U",
+        "C",
+        "published"
+      ],
+      "want": "<!-- title: it&#x27;s -->\n<!-- date: D -->\n<!-- slug: S -->\n<!-- tags: G -->\n<!-- summary: U -->\n<!-- category: C -->\n<!-- status: published -->\n"
+    },
+    "mh_basic": {
+      "args": [
+        "标题",
+        "2026-01-01",
+        "slug-1",
+        "a, b",
+        "sum",
+        "cat",
+        "draft"
+      ],
+      "want": "<!-- title: 标题 -->\n<!-- date: 2026-01-01 -->\n<!-- slug: slug-1 -->\n<!-- tags: a, b -->\n<!-- summary: sum -->\n<!-- category: cat -->\n<!-- status: draft -->\n"
+    },
+    "mh_empty_fields": {
+      "args": [
+        "",
+        "",
+        "",
+        "",
+        "",
+        "",
+        ""
+      ],
+      "want": "<!-- title:  -->\n<!-- date:  -->\n<!-- slug:  -->\n<!-- tags:  -->\n<!-- summary:  -->\n<!-- category:  -->\n<!-- status:  -->\n"
+    },
+    "mh_newline_flatten": {
+      "args": [
+        "a\nb",
+        "D",
+        "S",
+        "G",
+        "x\r\ny",
+        "C",
+        "published"
+      ],
+      "want": "<!-- title: a b -->\n<!-- date: D -->\n<!-- slug: S -->\n<!-- tags: G -->\n<!-- summary: x y -->\n<!-- category: C -->\n<!-- status: published -->\n"
+    }
+  },
+  "meta_value": {
+    "mv_amp": {
+      "src": "&",
+      "src_type": "str",
+      "want": "&amp;"
+    },
+    "mv_apostrophe": {
+      "src": "it's",
+      "src_type": "str",
+      "want": "it&#x27;s"
+    },
+    "mv_cjk": {
+      "src": "标题 & <正文>",
+      "src_type": "str",
+      "want": "标题 &amp; &lt;正文&gt;"
+    },
+    "mv_collapse_newlines": {
+      "src": "a\n\n\nb",
+      "src_type": "str",
+      "want": "a b"
+    },
+    "mv_crlf": {
+      "src": "a\r\nb",
+      "src_type": "str",
+      "want": "a b"
+    },
+    "mv_empty": {
+      "src": "",
+      "src_type": "str",
+      "want": ""
+    },
+    "mv_html": {
+      "src": "<b>&x</b>",
+      "src_type": "str",
+      "want": "&lt;b&gt;&amp;x&lt;/b&gt;"
+    },
+    "mv_int": {
+      "src": 42,
+      "src_type": "int",
+      "want": "42"
+    },
+    "mv_lone_newline": {
+      "src": "\n",
+      "src_type": "str",
+      "want": ""
+    },
+    "mv_mixed_newlines": {
+      "src": "a\nb\r\nc",
+      "src_type": "str",
+      "want": "a b c"
+    },
+    "mv_strip_edges": {
+      "src": "  pad  ",
+      "src_type": "str",
+      "want": "pad"
+    },
+    "mv_tab_edges": {
+      "src": "\tx\t",
+      "src_type": "str",
+      "want": "x"
+    }
+  },
+  "parse_meta": {
+    "pm_bogus_dropped": {
+      "src": "<!-- title: t -->\n<!-- bogus: x -->\n<!-- date: 2026-03-03 -->\n",
+      "want": {
+        "date": "2026-03-03",
+        "status": "published",
+        "title": "t"
+      }
+    },
+    "pm_colon_in_value": {
+      "src": "<!-- summary: x: y -->\n",
+      "want": {
+        "status": "published",
+        "summary": "x: y"
+      }
+    },
+    "pm_crlf": {
+      "src": "<!-- title: t -->\r\n<!-- date: d -->\r\n<!-- tags: a -->\r\n",
+      "want": {
+        "date": "d",
+        "status": "published",
+        "tags": "a",
+        "title": "t"
+      }
+    },
+    "pm_dash_value": {
+      "src": "<!-- status: -->\n",
+      "want": {
+        "status": "published"
+      }
+    },
+    "pm_default_status": {
+      "src": "<!-- title: t -->\n<!-- date: d -->\n<!-- tags: a -->\n",
+      "want": {
+        "date": "d",
+        "status": "published",
+        "tags": "a",
+        "title": "t"
+      }
+    },
+    "pm_empty": {
+      "src": "",
+      "want": {
+        "status": "published"
+      }
+    },
+    "pm_full_7keys": {
+      "src": "<!-- title: T -->\n<!-- date: 2026-01-01 -->\n<!-- slug: s-1 -->\n<!-- tags: a, b -->\n<!-- summary: sum -->\n<!-- markdown: body -->\n<!-- status: draft -->\n",
+      "want": {
+        "date": "2026-01-01",
+        "markdown": "body",
+        "slug": "s-1",
+        "status": "draft",
+        "summary": "sum",
+        "tags": "a, b",
+        "title": "T"
+      }
+    },
+    "pm_full_category": {
+      "src": "<!-- title: 标题 -->\n<!-- date: 2026-02-02 -->\n<!-- slug: slug-2 -->\n<!-- tags: x -->\n<!-- summary: 摘要 -->\n<!-- category: cat -->\n<!-- status: published -->\n",
+      "want": {
+        "category": "cat",
+        "date": "2026-02-02",
+        "slug": "slug-2",
+        "status": "published",
+        "summary": "摘要",
+        "tags": "x",
+        "title": "标题"
+      }
+    },
+    "pm_greedy_tail": {
+      "src": "<!-- title: a --> tail -->\n",
+      "want": {
+        "status": "published",
+        "title": "a --> tail"
+      }
+    },
+    "pm_indented_line": {
+      "src": "    <!-- title:  hello world  -->   \n",
+      "want": {
+        "status": "published",
+        "title": "hello world"
+      }
+    },
+    "pm_line8_ignored": {
+      "src": "<!-- title: t -->\n\n\n\n\n\n\n<!-- slug: toolate -->\n",
+      "want": {
+        "status": "published",
+        "title": "t"
+      }
+    },
+    "pm_no_match": {
+      "src": "just text\nmore text\n",
+      "want": {
+        "status": "published"
+      }
+    },
+    "pm_overflow10": {
+      "src": "<!-- title: first -->\n<!-- date: d -->\n<!-- slug: s -->\n<!-- tags: a -->\n<!-- summary: sum -->\n<!-- category: c -->\n<!-- status: draft -->\n<!-- title: later -->\n<!-- slug: even-later -->\n<!-- bogus: nope -->\n",
+      "want": {
+        "category": "c",
+        "date": "d",
+        "slug": "s",
+        "status": "draft",
+        "summary": "sum",
+        "tags": "a",
+        "title": "first"
+      }
+    },
+    "pm_roundtrip_escaped": {
+      "src": "<!-- title: T &amp; &#x27;x&#x27; -->\n<!-- date: 2026-01-01 -->\n<!-- slug: slug-1 -->\n<!-- tags: a, b -->\n<!-- summary: sum mary -->\n<!-- category: cat -->\n<!-- status: draft -->\n",
+      "want": {
+        "category": "cat",
+        "date": "2026-01-01",
+        "slug": "slug-1",
+        "status": "draft",
+        "summary": "sum mary",
+        "tags": "a, b",
+        "title": "T &amp; &#x27;x&#x27;"
+      }
+    },
+    "pm_roundtrip_status_blank": {
+      "src": "<!-- title: T -->\n<!-- date: D -->\n<!-- slug: S -->\n<!-- tags: G -->\n<!-- summary: U -->\n<!-- category: C -->\n<!-- status:  -->\n",
+      "want": {
+        "category": "C",
+        "date": "D",
+        "slug": "S",
+        "status": "published",
+        "summary": "U",
+        "tags": "G",
+        "title": "T"
+      }
+    },
+    "pm_unclosed": {
+      "src": "<!-- title: x\n",
+      "want": {
+        "status": "published"
+      }
+    },
+    "pm_value_inner_spaces": {
+      "src": "<!-- summary: a  b -->\n",
+      "want": {
+        "status": "published",
+        "summary": "a  b"
+      }
+    }
+  }
+}

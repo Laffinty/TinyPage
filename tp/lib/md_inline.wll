@@ -193,7 +193,7 @@ LET(CODE_PH, "\0CODE");
                WHILE(&&(<(start, end), ==(SUB(s, start, 1), "-")), (
                     SET(start, +(start, 1))
                ));
-               WHILE(&&(>(start, end), ==(SUB(s, -(end, 1), 1), "-")), (
+               WHILE(&&(<(start, end), ==(SUB(s, -(end, 1), 1), "-")), (
                     SET(end, -(end, 1))
                ));
                IF(<=(start, end), SUB(s, start, -(end, start)), "")

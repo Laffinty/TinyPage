@@ -1,0 +1,383 @@
+// tp/test/test_wikilink.wll —— wikilink 测试（对照真 Python bidirectional_links）
+//
+// ⚠ 本文件由 tp/test/gen_test_wikilink.py 生成 —— 请勿手改。
+//
+// 验收方式：每个用例都与**真 Python** parse_bidirectional_links /
+// extract_bidirectional_links 逐字节对照（processed / found / extracted 三轴）。
+// 基准：tp/test/fixtures/wikilink_baseline.json
+//   （由 tp/test/gen_wikilink_baseline.py 用真 Python 生成）
+// ⚠ 测试名带 `_known_divergence` 后缀的用例：processed/found.url 钉的是
+//   WLWL 实测值（md_inline 的 w 语义口径差异），extracted 仍对 Python。
+//
+// ⚠ RUN_TESTS() 的失败**不影响退出码**（规范明载）⇒ 本文件自己把关。
+IMPORT("wlwl:std.test", ["TEST", "ASSERT", "ASSERT_EQ", "RUN_TESTS"]);
+IMPORT("./../lib/wikilink.wll", ["PARSE_BIDIRECTIONAL_LINKS", "EXTRACT_BIDIRECTIONAL_LINKS"]);
+
+// case_00: '见 [[Page]] 一文。'
+LET(src_case_00, "见 [[Page]] 一文。");
+LET(map_case_00, DICT());
+// 下面三条是 Python 权威值（差异用例的 processed/found 不用于断言，见下）
+LET(want_text_case_00, "见 [Page](/article/page.html) 一文。");
+LET(want_found_case_00, [["title": "Page", "display": "Page", "url": "/article/page.html"]]);
+LET(want_ext_case_00, ["Page"]);
+
+// case_01: '[[Page|显示名]]'
+LET(src_case_01, "[[Page|显示名]]");
+LET(map_case_01, DICT());
+// 下面三条是 Python 权威值（差异用例的 processed/found 不用于断言，见下）
+LET(want_text_case_01, "[显示名](/article/page.html)");
+LET(want_found_case_01, [["title": "Page", "display": "显示名", "url": "/article/page.html"]]);
+LET(want_ext_case_01, ["Page"]);
+
+// case_02: '[[中文标题]]'
+LET(src_case_02, "[[中文标题]]");
+LET(map_case_02, DICT());
+// 下面三条是 Python 权威值（差异用例的 processed/found 不用于断言，见下）
+LET(want_text_case_02, "[中文标题](/article/中文标题.html)");
+LET(want_found_case_02, [["title": "中文标题", "display": "中文标题", "url": "/article/中文标题.html"]]);
+LET(want_ext_case_02, ["中文标题"]);
+
+// case_03: '[[Another]]'
+LET(src_case_03, "[[Another]]");
+LET(map_case_03, ["another": ["another", "/article/other.html"]]);
+// 下面三条是 Python 权威值（差异用例的 processed/found 不用于断言，见下）
+LET(want_text_case_03, "[Another](/article/other.html)");
+LET(want_found_case_03, [["title": "Another", "display": "Another", "url": "/article/other.html"]]);
+LET(want_ext_case_03, ["Another"]);
+
+// case_04: '[[Missing Page]]'
+LET(src_case_04, "[[Missing Page]]");
+LET(map_case_04, ["another": ["another", "/article/other.html"]]);
+// 下面三条是 Python 权威值（差异用例的 processed/found 不用于断言，见下）
+LET(want_text_case_04, "[Missing Page](/article/missing-page.html)");
+LET(want_found_case_04, [["title": "Missing Page", "display": "Missing Page", "url": "/article/missing-page.html"]]);
+LET(want_ext_case_04, ["Missing Page"]);
+
+// case_05: '[[a]] 和 [[b|B]] 结束'
+LET(src_case_05, "[[a]] 和 [[b|B]] 结束");
+LET(map_case_05, DICT());
+// 下面三条是 Python 权威值（差异用例的 processed/found 不用于断言，见下）
+LET(want_text_case_05, "[a](/article/a.html) 和 [B](/article/b.html) 结束");
+LET(want_found_case_05, [["title": "a", "display": "a", "url": "/article/a.html"], ["title": "b", "display": "B", "url": "/article/b.html"]]);
+LET(want_ext_case_05, ["a", "b"]);
+
+// case_06: '[[a]][[b]]'
+LET(src_case_06, "[[a]][[b]]");
+LET(map_case_06, DICT());
+// 下面三条是 Python 权威值（差异用例的 processed/found 不用于断言，见下）
+LET(want_text_case_06, "[a](/article/a.html)[b](/article/b.html)");
+LET(want_found_case_06, [["title": "a", "display": "a", "url": "/article/a.html"], ["title": "b", "display": "b", "url": "/article/b.html"]]);
+LET(want_ext_case_06, ["a", "b"]);
+
+// case_07: '# 标题\n\n正文 [[Foo]]，见 [[Bar|条]]。\n'
+LET(src_case_07, "# 标题\n\n正文 [[Foo]]，见 [[Bar|条]]。\n");
+LET(map_case_07, DICT());
+// 下面三条是 Python 权威值（差异用例的 processed/found 不用于断言，见下）
+LET(want_text_case_07, "# 标题\n\n正文 [Foo](/article/foo.html)，见 [条](/article/bar.html)。\n");
+LET(want_found_case_07, [["title": "Foo", "display": "Foo", "url": "/article/foo.html"], ["title": "Bar", "display": "条", "url": "/article/bar.html"]]);
+LET(want_ext_case_07, ["Foo", "Bar"]);
+
+// case_08: '[[ a ]]'
+LET(src_case_08, "[[ a ]]");
+LET(map_case_08, DICT());
+// 下面三条是 Python 权威值（差异用例的 processed/found 不用于断言，见下）
+LET(want_text_case_08, "[a](/article/a.html)");
+LET(want_found_case_08, [["title": "a", "display": "a", "url": "/article/a.html"]]);
+LET(want_ext_case_08, ["a"]);
+
+// case_09: '[[ a | b ]]'
+LET(src_case_09, "[[ a | b ]]");
+LET(map_case_09, DICT());
+// 下面三条是 Python 权威值（差异用例的 processed/found 不用于断言，见下）
+LET(want_text_case_09, "[b](/article/a.html)");
+LET(want_found_case_09, [["title": "a", "display": "b", "url": "/article/a.html"]]);
+LET(want_ext_case_09, ["a"]);
+
+// case_10: '[[Hello, World!]]'
+LET(src_case_10, "[[Hello, World!]]");
+LET(map_case_10, DICT());
+// 下面三条是 Python 权威值（差异用例的 processed/found 不用于断言，见下）
+LET(want_text_case_10, "[Hello, World!](/article/hello-world.html)");
+LET(want_found_case_10, [["title": "Hello, World!", "display": "Hello, World!", "url": "/article/hello-world.html"]]);
+LET(want_ext_case_10, ["Hello, World!"]);
+
+// case_11: '[[Another|去看看]]'
+LET(src_case_11, "[[Another|去看看]]");
+LET(map_case_11, ["another": ["another", "/article/other.html"]]);
+// 下面三条是 Python 权威值（差异用例的 processed/found 不用于断言，见下）
+LET(want_text_case_11, "[去看看](/article/other.html)");
+LET(want_found_case_11, [["title": "Another", "display": "去看看", "url": "/article/other.html"]]);
+LET(want_ext_case_11, ["Another"]);
+
+// case_12: '[[MyPage]]'
+LET(src_case_12, "[[MyPage]]");
+LET(map_case_12, ["mypage": ["custom", "/custom/x.html"]]);
+// 下面三条是 Python 权威值（差异用例的 processed/found 不用于断言，见下）
+LET(want_text_case_12, "[MyPage](/custom/x.html)");
+LET(want_found_case_12, [["title": "MyPage", "display": "MyPage", "url": "/custom/x.html"]]);
+LET(want_ext_case_12, ["MyPage"]);
+
+// case_13: '[[你好|hi]]'
+LET(src_case_13, "[[你好|hi]]");
+LET(map_case_13, ["你好": ["你好", "/article/nihao.html"]]);
+// 下面三条是 Python 权威值（差异用例的 processed/found 不用于断言，见下）
+LET(want_text_case_13, "[hi](/article/nihao.html)");
+LET(want_found_case_13, [["title": "你好", "display": "hi", "url": "/article/nihao.html"]]);
+LET(want_ext_case_13, ["你好"]);
+
+// case_14: '[[a|b|c]]'
+LET(src_case_14, "[[a|b|c]]");
+LET(map_case_14, DICT());
+// 下面三条是 Python 权威值（差异用例的 processed/found 不用于断言，见下）
+LET(want_text_case_14, "[b|c](/article/a.html)");
+LET(want_found_case_14, [["title": "a", "display": "b|c", "url": "/article/a.html"]]);
+LET(want_ext_case_14, ["a"]);
+
+// case_15: '没有任何链接的普通段落。'
+LET(src_case_15, "没有任何链接的普通段落。");
+LET(map_case_15, DICT());
+// 下面三条是 Python 权威值（差异用例的 processed/found 不用于断言，见下）
+LET(want_text_case_15, "没有任何链接的普通段落。");
+LET(want_found_case_15, []);
+LET(want_ext_case_15, []);
+
+// case_16: '[[C++ / R&D]]'
+LET(src_case_16, "[[C++ / R&D]]");
+LET(map_case_16, DICT());
+// 下面三条是 Python 权威值（差异用例的 processed/found 不用于断言，见下）
+LET(want_text_case_16, "[C++ / R&D](/article/c-r-d.html)");
+LET(want_found_case_16, [["title": "C++ / R&D", "display": "C++ / R&D", "url": "/article/c-r-d.html"]]);
+LET(want_ext_case_16, ["C++ / R&D"]);
+
+// case_17: '前 [[|b]] 后 [[x 前'
+LET(src_case_17, "前 [[|b]] 后 [[x 前");
+LET(map_case_17, DICT());
+// 下面三条是 Python 权威值（差异用例的 processed/found 不用于断言，见下）
+LET(want_text_case_17, "前 [[|b]] 后 [[x 前");
+LET(want_found_case_17, []);
+LET(want_ext_case_17, []);
+
+// case_18: '[[\tTab\t]]'
+LET(src_case_18, "[[\tTab\t]]");
+LET(map_case_18, DICT());
+// 下面三条是 Python 权威值（差异用例的 processed/found 不用于断言，见下）
+LET(want_text_case_18, "[Tab](/article/tab.html)");
+LET(want_found_case_18, [["title": "Tab", "display": "Tab", "url": "/article/tab.html"]]);
+LET(want_ext_case_18, ["Tab"]);
+
+// case_19: '[[x| ]] end'
+LET(src_case_19, "[[x| ]] end");
+LET(map_case_19, DICT());
+// 下面三条是 Python 权威值（差异用例的 processed/found 不用于断言，见下）
+LET(want_text_case_19, "[](/article/x.html) end");
+LET(want_found_case_19, [["title": "x", "display": "", "url": "/article/x.html"]]);
+LET(want_ext_case_19, ["x"]);
+
+// case_20: '[[café]]'
+// ⚠ 已知差异：非 ASCII 非 CJK 字母：Python slug café，WLWL slug caf
+LET(src_case_20, "[[café]]");
+LET(map_case_20, DICT());
+// 下面三条是 Python 权威值（差异用例的 processed/found 不用于断言，见下）
+LET(want_text_case_20, "[café](/article/café.html)");
+LET(want_found_case_20, [["title": "café", "display": "café", "url": "/article/café.html"]]);
+LET(want_ext_case_20, ["café"]);
+// ⚠ WLWL 实测钉值（wlwl v0.12.1）—— title/display 仍取 Python 权威值，
+//   仅 url/processed 换成 WLWL 实测；md_inline 修复后须同步更新
+LET(wl_text_case_20, "[café](/article/caf.html)");
+LET(wl_found_case_20, [["title": "café", "display": "café", "url": "/article/caf.html"]]);
+
+// case_21: '[[ひらがな]]'
+// ⚠ 已知差异：假名在 \u4e00-\u9fa5 之外：Python slug ひらがな，WLWL slug untitled
+LET(src_case_21, "[[ひらがな]]");
+LET(map_case_21, DICT());
+// 下面三条是 Python 权威值（差异用例的 processed/found 不用于断言，见下）
+LET(want_text_case_21, "[ひらがな](/article/ひらがな.html)");
+LET(want_found_case_21, [["title": "ひらがな", "display": "ひらがな", "url": "/article/ひらがな.html"]]);
+LET(want_ext_case_21, ["ひらがな"]);
+// ⚠ WLWL 实测钉值（wlwl v0.12.1）—— title/display 仍取 Python 权威值，
+//   仅 url/processed 换成 WLWL 实测；md_inline 修复后须同步更新
+LET(wl_text_case_21, "[ひらがな](/article/untitled.html)");
+LET(wl_found_case_21, [["title": "ひらがな", "display": "ひらがな", "url": "/article/untitled.html"]]);
+
+// ── 基准用例（真 Python 逐字节对照）────────────────────
+TEST("case_00", FUN(() ,
+    (LET(r_case_00, PARSE_BIDIRECTIONAL_LINKS(src_case_00, map_case_00));
+     ASSERT_EQ(r_case_00[0], want_text_case_00);
+     ASSERT_EQ(r_case_00[1], want_found_case_00);
+     ASSERT_EQ(EXTRACT_BIDIRECTIONAL_LINKS(src_case_00), want_ext_case_00));
+    TRUE));
+TEST("case_01", FUN(() ,
+    (LET(r_case_01, PARSE_BIDIRECTIONAL_LINKS(src_case_01, map_case_01));
+     ASSERT_EQ(r_case_01[0], want_text_case_01);
+     ASSERT_EQ(r_case_01[1], want_found_case_01);
+     ASSERT_EQ(EXTRACT_BIDIRECTIONAL_LINKS(src_case_01), want_ext_case_01));
+    TRUE));
+TEST("case_02", FUN(() ,
+    (LET(r_case_02, PARSE_BIDIRECTIONAL_LINKS(src_case_02, map_case_02));
+     ASSERT_EQ(r_case_02[0], want_text_case_02);
+     ASSERT_EQ(r_case_02[1], want_found_case_02);
+     ASSERT_EQ(EXTRACT_BIDIRECTIONAL_LINKS(src_case_02), want_ext_case_02));
+    TRUE));
+TEST("case_03", FUN(() ,
+    (LET(r_case_03, PARSE_BIDIRECTIONAL_LINKS(src_case_03, map_case_03));
+     ASSERT_EQ(r_case_03[0], want_text_case_03);
+     ASSERT_EQ(r_case_03[1], want_found_case_03);
+     ASSERT_EQ(EXTRACT_BIDIRECTIONAL_LINKS(src_case_03), want_ext_case_03));
+    TRUE));
+TEST("case_04", FUN(() ,
+    (LET(r_case_04, PARSE_BIDIRECTIONAL_LINKS(src_case_04, map_case_04));
+     ASSERT_EQ(r_case_04[0], want_text_case_04);
+     ASSERT_EQ(r_case_04[1], want_found_case_04);
+     ASSERT_EQ(EXTRACT_BIDIRECTIONAL_LINKS(src_case_04), want_ext_case_04));
+    TRUE));
+TEST("case_05", FUN(() ,
+    (LET(r_case_05, PARSE_BIDIRECTIONAL_LINKS(src_case_05, map_case_05));
+     ASSERT_EQ(r_case_05[0], want_text_case_05);
+     ASSERT_EQ(r_case_05[1], want_found_case_05);
+     ASSERT_EQ(EXTRACT_BIDIRECTIONAL_LINKS(src_case_05), want_ext_case_05));
+    TRUE));
+TEST("case_06", FUN(() ,
+    (LET(r_case_06, PARSE_BIDIRECTIONAL_LINKS(src_case_06, map_case_06));
+     ASSERT_EQ(r_case_06[0], want_text_case_06);
+     ASSERT_EQ(r_case_06[1], want_found_case_06);
+     ASSERT_EQ(EXTRACT_BIDIRECTIONAL_LINKS(src_case_06), want_ext_case_06));
+    TRUE));
+TEST("case_07", FUN(() ,
+    (LET(r_case_07, PARSE_BIDIRECTIONAL_LINKS(src_case_07, map_case_07));
+     ASSERT_EQ(r_case_07[0], want_text_case_07);
+     ASSERT_EQ(r_case_07[1], want_found_case_07);
+     ASSERT_EQ(EXTRACT_BIDIRECTIONAL_LINKS(src_case_07), want_ext_case_07));
+    TRUE));
+TEST("case_08", FUN(() ,
+    (LET(r_case_08, PARSE_BIDIRECTIONAL_LINKS(src_case_08, map_case_08));
+     ASSERT_EQ(r_case_08[0], want_text_case_08);
+     ASSERT_EQ(r_case_08[1], want_found_case_08);
+     ASSERT_EQ(EXTRACT_BIDIRECTIONAL_LINKS(src_case_08), want_ext_case_08));
+    TRUE));
+TEST("case_09", FUN(() ,
+    (LET(r_case_09, PARSE_BIDIRECTIONAL_LINKS(src_case_09, map_case_09));
+     ASSERT_EQ(r_case_09[0], want_text_case_09);
+     ASSERT_EQ(r_case_09[1], want_found_case_09);
+     ASSERT_EQ(EXTRACT_BIDIRECTIONAL_LINKS(src_case_09), want_ext_case_09));
+    TRUE));
+TEST("case_10", FUN(() ,
+    (LET(r_case_10, PARSE_BIDIRECTIONAL_LINKS(src_case_10, map_case_10));
+     ASSERT_EQ(r_case_10[0], want_text_case_10);
+     ASSERT_EQ(r_case_10[1], want_found_case_10);
+     ASSERT_EQ(EXTRACT_BIDIRECTIONAL_LINKS(src_case_10), want_ext_case_10));
+    TRUE));
+TEST("case_11", FUN(() ,
+    (LET(r_case_11, PARSE_BIDIRECTIONAL_LINKS(src_case_11, map_case_11));
+     ASSERT_EQ(r_case_11[0], want_text_case_11);
+     ASSERT_EQ(r_case_11[1], want_found_case_11);
+     ASSERT_EQ(EXTRACT_BIDIRECTIONAL_LINKS(src_case_11), want_ext_case_11));
+    TRUE));
+TEST("case_12", FUN(() ,
+    (LET(r_case_12, PARSE_BIDIRECTIONAL_LINKS(src_case_12, map_case_12));
+     ASSERT_EQ(r_case_12[0], want_text_case_12);
+     ASSERT_EQ(r_case_12[1], want_found_case_12);
+     ASSERT_EQ(EXTRACT_BIDIRECTIONAL_LINKS(src_case_12), want_ext_case_12));
+    TRUE));
+TEST("case_13", FUN(() ,
+    (LET(r_case_13, PARSE_BIDIRECTIONAL_LINKS(src_case_13, map_case_13));
+     ASSERT_EQ(r_case_13[0], want_text_case_13);
+     ASSERT_EQ(r_case_13[1], want_found_case_13);
+     ASSERT_EQ(EXTRACT_BIDIRECTIONAL_LINKS(src_case_13), want_ext_case_13));
+    TRUE));
+TEST("case_14", FUN(() ,
+    (LET(r_case_14, PARSE_BIDIRECTIONAL_LINKS(src_case_14, map_case_14));
+     ASSERT_EQ(r_case_14[0], want_text_case_14);
+     ASSERT_EQ(r_case_14[1], want_found_case_14);
+     ASSERT_EQ(EXTRACT_BIDIRECTIONAL_LINKS(src_case_14), want_ext_case_14));
+    TRUE));
+TEST("case_15", FUN(() ,
+    (LET(r_case_15, PARSE_BIDIRECTIONAL_LINKS(src_case_15, map_case_15));
+     ASSERT_EQ(r_case_15[0], want_text_case_15);
+     ASSERT_EQ(r_case_15[1], want_found_case_15);
+     ASSERT_EQ(EXTRACT_BIDIRECTIONAL_LINKS(src_case_15), want_ext_case_15));
+    TRUE));
+TEST("case_16", FUN(() ,
+    (LET(r_case_16, PARSE_BIDIRECTIONAL_LINKS(src_case_16, map_case_16));
+     ASSERT_EQ(r_case_16[0], want_text_case_16);
+     ASSERT_EQ(r_case_16[1], want_found_case_16);
+     ASSERT_EQ(EXTRACT_BIDIRECTIONAL_LINKS(src_case_16), want_ext_case_16));
+    TRUE));
+TEST("case_17", FUN(() ,
+    (LET(r_case_17, PARSE_BIDIRECTIONAL_LINKS(src_case_17, map_case_17));
+     ASSERT_EQ(r_case_17[0], want_text_case_17);
+     ASSERT_EQ(r_case_17[1], want_found_case_17);
+     ASSERT_EQ(EXTRACT_BIDIRECTIONAL_LINKS(src_case_17), want_ext_case_17));
+    TRUE));
+TEST("case_18", FUN(() ,
+    (LET(r_case_18, PARSE_BIDIRECTIONAL_LINKS(src_case_18, map_case_18));
+     ASSERT_EQ(r_case_18[0], want_text_case_18);
+     ASSERT_EQ(r_case_18[1], want_found_case_18);
+     ASSERT_EQ(EXTRACT_BIDIRECTIONAL_LINKS(src_case_18), want_ext_case_18));
+    TRUE));
+TEST("case_19", FUN(() ,
+    (LET(r_case_19, PARSE_BIDIRECTIONAL_LINKS(src_case_19, map_case_19));
+     ASSERT_EQ(r_case_19[0], want_text_case_19);
+     ASSERT_EQ(r_case_19[1], want_found_case_19);
+     ASSERT_EQ(EXTRACT_BIDIRECTIONAL_LINKS(src_case_19), want_ext_case_19));
+    TRUE));
+// case_20: ⚠ 已知差异用例 —— processed/found 钉 WLWL 实测值，
+//   extracted 仍是 Python 权威值逐字节断言
+TEST("case_20_known_divergence", FUN(() ,
+    (LET(r_case_20, PARSE_BIDIRECTIONAL_LINKS(src_case_20, map_case_20));
+     ASSERT_EQ(r_case_20[0], wl_text_case_20);
+     ASSERT_EQ(r_case_20[1], wl_found_case_20);
+     ASSERT_EQ(EXTRACT_BIDIRECTIONAL_LINKS(src_case_20), want_ext_case_20));
+    TRUE));
+// case_21: ⚠ 已知差异用例 —— processed/found 钉 WLWL 实测值，
+//   extracted 仍是 Python 权威值逐字节断言
+TEST("case_21_known_divergence", FUN(() ,
+    (LET(r_case_21, PARSE_BIDIRECTIONAL_LINKS(src_case_21, map_case_21));
+     ASSERT_EQ(r_case_21[0], wl_text_case_21);
+     ASSERT_EQ(r_case_21[1], wl_found_case_21);
+     ASSERT_EQ(EXTRACT_BIDIRECTIONAL_LINKS(src_case_21), want_ext_case_21));
+    TRUE));
+
+// ── 反向守卫 ──────────────────────────────────────────
+// guard/alias_display_is_b_not_merged
+TEST("guard/alias_display_is_b_not_merged", FUN(() ,
+    (LET(r, PARSE_BIDIRECTIONAL_LINKS("[[a|b]]", DICT())); ASSERT_EQ(r[0], "[b](/article/a.html)"); ASSERT_EQ(AT_K(r[1][0], "title", "?"), "a"); ASSERT_EQ(AT_K(r[1][0], "display", "?"), "b"));
+    TRUE));
+
+// guard/title_whitespace_stripped
+TEST("guard/title_whitespace_stripped", FUN(() ,
+    (LET(r, PARSE_BIDIRECTIONAL_LINKS("[[ a ]]", DICT())); ASSERT_EQ(r[0], "[a](/article/a.html)"); ASSERT_EQ(AT_K(r[1][0], "title", "?"), "a"));
+    TRUE));
+
+// guard/no_wikilink_passthrough
+TEST("guard/no_wikilink_passthrough", FUN(() ,
+    (LET(t, "普通文本，没有链接。"); LET(r, PARSE_BIDIRECTIONAL_LINKS(t, DICT())); ASSERT_EQ(r[0], t); ASSERT_EQ(r[1], []); ASSERT_EQ(EXTRACT_BIDIRECTIONAL_LINKS(t), []));
+    TRUE));
+
+// guard/extract_strips_like_real_python
+TEST("guard/extract_strips_like_real_python", FUN(() ,
+    (ASSERT_EQ(EXTRACT_BIDIRECTIONAL_LINKS("[[ a ]]"), ["a"]); ASSERT_EQ(EXTRACT_BIDIRECTIONAL_LINKS("[[   ]]"), []));
+    TRUE));
+
+// guard/null_map_supported
+TEST("guard/null_map_supported", FUN(() ,
+    (LET(r, PARSE_BIDIRECTIONAL_LINKS("[[x]]", NULL)); ASSERT_EQ(r[0], "[x](/article/x.html)"));
+    TRUE));
+
+// guard/multi_pipe_display
+TEST("guard/multi_pipe_display", FUN(() ,
+    (LET(r, PARSE_BIDIRECTIONAL_LINKS("[[a|b|c]]", DICT())); ASSERT_EQ(r[0], "[b|c](/article/a.html)"));
+    TRUE));
+
+// ── 跑测试 ──────────────────────────────────────────────
+LET(records, RUN_TESTS());
+PRINT("test_wikilink: ", LEN(records), " test(s) run");
+
+LET MUT(failed, 0);
+FOR(rec, records,
+    (IF(AT_K(rec, "passed", FALSE),
+        PRINT("  PASS ", AT_K(rec, "name", "?")),
+        (SET(failed, +(failed, 1));
+         PRINT("  FAIL ", AT_K(rec, "name", "?"))))));
+PRINT("test_wikilink: failed=", failed);
+IF(>(failed, 0), (PRINT_ERR("test_wikilink: FAILED"); PANIC("wikilink tests failed")), NULL);
+PRINT("test_wikilink: OK");

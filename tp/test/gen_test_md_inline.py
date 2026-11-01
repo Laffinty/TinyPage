@@ -119,6 +119,18 @@ CASES = [
         # 未命中 ⇒ 回退 /article/{slug}.html；slug 保留 CJK（对齐 security.py::slugify）
         'ASSERT_EQ(WIKILINK_TARGET("没找到", m), "/article/没找到.html")',
     ]),
+    # ── slug 首尾 '-' 都要裁（对齐 security.py::slugify 的 .strip("-")）─────
+    # ⚠ 回归守卫：trim_dashes 的**尾部**循环条件曾写成 `>(start, end)`（恒假）
+    #   ⇒ 尾部 `-` 从不裁掉 ⇒ `Hello, World!` 出 `/article/hello-world-.html`。
+    #   2026-11-02 修正为 `<(start, end)`；此前 21 条用例无一覆盖尾部裁剪
+    #   （测试盲区），故补此用例钉住**双向**裁剪。期望值取自真 Python slugify。
+    ('wiki/slug_strips_both_ends', [
+        'ASSERT_EQ(WIKILINK_TARGET("Hello, World!", DICT()), '
+        '"/article/hello-world.html")',
+        'ASSERT_EQ(WIKILINK_TARGET("---lead", DICT()), "/article/lead.html")',
+        'ASSERT_EQ(WIKILINK_TARGET("trail---", DICT()), "/article/trail.html")',
+        'ASSERT_EQ(WIKILINK_TARGET("---both---", DICT()), "/article/both.html")',
+    ]),
     # ── 行内代码优先级：代码里的 * 不被解释 ────────────────────
     ('inline/code_has_priority', [
         'LET(out, INLINE("`*not italic*`"))',

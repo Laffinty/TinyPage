@@ -1,0 +1,157 @@
+// tp/test/test_esc.wll —— HTML 转义测试（对照真 Python html.escape）
+//
+// ⚠ 本文件由 tp/test/gen_test_esc.py 生成 —— 请勿手改。
+//
+// 验收方式：每个用例都与**真 Python** html.escape(s, quote=True) 逐字节对照。
+// 基准：tp/test/fixtures/esc_baseline.json
+//   （由 tp/test/gen_esc_baseline.py 用真 Python 生成）
+//
+// ⚠ RUN_TESTS() 的失败**不影响退出码**（规范明载）⇒ 本文件自己把关。
+IMPORT("wlwl:std.test", ["TEST", "ASSERT", "ASSERT_EQ", "RUN_TESTS"]);
+IMPORT("./../lib/esc.wll", ["ESCAPE_HTML"]);
+
+// case_00: '<a>"b"&c'
+LET(src_case_00, "<a>\"b\"&c");
+LET(want_case_00, "&lt;a&gt;&quot;b&quot;&amp;c");
+
+// case_01: "<a>'b'&c"
+LET(src_case_01, "<a>'b'&c");
+LET(want_case_01, "&lt;a&gt;&#x27;b&#x27;&amp;c");
+
+// case_02: '&<>"\''
+LET(src_case_02, "&<>\"'");
+LET(want_case_02, "&amp;&lt;&gt;&quot;&#x27;");
+
+// case_03: '普通中文 & <script>'
+LET(src_case_03, "普通中文 & <script>");
+LET(want_case_03, "普通中文 &amp; &lt;script&gt;");
+
+// case_04: 'tab\there "x"'
+LET(src_case_04, "tab\there \"x\"");
+LET(want_case_04, "tab\there &quot;x&quot;");
+
+// case_05: 'line1\nline2'
+LET(src_case_05, "line1\nline2");
+LET(want_case_05, "line1\nline2");
+
+// case_06: ''
+LET(src_case_06, "");
+LET(want_case_06, "");
+
+// case_07: "'"
+LET(src_case_07, "'");
+LET(want_case_07, "&#x27;");
+
+// case_08: "it's a 'test'"
+LET(src_case_08, "it's a 'test'");
+LET(want_case_08, "it&#x27;s a &#x27;test&#x27;");
+
+// case_09: '&#39;'
+LET(src_case_09, "&#39;");
+LET(want_case_09, "&amp;#39;");
+
+// case_10: '&amp;#39;'
+LET(src_case_10, "&amp;#39;");
+LET(want_case_10, "&amp;amp;#39;");
+
+// case_11: '&lt;'
+LET(src_case_11, "&lt;");
+LET(want_case_11, "&amp;lt;");
+
+// case_12: '**bold** & `code`'
+LET(src_case_12, "**bold** & `code`");
+LET(want_case_12, "**bold** &amp; `code`");
+
+// case_13: '[link](http://x.y/?a=1&b=2)'
+LET(src_case_13, "[link](http://x.y/?a=1&b=2)");
+LET(want_case_13, "[link](http://x.y/?a=1&amp;b=2)");
+
+// case_14: 'C:\\path\\to\\file'
+LET(src_case_14, "C:\\path\\to\\file");
+LET(want_case_14, "C:\\path\\to\\file");
+
+// case_15: 'a = b < c > d'
+LET(src_case_15, "a = b < c > d");
+LET(want_case_15, "a = b &lt; c &gt; d");
+
+// case_16: '&amp;'
+LET(src_case_16, "&amp;");
+LET(want_case_16, "&amp;amp;");
+
+// ── 用例 ──────────────────────────────────────────────
+TEST("esc/case_00", FUN(() ,
+    (ASSERT_EQ(ESCAPE_HTML(src_case_00), want_case_00));
+    TRUE));
+TEST("esc/case_01", FUN(() ,
+    (ASSERT_EQ(ESCAPE_HTML(src_case_01), want_case_01));
+    TRUE));
+TEST("esc/case_02", FUN(() ,
+    (ASSERT_EQ(ESCAPE_HTML(src_case_02), want_case_02));
+    TRUE));
+TEST("esc/case_03", FUN(() ,
+    (ASSERT_EQ(ESCAPE_HTML(src_case_03), want_case_03));
+    TRUE));
+TEST("esc/case_04", FUN(() ,
+    (ASSERT_EQ(ESCAPE_HTML(src_case_04), want_case_04));
+    TRUE));
+TEST("esc/case_05", FUN(() ,
+    (ASSERT_EQ(ESCAPE_HTML(src_case_05), want_case_05));
+    TRUE));
+TEST("esc/case_06", FUN(() ,
+    (ASSERT_EQ(ESCAPE_HTML(src_case_06), want_case_06));
+    TRUE));
+TEST("esc/case_07", FUN(() ,
+    (ASSERT_EQ(ESCAPE_HTML(src_case_07), want_case_07));
+    TRUE));
+TEST("esc/case_08", FUN(() ,
+    (ASSERT_EQ(ESCAPE_HTML(src_case_08), want_case_08));
+    TRUE));
+TEST("esc/case_09", FUN(() ,
+    (ASSERT_EQ(ESCAPE_HTML(src_case_09), want_case_09));
+    TRUE));
+TEST("esc/case_10", FUN(() ,
+    (ASSERT_EQ(ESCAPE_HTML(src_case_10), want_case_10));
+    TRUE));
+TEST("esc/case_11", FUN(() ,
+    (ASSERT_EQ(ESCAPE_HTML(src_case_11), want_case_11));
+    TRUE));
+TEST("esc/case_12", FUN(() ,
+    (ASSERT_EQ(ESCAPE_HTML(src_case_12), want_case_12));
+    TRUE));
+TEST("esc/case_13", FUN(() ,
+    (ASSERT_EQ(ESCAPE_HTML(src_case_13), want_case_13));
+    TRUE));
+TEST("esc/case_14", FUN(() ,
+    (ASSERT_EQ(ESCAPE_HTML(src_case_14), want_case_14));
+    TRUE));
+TEST("esc/case_15", FUN(() ,
+    (ASSERT_EQ(ESCAPE_HTML(src_case_15), want_case_15));
+    TRUE));
+TEST("esc/case_16", FUN(() ,
+    (ASSERT_EQ(ESCAPE_HTML(src_case_16), want_case_16));
+    TRUE));
+
+// ── 反向守卫 ──────────────────────────────────────────
+// 单引号必须是 &#x27; 而不是内建的 &#39;（与 Python 逐字节对齐）
+TEST("guard/apostrophe_is_x27", FUN(() ,
+    (ASSERT_EQ(ESCAPE_HTML("'"), "&#x27;"));
+    TRUE));
+
+// 字面 &#39; 不得被误替换成 &#x27;（& 已先转成 &amp; ⇒ 子串不成立）
+TEST("guard/literal_entity_not_mangled", FUN(() ,
+    (ASSERT_EQ(ESCAPE_HTML("&#39;"), "&amp;#39;"));
+    TRUE));
+
+// ── 跑测试 ──────────────────────────────────────────────
+LET(records, RUN_TESTS());
+PRINT("test_esc: ", LEN(records), " test(s) run");
+
+LET MUT(failed, 0);
+FOR(rec, records,
+    (IF(AT_K(rec, "passed", FALSE),
+        PRINT("  PASS ", AT_K(rec, "name", "?")),
+        (SET(failed, +(failed, 1));
+         PRINT("  FAIL ", AT_K(rec, "name", "?"))))));
+PRINT("test_esc: failed=", failed);
+IF(>(failed, 0), (PRINT_ERR("test_esc: FAILED"); PANIC("esc tests failed")), NULL);
+PRINT("test_esc: OK");

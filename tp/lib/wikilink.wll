@@ -1,0 +1,72 @@
+// tp/lib/wikilink.wll —— 双向链接 [[标题]] 解析
+//
+// ⚠ 本文件由 tp/test/gen_wikilink.py 生成 —— 请勿手改。
+//   改实现请改生成器（WLWL 的括号诊断不告诉你缺了几层）。
+//
+// 对齐目标：tinypage/parsers/bidirectional_links.py
+//   PARSE_BIDIRECTIONAL_LINKS(text, article_map) == parse_bidirectional_links
+//   EXTRACT_BIDIRECTIONAL_LINKS(text)             == extract_bidirectional_links
+// 逐字节对照基准：tp/test/fixtures/wikilink_baseline.json
+//
+// 三条实测依据（2026-11-01 探针）：
+//   ① RE_FIND_ALL 返回 ARRAY of DICT（matched/start/end/groups），
+//      groups 恒 3 项、缺席的可选捕获组 = NULL；start/end 是原串**码点**下标
+//      ⇒ 按 [pos, start) 切片拼接 == Python re.sub 的一次性全部替换。
+//   ② WIKILINK_TARGET 命中 map 返回映射值本身 —— 本模块 map 值是
+//      [slug, url] 二元组同形数组 ⇒ TYPE(target)=="ARRAY" 时取 target[1]。
+//      slugify 规则整体复用 md_inline.wll（已对齐 security.py::slugify），
+//      本模块**不重写** slug。
+//   ③ title.lower() ↔ TO_LOWER（std.text，完整 Unicode 小写），同语义。
+
+IMPORT("wlwl:std.regex", ["RE", "RE_FIND_ALL"]);
+IMPORT("wlwl:std.str", ["CAT"]);
+IMPORT("./md_inline.wll", ["WIKILINK_TARGET"]);
+
+// 与 Python re.compile(r"\[\[([^\]|]+)(?:\|([^\]]+))?\]\]") 同款
+LET(BIDI_LINK_RE, RE("\\[\\[([^\\]|]+)(?:\\|([^\\]]+))?\\]\\]"));
+
+// // 解析 [[标题]] / [[标题|显示]] → [processed_text, found_links]
+     LET(PARSE_BIDIRECTIONAL_LINKS, FUN((text, article_map), (
+               // 对齐 parse_bidirectional_links：返回 [processed_text, found_links];
+               // found_links 每项 {title, display, url}，保持出现顺序;
+               LET(matches, RE_FIND_ALL(BIDI_LINK_RE, text));
+               LET MUT(out, "");
+               LET MUT(found, []);
+               LET MUT(pos, 0);
+               FOR(m, matches, (
+                    LET(groups, AT_K(m, "groups", []));
+                    LET(raw_title, groups[1]);
+                    LET(raw_disp, groups[2]);
+                    LET(title, TRIM(raw_title));
+                    LET(display, IF(==(TYPE(raw_disp), "NULL"), title, TRIM(raw_disp)));
+                    LET(target, WIKILINK_TARGET(title, article_map));
+                    LET(url, IF(==(TYPE(target), "ARRAY"), target[1], target));
+                    SET(out, CAT(out, SUB(text, pos, -(AT_K(m, "start", 0), pos)), "[", display, "](", url, ")"));
+                    SET(pos, AT_K(m, "end", 0));
+                    SET(found, +(found, [["title": title, "display": display, "url": url]]))
+               ));
+               IF(<(pos, LEN(text)), (
+                    SET(out, CAT(out, SUB(text, pos, -(LEN(text), pos))))
+               ), NULL);
+               [out, found]
+     )));
+
+// // 提取全部链接标题（原文顺序，strip 后）
+     LET(EXTRACT_BIDIRECTIONAL_LINKS, FUN((text), (
+               // 对齐 extract_bidirectional_links：;
+               // ⚠ 简报说这里「未 strip」，但真源码 bidirectional_links.py:98 是;
+               //   `title = match.group(1).strip()` + `if title:` ⇒ **同样 strip**，;
+               //   且 strip 后为空的标题被丢弃。以真源码为准（基准由真 Python 生成）。;
+               LET(matches, RE_FIND_ALL(BIDI_LINK_RE, text));
+               LET MUT(out, []);
+               FOR(m, matches, (
+                    LET(groups, AT_K(m, "groups", []));
+                    LET(title, TRIM(groups[1]));
+                    IF(==(title, ""), NULL, (
+                         SET(out, +(out, [title]))
+                    ))
+               ));
+               out
+     )));
+
+EXPORT(["PARSE_BIDIRECTIONAL_LINKS", "EXTRACT_BIDIRECTIONAL_LINKS"]);

@@ -1,0 +1,311 @@
+// tp/test/test_toc.wll —— TOC 模块测试（对照真 Python tinypage.parsers.toc）
+//
+// ⚠ 本文件由 tp/test/gen_test_toc.py 生成 —— 请勿手改。
+//
+// 验收方式：每个用例都与**真 Python** 的输出逐字节对照。
+// 基准：tp/test/fixtures/toc_baseline.json
+//   （由 tp/test/gen_toc_baseline.py 用真 Python 生成）
+// 反向守卫的期望值由 gen_test_toc.py 生成时用真 Python 复核。
+//
+// ⚠ RUN_TESTS() 的失败**不影响退出码**（规范明载）⇒ 本文件自己把关。
+IMPORT("wlwl:std.test", ["TEST", "ASSERT_EQ", "ASSERT_NEQ", "RUN_TESTS"]);
+IMPORT("./../lib/toc.wll", ["SLUGIFY_HEADING", "EXTRACT_HEADINGS", "BUILD_TOC_HTML", "ADD_HEADING_IDS"]);
+
+// slug/punct_ascii: 'Hello, World!'
+LET(src_slug_punct_ascii, "Hello, World!");
+LET(want_slug_punct_ascii, "hello-world");
+
+// slug/cjk_only: '中文标题'
+LET(src_slug_cjk_only, "中文标题");
+LET(want_slug_cjk_only, "中文标题");
+
+// slug/ws_edges: '  Leading and trailing  '
+LET(src_slug_ws_edges, "  Leading and trailing  ");
+LET(want_slug_ws_edges, "leading-and-trailing");
+
+// slug/ws_collapse: 'Multiple   spaces\tand tabs'
+LET(src_slug_ws_collapse, "Multiple   spaces\tand tabs");
+LET(want_slug_ws_collapse, "multiple-spaces-and-tabs");
+
+// slug/already: 'already-slugged'
+LET(src_slug_already, "already-slugged");
+LET(want_slug_already, "alreadyslugged");
+
+// slug/underscore_amp: 'Under_scores & symbols!'
+LET(src_slug_underscore_amp, "Under_scores & symbols!");
+LET(want_slug_underscore_amp, "underscores-symbols");
+
+// slug/dashes_only: '---'
+LET(src_slug_dashes_only, "---");
+LET(want_slug_dashes_only, "heading");
+
+// slug/bangs_only: '!!!'
+LET(src_slug_bangs_only, "!!!");
+LET(want_slug_bangs_only, "heading");
+
+// slug/mixed_cjk_ascii: 'Mixed汉字 and ASCII 123'
+LET(src_slug_mixed_cjk_ascii, "Mixed汉字 and ASCII 123");
+LET(want_slug_mixed_cjk_ascii, "mixed汉字-and-ascii-123");
+
+// slug/dash_collapse: 'a--b---c'
+LET(src_slug_dash_collapse, "a--b---c");
+LET(want_slug_dash_collapse, "abc");
+
+// slug/dash_edges: '-leading-trailing-'
+LET(src_slug_dash_edges, "-leading-trailing-");
+LET(want_slug_dash_edges, "leadingtrailing");
+
+// slug/upper: 'UPPERCASE'
+LET(src_slug_upper, "UPPERCASE");
+LET(want_slug_upper, "uppercase");
+
+// extract/levels: '# Title\n## Sub A\n### Deep\n## Sub B\n'
+LET(md_ex_levels, "# Title\n## Sub A\n### Deep\n## Sub B\n");
+LET(want_ex_levels, [["id": "title", "level": 1, "text": "Title"], ["id": "sub-a", "level": 2, "text": "Sub A"], ["id": "deep", "level": 3, "text": "Deep"], ["id": "sub-b", "level": 2, "text": "Sub B"]]);
+
+// extract/dup_three: '## Usage\n## Usage\n## Usage\n'
+LET(md_ex_dup_three, "## Usage\n## Usage\n## Usage\n");
+LET(want_ex_dup_three, [["id": "usage", "level": 2, "text": "Usage"], ["id": "usage-2", "level": 2, "text": "Usage"], ["id": "usage-3", "level": 2, "text": "Usage"]]);
+
+// extract/dup_diff_text: '## Hello World!\n## Hello World\n'
+LET(md_ex_dup_diff_text, "## Hello World!\n## Hello World\n");
+LET(want_ex_dup_diff_text, [["id": "hello-world", "level": 2, "text": "Hello World!"], ["id": "hello-world-2", "level": 2, "text": "Hello World"]]);
+
+// extract/cjk_dup: '## 第一章\n## 第一章\n## 中文 标题\n'
+LET(md_ex_cjk_dup, "## 第一章\n## 第一章\n## 中文 标题\n");
+LET(want_ex_cjk_dup, [["id": "第一章", "level": 2, "text": "第一章"], ["id": "第一章-2", "level": 2, "text": "第一章"], ["id": "中文-标题", "level": 2, "text": "中文 标题"]]);
+
+// extract/noise_lines: '#NoSpace\n#\n##\nNot a heading\n ## Indented heading\n####### seven\n###### six\n'
+LET(md_ex_noise_lines, "#NoSpace\n#\n##\nNot a heading\n ## Indented heading\n####### seven\n###### six\n");
+LET(want_ex_noise_lines, [["id": "indented-heading", "level": 2, "text": "Indented heading"], ["id": "six", "level": 6, "text": "six"]]);
+
+// extract/inline_md: '## Using `code` and **bold**\n## [Link](http://x.y/?a=1&b=2)\n'
+LET(md_ex_inline_md, "## Using `code` and **bold**\n## [Link](http://x.y/?a=1&b=2)\n");
+LET(want_ex_inline_md, [["id": "using-code-and-bold", "level": 2, "text": "Using `code` and **bold**"], ["id": "linkhttpxya1b2", "level": 2, "text": "[Link](http://x.y/?a=1&b=2)"]]);
+
+// extract/empty: ''
+LET(md_ex_empty, "");
+LET(want_ex_empty, []);
+
+// extract/tab_sep: '##\tTab title\n'
+LET(md_ex_tab_sep, "##\tTab title\n");
+LET(want_ex_tab_sep, [["id": "tab-title", "level": 2, "text": "Tab title"]]);
+
+// toc/h2h3: '# Top\n## Sub A\n### Deep\n#### Deeper\n## Sub B\n' min=2 max=3
+LET(md_toc_h2h3, "# Top\n## Sub A\n### Deep\n#### Deeper\n## Sub B\n");
+LET(want_toc_h2h3, "\n<nav class=\"toc\" aria-label=\"文章目录\">\n  <details open>\n    <summary>目录</summary>\n    <ul>\n      <li><a href=\"#sub-a\">Sub A</a></li>  <li><a href=\"#deep\">Deep</a></li><li><a href=\"#sub-b\">Sub B</a></li>\n    </ul>\n  </details>\n</nav>");
+
+// toc/full_1_6: '# Top\n## A\n### B\n#### C\n##### D\n###### E\n' min=1 max=6
+LET(md_toc_full_1_6, "# Top\n## A\n### B\n#### C\n##### D\n###### E\n");
+LET(want_toc_full_1_6, "\n<nav class=\"toc\" aria-label=\"文章目录\">\n  <details open>\n    <summary>目录</summary>\n    <ul>\n      <li><a href=\"#top\">Top</a></li>  <li><a href=\"#a\">A</a></li>    <li><a href=\"#b\">B</a></li>      <li><a href=\"#c\">C</a></li>        <li><a href=\"#d\">D</a></li>          <li><a href=\"#e\">E</a></li>\n    </ul>\n  </details>\n</nav>");
+
+// toc/all_filtered: '# Only one\n# Only two\n' min=2 max=3
+LET(md_toc_all_filtered, "# Only one\n# Only two\n");
+LET(want_toc_all_filtered, "");
+
+// toc/escapes: '## Use <tag> & "quotes" \'single\'\n' min=2 max=3
+LET(md_toc_escapes, "## Use <tag> & \"quotes\" 'single'\n");
+LET(want_toc_escapes, "\n<nav class=\"toc\" aria-label=\"文章目录\">\n  <details open>\n    <summary>目录</summary>\n    <ul>\n      <li><a href=\"#use-tag-quotes-single\">Use &lt;tag&gt; &amp; &quot;quotes&quot; &#x27;single&#x27;</a></li>\n    </ul>\n  </details>\n</nav>");
+
+// toc/deep_indent: '## Level Two\n#### Level Four\n' min=2 max=4
+LET(md_toc_deep_indent, "## Level Two\n#### Level Four\n");
+LET(want_toc_deep_indent, "\n<nav class=\"toc\" aria-label=\"文章目录\">\n  <details open>\n    <summary>目录</summary>\n    <ul>\n      <li><a href=\"#level-two\">Level Two</a></li>    <li><a href=\"#level-four\">Level Four</a></li>\n    </ul>\n  </details>\n</nav>");
+
+// toc/h3_only: '## Two\n### Three\n## Two B\n' min=3 max=3
+LET(md_toc_h3_only, "## Two\n### Three\n## Two B\n");
+LET(want_toc_h3_only, "\n<nav class=\"toc\" aria-label=\"文章目录\">\n  <details open>\n    <summary>目录</summary>\n    <ul>\n      <li><a href=\"#three\">Three</a></li>\n    </ul>\n  </details>\n</nav>");
+
+// addids/basic: html='<h1>Title</h1>\n<h2>Sub</h2>\n<p>body</p>\n' md='# Title\n## Sub\n'
+LET(html_ad_basic, "<h1>Title</h1>\n<h2>Sub</h2>\n<p>body</p>\n");
+LET(md_ad_basic, "# Title\n## Sub\n");
+LET(want_ad_basic, "<h1 id=\"title\">Title</h1>\n<h2 id=\"sub\">Sub</h2>\n<p>body</p>\n");
+
+// addids/attrs_after_id: html='<h2 class="hl">Sub</h2>\n' md='## Sub\n'
+LET(html_ad_attrs_after_id, "<h2 class=\"hl\">Sub</h2>\n");
+LET(md_ad_attrs_after_id, "## Sub\n");
+LET(want_ad_attrs_after_id, "<h2 id=\"sub\" class=\"hl\">Sub</h2>\n");
+
+// addids/existing_id: html='<h1 id="keep">Title</h1>\n' md='# Title\n'
+LET(html_ad_existing_id, "<h1 id=\"keep\">Title</h1>\n");
+LET(md_ad_existing_id, "# Title\n");
+LET(want_ad_existing_id, "<h1 id=\"keep\">Title</h1>\n");
+
+// addids/multiline_content: html='<h2>line one\nline two</h2>\n' md='## line one\n'
+LET(html_ad_multiline_content, "<h2>line one\nline two</h2>\n");
+LET(md_ad_multiline_content, "## line one\n");
+LET(want_ad_multiline_content, "<h2 id=\"line-one\">line one\nline two</h2>\n");
+
+// addids/no_match: html='<h2>Mystery</h2>\n' md='## Other\n'
+LET(html_ad_no_match, "<h2>Mystery</h2>\n");
+LET(md_ad_no_match, "## Other\n");
+LET(want_ad_no_match, "<h2>Mystery</h2>\n");
+
+// addids/substring_content: html='<h2>Intro Section</h2>\n' md='## Intro\n'
+LET(html_ad_substring_content, "<h2>Intro Section</h2>\n");
+LET(md_ad_substring_content, "## Intro\n");
+LET(want_ad_substring_content, "<h2 id=\"intro\">Intro Section</h2>\n");
+
+// addids/empty_content: html='<h1></h1>\n' md='# Title\n'
+LET(html_ad_empty_content, "<h1></h1>\n");
+LET(md_ad_empty_content, "# Title\n");
+LET(want_ad_empty_content, "<h1></h1>\n");
+
+// addids/dup_override: html='<h2>Same</h2>\n' md='## Same\n## Same\n'
+LET(html_ad_dup_override, "<h2>Same</h2>\n");
+LET(md_ad_dup_override, "## Same\n## Same\n");
+LET(want_ad_dup_override, "<h2 id=\"same-2\">Same</h2>\n");
+
+// ── 基准用例（真 Python 逐字节对照） ──────────────────
+TEST("toc/slug/punct_ascii", FUN(() ,
+    (ASSERT_EQ(SLUGIFY_HEADING(src_slug_punct_ascii), want_slug_punct_ascii));
+    TRUE));
+TEST("toc/slug/cjk_only", FUN(() ,
+    (ASSERT_EQ(SLUGIFY_HEADING(src_slug_cjk_only), want_slug_cjk_only));
+    TRUE));
+TEST("toc/slug/ws_edges", FUN(() ,
+    (ASSERT_EQ(SLUGIFY_HEADING(src_slug_ws_edges), want_slug_ws_edges));
+    TRUE));
+TEST("toc/slug/ws_collapse", FUN(() ,
+    (ASSERT_EQ(SLUGIFY_HEADING(src_slug_ws_collapse), want_slug_ws_collapse));
+    TRUE));
+TEST("toc/slug/already", FUN(() ,
+    (ASSERT_EQ(SLUGIFY_HEADING(src_slug_already), want_slug_already));
+    TRUE));
+TEST("toc/slug/underscore_amp", FUN(() ,
+    (ASSERT_EQ(SLUGIFY_HEADING(src_slug_underscore_amp), want_slug_underscore_amp));
+    TRUE));
+TEST("toc/slug/dashes_only", FUN(() ,
+    (ASSERT_EQ(SLUGIFY_HEADING(src_slug_dashes_only), want_slug_dashes_only));
+    TRUE));
+TEST("toc/slug/bangs_only", FUN(() ,
+    (ASSERT_EQ(SLUGIFY_HEADING(src_slug_bangs_only), want_slug_bangs_only));
+    TRUE));
+TEST("toc/slug/mixed_cjk_ascii", FUN(() ,
+    (ASSERT_EQ(SLUGIFY_HEADING(src_slug_mixed_cjk_ascii), want_slug_mixed_cjk_ascii));
+    TRUE));
+TEST("toc/slug/dash_collapse", FUN(() ,
+    (ASSERT_EQ(SLUGIFY_HEADING(src_slug_dash_collapse), want_slug_dash_collapse));
+    TRUE));
+TEST("toc/slug/dash_edges", FUN(() ,
+    (ASSERT_EQ(SLUGIFY_HEADING(src_slug_dash_edges), want_slug_dash_edges));
+    TRUE));
+TEST("toc/slug/upper", FUN(() ,
+    (ASSERT_EQ(SLUGIFY_HEADING(src_slug_upper), want_slug_upper));
+    TRUE));
+
+TEST("toc/extract/levels", FUN(() ,
+    (ASSERT_EQ(EXTRACT_HEADINGS(md_ex_levels), want_ex_levels));
+    TRUE));
+TEST("toc/extract/dup_three", FUN(() ,
+    (ASSERT_EQ(EXTRACT_HEADINGS(md_ex_dup_three), want_ex_dup_three));
+    TRUE));
+TEST("toc/extract/dup_diff_text", FUN(() ,
+    (ASSERT_EQ(EXTRACT_HEADINGS(md_ex_dup_diff_text), want_ex_dup_diff_text));
+    TRUE));
+TEST("toc/extract/cjk_dup", FUN(() ,
+    (ASSERT_EQ(EXTRACT_HEADINGS(md_ex_cjk_dup), want_ex_cjk_dup));
+    TRUE));
+TEST("toc/extract/noise_lines", FUN(() ,
+    (ASSERT_EQ(EXTRACT_HEADINGS(md_ex_noise_lines), want_ex_noise_lines));
+    TRUE));
+TEST("toc/extract/inline_md", FUN(() ,
+    (ASSERT_EQ(EXTRACT_HEADINGS(md_ex_inline_md), want_ex_inline_md));
+    TRUE));
+TEST("toc/extract/empty", FUN(() ,
+    (ASSERT_EQ(EXTRACT_HEADINGS(md_ex_empty), want_ex_empty));
+    TRUE));
+TEST("toc/extract/tab_sep", FUN(() ,
+    (ASSERT_EQ(EXTRACT_HEADINGS(md_ex_tab_sep), want_ex_tab_sep));
+    TRUE));
+
+TEST("toc/toc/h2h3", FUN(() ,
+    (ASSERT_EQ(BUILD_TOC_HTML(EXTRACT_HEADINGS(md_toc_h2h3), 2, 3), want_toc_h2h3));
+    TRUE));
+TEST("toc/toc/full_1_6", FUN(() ,
+    (ASSERT_EQ(BUILD_TOC_HTML(EXTRACT_HEADINGS(md_toc_full_1_6), 1, 6), want_toc_full_1_6));
+    TRUE));
+TEST("toc/toc/all_filtered", FUN(() ,
+    (ASSERT_EQ(BUILD_TOC_HTML(EXTRACT_HEADINGS(md_toc_all_filtered), 2, 3), want_toc_all_filtered));
+    TRUE));
+TEST("toc/toc/escapes", FUN(() ,
+    (ASSERT_EQ(BUILD_TOC_HTML(EXTRACT_HEADINGS(md_toc_escapes), 2, 3), want_toc_escapes));
+    TRUE));
+TEST("toc/toc/deep_indent", FUN(() ,
+    (ASSERT_EQ(BUILD_TOC_HTML(EXTRACT_HEADINGS(md_toc_deep_indent), 2, 4), want_toc_deep_indent));
+    TRUE));
+TEST("toc/toc/h3_only", FUN(() ,
+    (ASSERT_EQ(BUILD_TOC_HTML(EXTRACT_HEADINGS(md_toc_h3_only), 3, 3), want_toc_h3_only));
+    TRUE));
+
+TEST("toc/addids/basic", FUN(() ,
+    (ASSERT_EQ(ADD_HEADING_IDS(html_ad_basic, EXTRACT_HEADINGS(md_ad_basic)), want_ad_basic));
+    TRUE));
+TEST("toc/addids/attrs_after_id", FUN(() ,
+    (ASSERT_EQ(ADD_HEADING_IDS(html_ad_attrs_after_id, EXTRACT_HEADINGS(md_ad_attrs_after_id)), want_ad_attrs_after_id));
+    TRUE));
+TEST("toc/addids/existing_id", FUN(() ,
+    (ASSERT_EQ(ADD_HEADING_IDS(html_ad_existing_id, EXTRACT_HEADINGS(md_ad_existing_id)), want_ad_existing_id));
+    TRUE));
+TEST("toc/addids/multiline_content", FUN(() ,
+    (ASSERT_EQ(ADD_HEADING_IDS(html_ad_multiline_content, EXTRACT_HEADINGS(md_ad_multiline_content)), want_ad_multiline_content));
+    TRUE));
+TEST("toc/addids/no_match", FUN(() ,
+    (ASSERT_EQ(ADD_HEADING_IDS(html_ad_no_match, EXTRACT_HEADINGS(md_ad_no_match)), want_ad_no_match));
+    TRUE));
+TEST("toc/addids/substring_content", FUN(() ,
+    (ASSERT_EQ(ADD_HEADING_IDS(html_ad_substring_content, EXTRACT_HEADINGS(md_ad_substring_content)), want_ad_substring_content));
+    TRUE));
+TEST("toc/addids/empty_content", FUN(() ,
+    (ASSERT_EQ(ADD_HEADING_IDS(html_ad_empty_content, EXTRACT_HEADINGS(md_ad_empty_content)), want_ad_empty_content));
+    TRUE));
+TEST("toc/addids/dup_override", FUN(() ,
+    (ASSERT_EQ(ADD_HEADING_IDS(html_ad_dup_override, EXTRACT_HEADINGS(md_ad_dup_override)), want_ad_dup_override));
+    TRUE));
+
+// ── 反向守卫 ──────────────────────────────────────────
+// 两个同名标题 ⇒ id 必须是 x 与 x-2，不得都是 x
+LET(g_md_dup, "## Same\n## Same\n");
+TEST("guard/dup_slug_x_then_x2", FUN(() ,
+    (ASSERT_EQ(EXTRACT_HEADINGS(g_md_dup), [["level": 2, "text": "Same", "id": "same"], ["level": 2, "text": "Same", "id": "same-2"]]));
+    TRUE));
+TEST("guard/dup_ids_differ", FUN(() ,
+    (ASSERT_NEQ(AT_K(EXTRACT_HEADINGS(g_md_dup)[0], "id", ""), AT_K(EXTRACT_HEADINGS(g_md_dup)[1], "id", "")));
+    TRUE));
+
+// 全部标题都被 min/max 过滤掉 ⇒ TOC 必须是 ""（不是空模板）
+LET(g_md_h1, "# Only one\n# Only two\n");
+TEST("guard/all_filtered_empty_toc", FUN(() ,
+    (ASSERT_EQ(BUILD_TOC_HTML(EXTRACT_HEADINGS(g_md_h1), 2, 3), ""));
+    TRUE));
+
+// SLUGIFY_HEADING 结果为空 ⇒ 得 "heading"
+TEST("guard/slug_empty_fallback_heading", FUN(() ,
+    (ASSERT_EQ(SLUGIFY_HEADING("!!!"), "heading"));
+    TRUE));
+TEST("guard/slug_hashes_punct_fallback", FUN(() ,
+    (ASSERT_EQ(SLUGIFY_HEADING("### !!!"), "heading"));
+    TRUE));
+
+// ADD_HEADING_IDS 对已有 id="..." 的标签不得重复添加
+LET(g_html_keep, "<h1 id=\"keep\">Title</h1>\n");
+TEST("guard/existing_id_not_duplicated", FUN(() ,
+    (ASSERT_EQ(ADD_HEADING_IDS(g_html_keep, EXTRACT_HEADINGS("# Title\n")), g_html_keep));
+    TRUE));
+
+// #NoSpace（# 后无空白）不得被当成标题
+TEST("guard/hash_no_space_not_heading", FUN(() ,
+    (ASSERT_EQ(EXTRACT_HEADINGS("#NoSpace"), []));
+    TRUE));
+
+LET(records, RUN_TESTS());
+PRINT("test_toc: ", LEN(records), " test(s) run");
+
+LET MUT(failed, 0);
+FOR(rec, records,
+    (IF(AT_K(rec, "passed", FALSE),
+        PRINT("  PASS ", AT_K(rec, "name", "?")),
+        (SET(failed, +(failed, 1));
+         PRINT("  FAIL ", AT_K(rec, "name", "?"))))));
+PRINT("test_toc: failed=", failed);
+IF(>(failed, 0), (PRINT_ERR("test_toc: FAILED"); PANIC("toc tests failed")), NULL);
+PRINT("test_toc: OK");
