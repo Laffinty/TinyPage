@@ -1,0 +1,102 @@
+{
+  "blockquote": {
+    "html": "<blockquote>\n<p>quoted</p>\n</blockquote>\n",
+    "src": "> quoted\n"
+  },
+  "code_fence_lang": {
+    "html": "<pre><code class=\"language-python\">x = 1\n</code></pre>\n",
+    "src": "```python\nx = 1\n```\n"
+  },
+  "code_fence_nolang": {
+    "html": "<pre><code>plain\n</code></pre>\n",
+    "src": "```\nplain\n```\n"
+  },
+  "empty": {
+    "html": "",
+    "src": ""
+  },
+  "heading_h1": {
+    "html": "<h1>Title</h1>\n",
+    "src": "# Title\n"
+  },
+  "heading_h6": {
+    "html": "<h6>Six</h6>\n",
+    "src": "###### Six\n"
+  },
+  "heading_with_inline": {
+    "html": "<h2>Sub <em>it</em></h2>\n",
+    "src": "## Sub *it*\n"
+  },
+  "hr": {
+    "html": "<hr />\n",
+    "src": "---\n"
+  },
+  "hr_star": {
+    "html": "<hr />\n",
+    "src": "***\n"
+  },
+  "inline_bold": {
+    "html": "<p>a <strong>b</strong> c</p>\n",
+    "src": "a **b** c\n"
+  },
+  "inline_code": {
+    "html": "<p>a <code>b</code> c</p>\n",
+    "src": "a `b` c\n"
+  },
+  "inline_escape_html": {
+    "html": "<p>&lt;script&gt;alert(1)&lt;/script&gt;</p>\n",
+    "src": "<script>alert(1)</script>\n"
+  },
+  "inline_italic": {
+    "html": "<p>a <em>b</em> c</p>\n",
+    "src": "a *b* c\n"
+  },
+  "inline_link": {
+    "html": "<p><a href=\"https://a.b/c\">t</a></p>\n",
+    "src": "[t](https://a.b/c)\n"
+  },
+  "inline_link_relative": {
+    "html": "<p><a href=\"/x/y\">t</a></p>\n",
+    "src": "[t](/x/y)\n"
+  },
+  "list_with_inline": {
+    "html": "<ul>\n<li>a <strong>b</strong></li>\n<li>c <code>d</code></li>\n</ul>\n",
+    "src": "- a **b**\n- c `d`\n"
+  },
+  "ol": {
+    "html": "<ol>\n<li>one</li>\n<li>two</li>\n</ol>\n",
+    "src": "1. one\n2. two\n"
+  },
+  "ol_paren": {
+    "html": "<ol>\n<li>one</li>\n<li>two</li>\n</ol>\n",
+    "src": "1) one\n2) two\n"
+  },
+  "only_blank": {
+    "html": "",
+    "src": "\n\n\n"
+  },
+  "para_blank_sep": {
+    "html": "<p>First para.</p>\n<p>Second para.</p>\n",
+    "src": "First para.\n\nSecond para.\n"
+  },
+  "para_multi_line": {
+    "html": "<p>Line one\nLine two\nLine three</p>\n",
+    "src": "Line one\nLine two\nLine three\n"
+  },
+  "para_single": {
+    "html": "<p>Just one paragraph.</p>\n",
+    "src": "Just one paragraph.\n"
+  },
+  "text_no_trailing_nl": {
+    "html": "<p>no newline at end</p>\n",
+    "src": "no newline at end"
+  },
+  "ul": {
+    "html": "<ul>\n<li>one</li>\n<li>two</li>\n</ul>\n",
+    "src": "- one\n- two\n"
+  },
+  "ul_plus": {
+    "html": "<ul>\n<li>one</li>\n<li>two</li>\n</ul>\n",
+    "src": "+ one\n+ two\n"
+  }
+}

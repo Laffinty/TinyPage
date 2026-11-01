@@ -31,7 +31,7 @@
 | S1-1 骨架 | ✅ 完成 | `tp/{lib,bin,test}/` + `tp/README.md` + `tp/wlwl.toml`；`smoke.wll` 通过；反向守卫验证 `wlwl check` 对坏文件非零退出 |
 | S1-1b 开发工具链 | ✅ 完成 | `tp/test/` 下 5 个静态检查器（括号/中缀/分号/生成器参数/逐函数编译）+ 逐行深度追踪 |
 | S1-2 行内解析器 | ✅ 完成 | `tp/lib/md_inline.wll`（生成器产出）；**21/21 测试通过**，含 3 个反向守卫 |
-| S1-3 块级解析器 | ⬜ 未开始 | `tp/lib/md.wll`（标题/段落/围栏代码/列表/引用/分隔线） |
+| S1-3 块级解析器 | ✅ 完成 | `tp/lib/md.wll`（生成器产出）；**28/28 对照 mistune 3.2.1 逐字节通过**（25 基准 + 3 守卫）；链接去掉自加的 `rel` 属性以逐字节对齐 |
 | S1-4 front-matter/TOC/脚注 | ⬜ 未开始 | `frontmatter.wll` / `toc.wll` / `footnotes.wll` / `wikilink.wll` |
 | S2 内容模型与生成器 | ⬜ 未开始 | `content.wll` + `generator.wll` + 站点产物 |
 | S3 前台静态服务（TLS） | ⬜ 未开始 | `serve_public.wll`（TLS 终止 + 静态文件） |

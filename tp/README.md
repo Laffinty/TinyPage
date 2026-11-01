@@ -110,6 +110,10 @@ powershell -File tp\test\ci_local_check.ps1
 | 8 | 布尔字面量大写 | `E0020 undefined name 'false'` | `TRUE` / `FALSE` |
 | 9 | 递归上限 2000 层 | `E0101` | 递归下降解析器按此设计 |
 | 10 | `SORT` 是二次复杂度 | 500 元素 6.1s | 自己写排序 |
+| 11 | **`FUN` 是两个括号组** | `FUN((body))` → `E0010 expected parameter name` | `FUN((参数), (函数体))`；零参写 `FUN((), (body))`（实测 2026-11-01） |
+| 12 | 闭包可读可写外层 `LET MUT` | — | 实测 SET/读均直达外层绑定（`_probe_closure` 已删，结论入此） |
+| 13 | **`CAT` 遇 `NULL` 拼出字面 `"NULL"`** | 输出里冒出 `NULL` 前缀 | 拼接前保证各参数非 NULL（flush 返回值被 `SET(out, ...)` 吞过一次，见 S1-3） |
+| 14 | **没有逗号表达式** | `(SET(n,1), NULL)` → `E0011` | 多语句用语句序列 `(stmt1; stmt2)`；生成器有 `assert_no_comma_expr` 守卫 |
 
 ## 参考
 

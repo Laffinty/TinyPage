@@ -44,8 +44,9 @@ CASES = [
         'ASSERT_EQ(INLINE("**x**"), "<strong>x</strong>")',
     ]),
     ('inline/link', [
+        # 逐字节对齐 mistune 3.2.1（无 rel 属性）
         'ASSERT_EQ(INLINE("[t](https://a.b/c)"), '
-        '"<a href=\\"https://a.b/c\\" rel=\\"noopener noreferrer\\">t</a>")',
+        '"<a href=\\"https://a.b/c\\">t</a>")',
     ]),
     ('inline/wikilink', [
         'ASSERT_EQ(INLINE("[[Page]]"), '

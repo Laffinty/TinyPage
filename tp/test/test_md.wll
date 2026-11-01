@@ -1,0 +1,225 @@
+// tp/test/test_md.wll —— 块级解析器测试（对照 mistune 3.2.1）
+//
+// ⚠ 本文件由 tp/test/gen_test_md.py 生成 —— 请勿手改。
+//
+// 验收方式：每个用例都与**真正的 mistune 3.2.1** 的输出逐字节对照。
+// 基准：tp/test/fixtures/mistune_baseline.json
+//   （由 tp/test/gen_mistune_baseline.py 用真 mistune 生成）
+//
+// ⚠ RUN_TESTS() 的失败**不影响退出码**（规范明载）⇒ 本文件自己把关。
+IMPORT("wlwl:std.test", ["TEST", "ASSERT", "ASSERT_EQ", "RUN_TESTS"]);
+IMPORT("wlwl:std.str", ["CONTAINS_SUB"]);
+IMPORT("./../lib/md.wll", ["RENDER_MD"]);
+
+// blockquote
+LET(src_blockquote, "> quoted\n");
+LET(want_blockquote, "<blockquote>\n<p>quoted</p>\n</blockquote>\n");
+
+// code_fence_lang
+LET(src_code_fence_lang, "```python\nx = 1\n```\n");
+LET(want_code_fence_lang, "<pre><code class=\"language-python\">x = 1\n</code></pre>\n");
+
+// code_fence_nolang
+LET(src_code_fence_nolang, "```\nplain\n```\n");
+LET(want_code_fence_nolang, "<pre><code>plain\n</code></pre>\n");
+
+// empty
+LET(src_empty, "");
+LET(want_empty, "");
+
+// heading_h1
+LET(src_heading_h1, "# Title\n");
+LET(want_heading_h1, "<h1>Title</h1>\n");
+
+// heading_h6
+LET(src_heading_h6, "###### Six\n");
+LET(want_heading_h6, "<h6>Six</h6>\n");
+
+// heading_with_inline
+LET(src_heading_with_inline, "## Sub *it*\n");
+LET(want_heading_with_inline, "<h2>Sub <em>it</em></h2>\n");
+
+// hr
+LET(src_hr, "---\n");
+LET(want_hr, "<hr />\n");
+
+// hr_star
+LET(src_hr_star, "***\n");
+LET(want_hr_star, "<hr />\n");
+
+// inline_bold
+LET(src_inline_bold, "a **b** c\n");
+LET(want_inline_bold, "<p>a <strong>b</strong> c</p>\n");
+
+// inline_code
+LET(src_inline_code, "a `b` c\n");
+LET(want_inline_code, "<p>a <code>b</code> c</p>\n");
+
+// inline_escape_html
+LET(src_inline_escape_html, "<script>alert(1)</script>\n");
+LET(want_inline_escape_html, "<p>&lt;script&gt;alert(1)&lt;/script&gt;</p>\n");
+
+// inline_italic
+LET(src_inline_italic, "a *b* c\n");
+LET(want_inline_italic, "<p>a <em>b</em> c</p>\n");
+
+// inline_link
+LET(src_inline_link, "[t](https://a.b/c)\n");
+LET(want_inline_link, "<p><a href=\"https://a.b/c\">t</a></p>\n");
+
+// inline_link_relative
+LET(src_inline_link_relative, "[t](/x/y)\n");
+LET(want_inline_link_relative, "<p><a href=\"/x/y\">t</a></p>\n");
+
+// list_with_inline
+LET(src_list_with_inline, "- a **b**\n- c `d`\n");
+LET(want_list_with_inline, "<ul>\n<li>a <strong>b</strong></li>\n<li>c <code>d</code></li>\n</ul>\n");
+
+// ol
+LET(src_ol, "1. one\n2. two\n");
+LET(want_ol, "<ol>\n<li>one</li>\n<li>two</li>\n</ol>\n");
+
+// ol_paren
+LET(src_ol_paren, "1) one\n2) two\n");
+LET(want_ol_paren, "<ol>\n<li>one</li>\n<li>two</li>\n</ol>\n");
+
+// only_blank
+LET(src_only_blank, "\n\n\n");
+LET(want_only_blank, "");
+
+// para_blank_sep
+LET(src_para_blank_sep, "First para.\n\nSecond para.\n");
+LET(want_para_blank_sep, "<p>First para.</p>\n<p>Second para.</p>\n");
+
+// para_multi_line
+LET(src_para_multi_line, "Line one\nLine two\nLine three\n");
+LET(want_para_multi_line, "<p>Line one\nLine two\nLine three</p>\n");
+
+// para_single
+LET(src_para_single, "Just one paragraph.\n");
+LET(want_para_single, "<p>Just one paragraph.</p>\n");
+
+// text_no_trailing_nl
+LET(src_text_no_trailing_nl, "no newline at end");
+LET(want_text_no_trailing_nl, "<p>no newline at end</p>\n");
+
+// ul
+LET(src_ul, "- one\n- two\n");
+LET(want_ul, "<ul>\n<li>one</li>\n<li>two</li>\n</ul>\n");
+
+// ul_plus
+LET(src_ul_plus, "+ one\n+ two\n");
+LET(want_ul_plus, "<ul>\n<li>one</li>\n<li>two</li>\n</ul>\n");
+
+// ── 用例 ──────────────────────────────────────────────
+TEST("md/blockquote", FUN(() ,
+    (ASSERT_EQ(RENDER_MD(src_blockquote), want_blockquote));
+    TRUE));
+TEST("md/code_fence_lang", FUN(() ,
+    (ASSERT_EQ(RENDER_MD(src_code_fence_lang), want_code_fence_lang));
+    TRUE));
+TEST("md/code_fence_nolang", FUN(() ,
+    (ASSERT_EQ(RENDER_MD(src_code_fence_nolang), want_code_fence_nolang));
+    TRUE));
+TEST("md/empty", FUN(() ,
+    (ASSERT_EQ(RENDER_MD(src_empty), want_empty));
+    TRUE));
+TEST("md/heading_h1", FUN(() ,
+    (ASSERT_EQ(RENDER_MD(src_heading_h1), want_heading_h1));
+    TRUE));
+TEST("md/heading_h6", FUN(() ,
+    (ASSERT_EQ(RENDER_MD(src_heading_h6), want_heading_h6));
+    TRUE));
+TEST("md/heading_with_inline", FUN(() ,
+    (ASSERT_EQ(RENDER_MD(src_heading_with_inline), want_heading_with_inline));
+    TRUE));
+TEST("md/hr", FUN(() ,
+    (ASSERT_EQ(RENDER_MD(src_hr), want_hr));
+    TRUE));
+TEST("md/hr_star", FUN(() ,
+    (ASSERT_EQ(RENDER_MD(src_hr_star), want_hr_star));
+    TRUE));
+TEST("md/inline_bold", FUN(() ,
+    (ASSERT_EQ(RENDER_MD(src_inline_bold), want_inline_bold));
+    TRUE));
+TEST("md/inline_code", FUN(() ,
+    (ASSERT_EQ(RENDER_MD(src_inline_code), want_inline_code));
+    TRUE));
+TEST("md/inline_escape_html", FUN(() ,
+    (ASSERT_EQ(RENDER_MD(src_inline_escape_html), want_inline_escape_html));
+    TRUE));
+TEST("md/inline_italic", FUN(() ,
+    (ASSERT_EQ(RENDER_MD(src_inline_italic), want_inline_italic));
+    TRUE));
+TEST("md/inline_link", FUN(() ,
+    (ASSERT_EQ(RENDER_MD(src_inline_link), want_inline_link));
+    TRUE));
+TEST("md/inline_link_relative", FUN(() ,
+    (ASSERT_EQ(RENDER_MD(src_inline_link_relative), want_inline_link_relative));
+    TRUE));
+TEST("md/list_with_inline", FUN(() ,
+    (ASSERT_EQ(RENDER_MD(src_list_with_inline), want_list_with_inline));
+    TRUE));
+TEST("md/ol", FUN(() ,
+    (ASSERT_EQ(RENDER_MD(src_ol), want_ol));
+    TRUE));
+TEST("md/ol_paren", FUN(() ,
+    (ASSERT_EQ(RENDER_MD(src_ol_paren), want_ol_paren));
+    TRUE));
+TEST("md/only_blank", FUN(() ,
+    (ASSERT_EQ(RENDER_MD(src_only_blank), want_only_blank));
+    TRUE));
+TEST("md/para_blank_sep", FUN(() ,
+    (ASSERT_EQ(RENDER_MD(src_para_blank_sep), want_para_blank_sep));
+    TRUE));
+TEST("md/para_multi_line", FUN(() ,
+    (ASSERT_EQ(RENDER_MD(src_para_multi_line), want_para_multi_line));
+    TRUE));
+TEST("md/para_single", FUN(() ,
+    (ASSERT_EQ(RENDER_MD(src_para_single), want_para_single));
+    TRUE));
+TEST("md/text_no_trailing_nl", FUN(() ,
+    (ASSERT_EQ(RENDER_MD(src_text_no_trailing_nl), want_text_no_trailing_nl));
+    TRUE));
+TEST("md/ul", FUN(() ,
+    (ASSERT_EQ(RENDER_MD(src_ul), want_ul));
+    TRUE));
+TEST("md/ul_plus", FUN(() ,
+    (ASSERT_EQ(RENDER_MD(src_ul_plus), want_ul_plus));
+    TRUE));
+
+// ── 反向守卫：代码块内不得解析行内语法 ──────────────────
+// 围栏代码块里的 ** 与 ` 必须是**字面量**（对齐 mistune）
+LET(src_guard_code, "```\n**not bold** and `not code`\n```\n");
+LET(want_guard_code, "<pre><code>**not bold** and `not code`\n</code></pre>\n");
+TEST("guard/code_block_keeps_markdown_literal", FUN(() ,
+    (ASSERT_EQ(RENDER_MD(src_guard_code), want_guard_code));
+    TRUE));
+
+// 围栏里的 # 不是标题
+LET(src_guard_hash, "```\n# not a heading\n```\n");
+LET(want_guard_hash, "<pre><code># not a heading\n</code></pre>\n");
+TEST("guard/code_block_hash_is_not_heading", FUN(() ,
+    (ASSERT_EQ(RENDER_MD(src_guard_hash), want_guard_hash));
+    TRUE));
+
+// 未闭合围栏必须闭合而不是吞掉剩余全文
+LET(src_guard_open, "```\nunclosed\n");
+LET(want_guard_open, "<pre><code>unclosed\n</code></pre>\n");
+TEST("guard/unclosed_fence_closes", FUN(() ,
+    (ASSERT_EQ(RENDER_MD(src_guard_open), want_guard_open));
+    TRUE));
+
+// ── 跑测试 ──────────────────────────────────────────────
+LET(records, RUN_TESTS());
+PRINT("test_md: ", LEN(records), " test(s) run");
+
+LET MUT(failed, 0);
+FOR(rec, records,
+    (IF(AT_K(rec, "passed", FALSE),
+        PRINT("  PASS ", AT_K(rec, "name", "?")),
+        (SET(failed, +(failed, 1));
+         PRINT("  FAIL ", AT_K(rec, "name", "?"))))));
+PRINT("test_md: failed=", failed);
+IF(>(failed, 0), (PRINT_ERR("test_md: FAILED"); PANIC("md tests failed")), NULL);
+PRINT("test_md: OK");

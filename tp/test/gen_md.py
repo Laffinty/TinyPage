@@ -1,0 +1,281 @@
+"""生成 tp/lib/md.wll —— Markdown 块级解析器。
+
+⚠ 输出的 .wll 由本文件生成，不要手改。
+
+**对齐目标**：mistune 3.x `create_markdown(escape=True)` 的输出（TinyPage 现在用的
+同一个版本）。逐字节对照基准见 `tp/test/fixtures/mistune_baseline.json`
+（由 `tp/test/gen_mistune_baseline.py` 用真正的 mistune 生成）。
+
+**支持范围**（本版明确范围，超出即非目标）：
+  · 标题 # ~ ######
+  · 段落（软换行保留为 \n）
+  · 围栏代码块 ```lang
+  · 无序列表（- * +）与有序列表（1. 2. / 1) 2)）
+  · 引用块 >
+  · 分隔线 --- 与 ***
+  · 行内语法：委托给 md_inline.wll 的 INLINE
+
+**明确不支持**（本版）：表格、嵌套列表、图片、引用式链接、setext 标题、
+缩进代码块、列表项跨多行。
+
+用法：python gen_md.py
+"""
+import os
+import sys
+
+sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
+from wllgen import C, FUN_DEF, fn, write  # noqa: E402
+
+HERE = os.path.dirname(os.path.abspath(__file__))
+OUT = os.path.join(HERE, '..', 'lib', 'md.wll')
+
+
+def main():
+    src = []
+    A = src.append
+    A('// tp/lib/md.wll —— Markdown 块级解析器')
+    A('//')
+    A('// ⚠ 本文件由 tp/test/gen_md.py 生成 —— 请勿手改。')
+    A('//   改实现请改生成器。理由：WLWL 的括号诊断只说「expected \')\' got X」，')
+    A('//   不告诉你缺了几层；生成器保证括号必然平衡。')
+    A('//')
+    A('// 对齐目标：mistune 3.x create_markdown(escape=True) 的输出。')
+    A('// 逐字节对照基准：tp/test/fixtures/mistune_baseline.json')
+    A('//   （由 tp/test/gen_mistune_baseline.py 用真正的 mistune 3.2.1 生成）')
+    A('//')
+    A('// 支持：标题 #~######、段落、围栏代码块、无序/有序列表、引用块、分隔线。')
+    A('// 不支持（本版）：表格、嵌套列表、图片、引用式链接、setext 标题、缩进代码块。')
+    A('//')
+    A('// ⚠ 三条实测得来的 WLWL 陷阱（本模块已按它们写）：')
+    A('//   ① `WHILE` 的值是 NULL ⇒ 循环后的表达式必须写在 WHILE **外面**。')
+    A('//   ② 没有中缀算术：`a + b` 是硬 E0011，必须写 `+(a, b)`。')
+    A('//   ③ 顶层语句必须以 `;` 结尾。')
+    A('//')
+    A('// 导出：')
+    A('//   RENDER_MD(text) -> STRING   渲染块级 Markdown')
+    A('')
+    A('IMPORT("wlwl:std.str", ["SPLIT_LINES", "INDEX_OF", "CAT"]);')
+    A('IMPORT("wlwl:std.sanitize", ["HTML_ESCAPE"]);')
+    A('IMPORT("wlwl:std.regex", ["RE", "RE_TEST", "RE_FIND_ALL"]);')
+    A('IMPORT("./md_inline.wll", ["INLINE"]);')
+    A('')
+
+    # ── 行级判定工具 ────────────────────────────────────────
+    src += fn('starts_with', 's, prefix', [
+        'LET MUT(n, LEN(prefix))',
+        'IF(<(LEN(s), n), FALSE, ==(SUB(s, 0, n), prefix))',
+    ], '// s 是否以 prefix 开头')
+
+    src += fn('heading_level', 'line', [
+        '// 返回 0 表示不是标题；否则返回层级 1~6',
+        '// ATX（CommonMark 口径）：行首连续 # 1~6 个，其后必须是空白或行尾',
+        '// 循环在第一个非 # 处停下 ⇒ i 即前导 # 的个数',
+        'LET MUT(n, 0)',
+        'LET MUT(i, 0)',
+        C('WHILE', '<(i, LEN(line))', [
+            'IF(==(SUB(line, i, 1), "#"), '
+            '(SET(n, +(n, 1)); SET(i, +(i, 1))), '
+            '(SET(i, LEN(line))))',
+        ]),
+        '// 终止符：行尾，或空白（# 后必须跟空白才是标题，防 "#tag" 误判）',
+        'LET(c, IF(<(i, LEN(line)), SUB(line, i, 1), ""))',
+        'IF(&&(>(n, 0), <=(n, 6)), '
+        'IF(||(==(i, LEN(line)), ||(==(c, " "), ==(c, "\\t"))), n, 0), '
+        '0)',
+    ], '// ATX 标题的层级（0 = 不是标题）')
+
+    src += fn('heading_text', 'line', [
+        '// 去掉标题的 # 与紧随的空白',
+        '// ⚠ 用 run 停循环，不得 SET(i, LEN(line)) —— i 之后还要当文本起点',
+        'LET MUT(i, 0)',
+        'LET MUT(run, TRUE)',
+        C('WHILE', '&&(run, <(i, LEN(line)))', [
+            'IF(==(SUB(line, i, 1), "#"), (SET(i, +(i, 1))), (SET(run, FALSE)))',
+        ]),
+        'LET MUT(rest, SUB(line, i, -(LEN(line), i)))',
+        'TRIM(rest)',
+    ], '// 去掉标题的 # 与紧随的空白')
+
+    src += fn('is_fence', 'line', [
+        'starts_with(line, "```")',
+    ], '// 是否是围栏代码块的起止行')
+
+    src += fn('fence_lang', 'line', [
+        'LET MUT(rest, SUB(line, 3, -(LEN(line), 3)))',
+        'TRIM(rest)',
+    ], '// 围栏后的语言标记')
+
+    src += fn('is_hr', 'line', [
+        'LET(t, TRIM(line))',
+        'LET(a, starts_with(t, "---"))',
+        'LET(b, starts_with(t, "***"))',
+        'LET(c, starts_with(t, "___"))',
+        '||(||(a, b), c)',
+    ], '// 是否是分隔线（--- / *** / ___）')
+
+    src += fn('is_blank', 'line', [
+        '==(TRIM(line), "")',
+    ], '// 是否是空行')
+
+    src += fn('quote_text', 'line', [
+        'LET MUT(rest, SUB(line, 1, -(LEN(line), 1)))',
+        'TRIM(rest)',
+    ], '// 去掉引用块的 "> " 前缀')
+
+    src += fn('is_digit', 'c', [
+        '&&(>=(c, "0"), <=(c, "9"))',
+    ], '// 单个字符是否是 ASCII 数字')
+
+    src += fn('ul_marker_len', 't', [
+        '// 无序列表标记的长度（- / * / +），不是列表项时返回 0',
+        '// CommonMark：标记后必须跟空白（防 "**bold**" 的 * 误判为列表项）',
+        'LET MUT(n, 0)',
+        C('IF', '&&(>(LEN(t), 1), ||(==(SUB(t, 0, 1), "-"), ||(==(SUB(t, 0, 1), "*"), ==(SUB(t, 0, 1), "+"))))',
+          '(IF(||(==(SUB(t, 1, 1), " "), ==(SUB(t, 1, 1), "\\t")), (SET(n, 1); NULL), NULL); NULL)',
+          'NULL'),
+        'n',
+    ], '// 无序列表标记的长度')
+
+    src += fn('ol_marker_len', 't', [
+        '// 有序列表标记的长度（1. / 2) / 10.），不是有序列表项时返回 0',
+        '// CommonMark：数字前缀 + . 或 ) ，其后必须跟空白（防 "1.5 kg" 误判）',
+        'LET(dot, INDEX_OF(t, "."))',
+        'LET(par, INDEX_OF(t, ")"))',
+        'LET MUT(pos, IF(<(dot, 0), par, dot))',
+        'LET MUT(k, 0)',
+        'LET MUT(allnum, TRUE)',
+        'LET MUT(digits, 0)',
+        C('WHILE', '<(k, pos)', [
+            'IF(is_digit(SUB(t, k, 1)), (SET(digits, +(digits, 1))), (SET(allnum, FALSE)))',
+            'SET(k, +(k, 1))',
+        ]),
+        '// 标记后的字符：空白 ⇒ 是列表项；行尾/其他 ⇒ 不是',
+        'LET(after, IF(<(+(pos, 1), LEN(t)), SUB(t, +(pos, 1), 1), ""))',
+        'IF(&&(allnum, &&(>(digits, 0), >=(pos, 1))), '
+        'IF(||(==(after, " "), ==(after, "\\t")), +(pos, 1), 0), '
+        '0)',
+    ], '// 有序列表标记的长度')
+
+    src += fn('list_marker', 'line', [
+        '// 返回 [kind, text]：kind 是 ul / ol / 空串（不是列表项）',
+        'LET(t, TRIM(line))',
+        'LET MUT(kind, "")',
+        'LET MUT(rest, t)',
+        'LET MUT(m, 0)',
+        'LET(ulm, ul_marker_len(t))',
+        'LET(olm, ol_marker_len(t))',
+        'IF(>(ulm, 0), (SET(m, ulm)), NULL)',
+        'IF(&&(==(m, 0), >(olm, 0)), (SET(m, olm)), NULL)',
+        'IF(>(m, 0), (SET(kind, "ul"); NULL), NULL)',
+        'IF(&&(>(m, 0), ==(olm, m)), (SET(kind, "ol"); NULL), NULL)',
+        'IF(>(m, 0), (SET(rest, TRIM(SUB(t, m, -(LEN(t), m)))); NULL), NULL)',
+        'IF(==(rest, ""), (SET(kind, ""); NULL), NULL)',
+        '[kind, rest]',
+    ], '// 列表项判定：[kind, text]，kind 为 ul / ol / 空串')
+
+    # ── 主渲染 ──────────────────────────────────────────────
+    src += fn('RENDER_MD', 'text', [
+        'IF(==(TYPE(text), "NULL"), (RETURN("")), NULL)',
+        'LET(lines, SPLIT_LINES(text))',
+        'LET MUT(n, LEN(lines))',
+        'LET MUT(i, 0)',
+        'LET MUT(out, "")',
+        'LET MUT(para, "")',
+        'LET MUT(in_code, FALSE)',
+        'LET MUT(code_lang, "")',
+        'LET MUT(code_buf, "")',
+        'LET MUT(list_kind, "")',
+        'LET MUT(list_buf, "")',
+        'LET MUT(quote_buf, "")',
+        # ── 段落收尾 ──
+        FUN_DEF('flush_para', '', [
+            C('IF', '>(LEN(para), 0)',
+              [C('SET', 'out', 'CAT(out, "<p>", INLINE(para), "</p>\\n")')],
+              'NULL'),
+            C('SET', 'para', '""'),
+        ]),
+        FUN_DEF('flush_list', '', [
+            C('IF', '>(LEN(list_buf), 0)',
+              [C('SET', 'out', 'CAT(out, "<", list_kind, ">\\n", list_buf, "</", list_kind, ">\\n")')],
+              'NULL'),
+            C('SET', 'list_buf', '""'),
+            C('SET', 'list_kind', '""'),
+        ]),
+        FUN_DEF('flush_quote', '', [
+            C('IF', '>(LEN(quote_buf), 0)',
+              # TRIM：累积时每行带 \n，单行引用会混进 <p>；多行引用的内部 \n 保留
+              [C('SET', 'out', 'CAT(out, "<blockquote>\\n<p>", INLINE(TRIM(quote_buf)), "</p>\\n</blockquote>\\n")')],
+              'NULL'),
+            C('SET', 'quote_buf', '""'),
+        ]),
+        # ── 主循环 ──
+        C('WHILE', '<(i, n)', [
+            'LET(line, lines[i])',
+            # ① 代码块内部
+            C('IF', 'in_code',
+              [C('IF', 'is_fence(line)',
+                 [C('SET', 'out', 'CAT(out, "<pre><code", '
+                        'IF(==(code_lang, ""), "", CAT(" class=\\"language-", code_lang, "\\"")), '
+                        '">", HTML_ESCAPE(code_buf), "</code></pre>\\n")'),
+                  C('SET', 'code_buf', '""'),
+                  C('SET', 'in_code', 'FALSE')],
+                 [C('SET', 'code_buf', 'CAT(code_buf, line, "\\n")')])],
+              # ② 代码块起始
+              [C('IF', 'is_fence(line)',
+                 [C('SET', 'in_code', 'TRUE'),
+                  C('SET', 'code_lang', 'fence_lang(line)'),
+                  C('SET', 'code_buf', '""')],
+                 # ③ 标题
+                 [C('LET', 'lvl', 'heading_level(line)'),
+                  C('IF', '>(lvl, 0)',
+                    [C('SET', 'out', 'CAT(out, "<h", STR(lvl), ">", INLINE(heading_text(line)), "</h", STR(lvl), ">\\n")')],
+                    # ④ 分隔线
+                    [C('IF', 'is_hr(line)',
+                       [C('SET', 'out', 'CAT(out, "<hr />\\n")')],
+                       # ⑤ 空行（flush 内部直接 SET out ⇒ 裸调用，勿再 SET(out, ...)）
+                       [C('IF', 'is_blank(line)',
+                          ['flush_para()',
+                           'flush_list()',
+                           'flush_quote()'],
+                          # ⑥ 列表项
+                          [C('LET', 'lm', 'list_marker(line)'),
+                           C('IF', '==(lm[0], "")',
+                             # 不是列表 → 可能是引用块或段落
+                             [C('IF', 'starts_with(TRIM(line), ">")',
+                               ['flush_para()',
+                                'flush_list()',
+                                C('SET', 'quote_buf', 'CAT(quote_buf, quote_text(TRIM(line)), "\\n")')],
+                               ['flush_quote()',
+                                C('IF', '>(LEN(para), 0)',
+                                  [C('SET', 'para', 'CAT(para, "\\n", line)')],
+                                  [C('SET', 'para', 'line')])])],
+                             # 是列表项
+                             [C('IF', '==(list_kind, lm[0])',
+                               'NULL',
+                               ['flush_para()',
+                                'flush_list()',
+                                C('SET', 'list_kind', 'lm[0]')]),
+                              C('SET', 'list_buf', 'CAT(list_buf, "<li>", INLINE(lm[1]), "</li>\\n")')])])])])])]),
+            'SET(i, +(i, 1))',
+        ]),
+        # ── 收尾 ──
+        'flush_para()',
+        'flush_list()',
+        'flush_quote()',
+        # 未闭合围栏：mistune 把剩余行渲染成代码块
+        C('IF', 'in_code',
+          [C('SET', 'out', 'CAT(out, "<pre><code", '
+                 'IF(==(code_lang, ""), "", CAT(" class=\\"language-", code_lang, "\\"")), '
+                 '">", HTML_ESCAPE(code_buf), "</code></pre>\\n")')],
+          'NULL'),
+        'out',
+    ], '// 渲染块级 Markdown（对齐 mistune escape=True 的输出）')
+
+    A('EXPORT(["RENDER_MD"]);')
+
+    chars, lines = write(OUT, src)
+    print(f'wrote {OUT} ({chars} chars, {lines} lines)')
+
+
+if __name__ == '__main__':
+    main()

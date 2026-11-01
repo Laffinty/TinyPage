@@ -35,7 +35,7 @@ LET(body_3, FUN(() ,
 
 // inline/link
 LET(body_4, FUN(() ,
-    (ASSERT_EQ(INLINE("[t](https://a.b/c)"), "<a href=\"https://a.b/c\" rel=\"noopener noreferrer\">t</a>"));
+    (ASSERT_EQ(INLINE("[t](https://a.b/c)"), "<a href=\"https://a.b/c\">t</a>"));
     TRUE));
 
 // inline/wikilink

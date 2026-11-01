@@ -265,7 +265,7 @@ LET(CODE_PH, "\0CODE");
                     LET(text, SUB(out, +(open, 1), -(close, +(open, 1))));
                     LET(url, SUB(out, +(close, 2), -(paren, +(close, 2))));
                     LET(rep, (
-                         IF(IS_SAFE_URL(url), CAT("<a href=\"", url, "\" rel=\"noopener noreferrer\">", text, "</a>"), CAT("[", text, "](", url, ")"))
+                         IF(IS_SAFE_URL(url), CAT("<a href=\"", url, "\">", text, "</a>"), CAT("[", text, "](", url, ")"))
                     ));
                     IF(<(paren, 0), (
                          SET(guard, 1000)
