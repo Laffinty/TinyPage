@@ -35,6 +35,28 @@ jobs:
         with:
           python-version: '3.13'
 
+      # The baseline generators import mistune (the reference Markdown
+      # implementation we compare against byte-for-byte), and they also import
+      # the tinypage package whose parsers/__init__.py pulls in mistune and
+      # pygments transitively. None of that is stdlib and the runner image does
+      # not ship it, so without this step gen_mistune_baseline.py dies with
+      # ImportError and the regenerate/no-drift step fails.
+      # (click / waitress are imported only by tinypage/cli.py and
+      #  tinypage/server.py, which are NOT reachable from the generators.)
+      # PINNED: the baseline fixture is a byte-exact snapshot of mistune's
+      # output, so an unpinned upgrade would silently rewrite the fixture and
+      # hide a real regression behind "just re-run the generator".
+      - name: Install baseline dependencies (mistune, pygments)
+        shell: pwsh
+        run: |
+          $ErrorActionPreference = 'Stop'
+          python -m pip install --disable-pip-version-check mistune==3.2.1 pygments==2.20.0
+          $m = python -c "import mistune; print(mistune.__version__)"
+          $p = python -c "import pygments; print(pygments.__version__)"
+          if ($m -ne '3.2.1') { Write-Error "unexpected mistune version: $m"; exit 1 }
+          if ($p -ne '2.20.0') { Write-Error "unexpected pygments version: $p"; exit 1 }
+          Write-Host "mistune $m / pygments $p"
+
       # --- 1) fetch the WLWL compiler ---
       - name: Download WLWL 0.12.1 (Windows x86_64)
         shell: pwsh
