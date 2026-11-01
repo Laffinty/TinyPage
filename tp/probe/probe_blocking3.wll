@@ -1,0 +1,25 @@
+// [能力探针 F3] 两个任务各在自己的 TLS 监听上 ACCEPT(1500ms)
+// 阻塞 ⇒ 总时长 ≈ 3000ms；真并发 ⇒ ≈ 1500ms
+LET(CERT_PATH, "D:/wlwl_v0.12.1/wlwl-src/impl/ext/wlwl-tls-ext/tests/fixtures/server.crt");
+LET(KEY_PATH, "D:/wlwl_v0.12.1/wlwl-src/impl/ext/wlwl-tls-ext/tests/fixtures/server.key");
+IMPORT("tls", ["LISTEN", "ACCEPT"]);
+IMPORT("wlwl:std.time", ["MONOTONIC"]);
+
+LET(cert, CERT_PATH);
+LET(key, KEY_PATH);
+LET(l1, LISTEN("127.0.0.1", 18465, ["cert": cert, "key": key]));
+LET(l2, LISTEN("127.0.0.1", 18466, ["cert": cert, "key": key]));
+
+LET(t0, MONOTONIC());
+SCOPE(FUN(() ,
+    LET(a, SPAWN(FUN(() ,
+        (LET(c1, ACCEPT(l1, 1500));
+         PRINT("A_done t+", -(MONOTONIC(), t0), " null=", ==(TYPE(c1), "NULL"));
+         0))));
+    LET(b, SPAWN(FUN(() ,
+        (LET(c2, ACCEPT(l2, 1500));
+         PRINT("B_done t+", -(MONOTONIC(), t0), " null=", ==(TYPE(c2), "NULL"));
+         0))));
+    AWAIT(a);
+    AWAIT(b)));
+PRINT("TOTAL t+", -(MONOTONIC(), t0))

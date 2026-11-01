@@ -1,0 +1,22 @@
+// [能力探针 C] 拼接曲线放大 + 递归极限
+IMPORT("wlwl:std.time", ["MONOTONIC"]);
+
+LET MUT(a, "");
+LET MUT(i, 0);
+LET(t0, MONOTONIC());
+WHILE(<(i, 32000),
+    (SET(a, +(a, "0123456789"));
+     SET(i, +(i, 1))));
+PRINT("concat_320KB_ms ", -(MONOTONIC(), t0));
+
+LET MUT(b, "");
+LET MUT(j, 0);
+LET(t1, MONOTONIC());
+WHILE(<(j, 64000),
+    (SET(b, +(b, "0123456789"));
+     SET(j, +(j, 1))));
+PRINT("concat_640KB_ms ", -(MONOTONIC(), t1));
+
+LET(rec, FUN((n), IF(<(n, 1), 0, +(1, rec(-(n, 1))))));
+PRINT("rec_2000        ", rec(2000));
+PRINT("rec_5000        ", rec(5000));

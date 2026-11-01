@@ -1,0 +1,12 @@
+// [能力探针 H] 文件元数据（增量构建依赖 mtime）
+IMPORT("wlwl:std.fs", ["FILE_META", "LIST_DIR", "EXISTS"]);
+IMPORT("wlwl:std.json", ["STRINGIFY"]);
+
+LET(meta, FILE_META("D:/Project/TinyPage/README.md"));
+PRINT("meta_type ", TYPE(meta), " is_err ", IS_ERR(meta));
+IF(IS_ERR(meta), PRINT("meta_err ", ERR_PAYLOAD(meta)), PRINT("meta ", STRINGIFY(meta)));
+
+LET(dir, LIST_DIR("D:/Project/TinyPage/tinypage"));
+PRINT("list_dir_is_err ", IS_ERR(dir));
+IF(IS_ERR(dir), PRINT("dir_err ", ERR_PAYLOAD(dir)), PRINT("dir_first ", SUB(STRINGIFY(dir), 0, 160)));
+PRINT("exists ", EXISTS("D:/Project/TinyPage/README.md"))

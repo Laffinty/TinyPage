@@ -73,3 +73,14 @@ pages/list/
 pages/category/
 pages/static/
 pages/.tinypage/
+
+# -----------------------------------------------------------------------------
+# WLWL 重构期的本地临时件（不入库）
+# -----------------------------------------------------------------------------
+# 正式探针在 tp/probe/（入库），是 docs/plans/tinypage-wlwl-rewrite-plan.md
+# §2 各条结论的证伪载体。.scratch/ 只是本地试验场。
+.scratch/
+
+# WLWL 运行时自动生成的锁文件（清单存在时每次成功 run 都会写）
+# 见 docs/plans/tinypage-wlwl-rewrite-plan.md §2.6
+tp/wlwl.lock

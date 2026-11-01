@@ -1,0 +1,55 @@
+// [能力探针 E] TLS 中间件：TLS 终止 + 请求解析 + 转发上游 + 回写
+LET(CERT_PATH, "D:/wlwl_v0.12.1/wlwl-src/impl/ext/wlwl-tls-ext/tests/fixtures/server.crt");
+LET(KEY_PATH, "D:/wlwl_v0.12.1/wlwl-src/impl/ext/wlwl-tls-ext/tests/fixtures/server.key");
+IMPORT("tls", ["LISTEN", "ACCEPT", "RECV", "SEND", "CLOSE", "LOCAL_ADDR"]);
+IMPORT("wlwl:std.http", ["PARSE_REQUEST"]);
+IMPORT("wlwl:std.net", ["HTTP_REQUEST"]);
+IMPORT("wlwl:std.time", ["MONOTONIC"]);
+IMPORT("wlwl:std.str", ["CAT"]);
+IMPORT("wlwl:std.encode", ["BYTE_LEN"]);
+
+LET(cert, CERT_PATH);
+LET(key, KEY_PATH);
+
+// 单条连接：读请求 → 解析 → 转发上游 → 回写
+LET(handle, FUN((conn),
+    (LET(req_io, RECV(conn, 8192, 5000));
+     IF(IS_ERR(req_io),
+         (LET(ep, ERR_PAYLOAD(req_io));
+          PRINT("RECV_ERR ", ep);
+          CLOSE(conn)),
+         (LET(raw, AT_K(req_io, "text", ""));
+          LET(parsed, PARSE_REQUEST(raw));
+          LET(path, IF(IS_ERR(parsed), "/unknown", AT_K(parsed, "path", "/")));
+          LET(method, IF(IS_ERR(parsed), "GET", AT_K(parsed, "method", "GET")));
+          LET(up, HTTP_REQUEST(method, CAT("http://127.0.0.1:18080", path)));
+          LET(payload, IF(IS_ERR(up), CAT("upstream_error: ", STR(ERR_PAYLOAD(up))), AT_K(up, "body", "")));
+          LET(resp, CAT("HTTP/1.1 200 OK\r\nContent-Type: text/plain; charset=utf-8\r\nContent-Length: ",
+                        STR(BYTE_LEN(payload)),
+                        "\r\nX-Middleware: wlwl-tls\r\nConnection: close\r\n\r\n",
+                        payload));
+          LET(nsent, SEND(conn, resp));
+          PRINT("SERVED ", method, " ", path, " bytes=", nsent);
+          CLOSE(conn))))));
+
+LET(l, LISTEN("127.0.0.1", 18462, ["cert": cert, "key": key]));
+IF(IS_ERR(l),
+    (LET(ep, ERR_PAYLOAD(l));
+     PRINT("LISTEN_ERR ", ep);
+     PANIC("listen failed")),
+    NULL);
+PRINT("LISTEN ", AT_K(LOCAL_ADDR(l), "port", 0));
+
+LET MUT(served, 0);
+LET MUT(t0, MONOTONIC());
+WHILE(<(served, 3),
+    (LET(conn, ACCEPT(l, 20000));
+     IF(IS_ERR(conn),
+         (LET(ep, ERR_PAYLOAD(conn));
+          PRINT("ACCEPT_ERR ", ep);
+          NULL),
+         (handle(conn);
+          SET(served, +(served, 1))))));
+
+PRINT("TOTAL_MS ", -(MONOTONIC(), t0));
+PRINT("DONE")

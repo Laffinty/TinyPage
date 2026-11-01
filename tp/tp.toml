@@ -1,0 +1,41 @@
+# TinyPage · WLWL 实现 —— 项目清单
+#
+# ⚠⚠⚠ **文件名警告：WLWL 运行时只认 `wlwl.toml`，不读本文件。**
+#
+# 实测证据（2026-11-01，wlwl 0.12.1）：
+#   源码 `impl/crates/wlwl-cli/src/main.rs` 的 `find_project_root()` 从文件所在目录
+#   **向上查找字面量 "wlwl.toml"**；`load_features()` / `try_write_lock()` /
+#   `reserved_project_namespaces()` 也全部写死这个名字。
+#
+#   实测对照：同一份 `[features] gradual_typing = "error"` 的清单，
+#     - 文件名叫 `wlwl.toml`  ⇒ 类型不匹配报 `E0110`，退出码 1
+#     - 文件名叫 `tp.toml`    ⇒ **无任何诊断**，退出码 0（静默失效）
+#
+# ⇒ 本文件对 WLWL 运行时**没有任何作用**，静态契约层（`gradual_typing` /
+#   `match_exhaustiveness` / `strict_types`）永远处于「未加载」状态。
+#
+# **本项目当前不需要静态契约**：所有 `[features]` 开关默认就是 `off`
+# （无清单 = 无诊断，是 WLWL 的保证行为），所以本文件是**面向人的项目说明**，
+# 不是运行时配置。
+#
+# ⚠ **若将来要开启 `gradual_typing` 等静态检查**（例如给 `LET(x: INTEGER, …)`
+#   加类型注解），必须**把本文件改名为 `wlwl.toml`** —— 否则类型标注会静默不生效，
+#   写错了也查不出来。
+#
+# 参考：`docs/plans/tinypage-wlwl-rewrite-plan.md` §2.7
+
+[package]
+name = "tinypage-tp"
+version = "0.12.1"
+entry = "bin/build.wll"
+
+[features]
+# 渐进类型：off | warn | error
+# 当前保持 off（WLWL 的默认行为）。开启需要把本文件改名为 wlwl.toml。
+gradual_typing = "off"
+
+# MATCH 穷尽性检查：跟随 gradual_typing
+match_exhaustiveness = "off"
+
+# 调用边界的类型检查
+strict_types = false

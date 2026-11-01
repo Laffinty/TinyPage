@@ -1,0 +1,23 @@
+// [能力探针 K] 两个 TCP_SERVE 在同一进程内并发吗？
+// 若串行 ⇒ 公开站与 admin 必须分进程（架构决定性事实）
+IMPORT("wlwl:std.net", ["TCP_LISTEN", "TCP_SERVE", "TCP_CLOSE_LISTENER", "TCP_LOCAL_ADDR"]);
+IMPORT("wlwl:std.time", ["MONOTONIC"]);
+
+LET(l1, TCP_LISTEN("127.0.0.1", 18480));
+LET(l2, TCP_LISTEN("127.0.0.1", 18481));
+LET(t0, MONOTONIC());
+
+SCOPE(FUN(() ,
+    LET(a, SPAWN(FUN(() ,
+        (LET(n, TCP_SERVE(l1, 2000, NULL, FUN((req), ["status": 200, "headers": ["content-type": "text/plain"], "body": "A"])));
+         PRINT("SERVE_A_done t+", -(MONOTONIC(), t0), " served=", n);
+         0))));
+    LET(b, SPAWN(FUN(() ,
+        (LET(n, TCP_SERVE(l2, 2000, NULL, FUN((req), ["status": 200, "headers": ["content-type": "text/plain"], "body": "B"])));
+         PRINT("SERVE_B_done t+", -(MONOTONIC(), t0), " served=", n);
+         0))));
+    AWAIT(a);
+    AWAIT(b)));
+
+PRINT("TOTAL t+", -(MONOTONIC(), t0));
+PRINT("note: serial => ~4000ms, concurrent => ~2000ms")

@@ -1,0 +1,28 @@
+// [能力探针 G] 排序规模曲线 + 文件 mtime 能力
+IMPORT("wlwl:std.collection", ["RANGE", "SORT", "SORT_BY", "UNIQ"]);
+IMPORT("wlwl:std.time", ["MONOTONIC"]);
+IMPORT("wlwl:std.fs", ["FILE_META", "LIST_DIR", "WALK_DIR"]);
+
+LET(t200, MONOTONIC());
+LET(s200, SORT(RANGE(200)));
+PRINT("sort_200_ms   ", -(MONOTONIC(), t200), " n=", LEN(s200));
+
+LET(t500, MONOTONIC());
+LET(s500, SORT(RANGE(500)));
+PRINT("sort_500_ms   ", -(MONOTONIC(), t500), " n=", LEN(s500));
+
+LET(t1k, MONOTONIC());
+LET(s1k, SORT(RANGE(1000)));
+PRINT("sort_1000_ms  ", -(MONOTONIC(), t1k), " n=", LEN(s1k));
+
+LET(t2k, MONOTONIC());
+LET(s2k, SORT(RANGE(2000)));
+PRINT("sort_2000_ms  ", -(MONOTONIC(), t2k), " n=", LEN(s2k));
+
+LET(tu, MONOTONIC());
+LET(u, UNIQ(RANGE(1000)));
+PRINT("uniq_1000_ms  ", -(MONOTONIC(), tu), " n=", LEN(u));
+
+LET(meta, FILE_META("D:/Project/TinyPage/README.md"));
+PRINT("file_meta TYPE ", TYPE(meta));
+PRINT("file_meta ", IF(IS_ERR(meta), "ERR", meta));

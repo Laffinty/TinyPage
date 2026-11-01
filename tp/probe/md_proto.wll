@@ -1,0 +1,119 @@
+// [能力探针 D] Markdown 解析原型：block + inline，带转义与链接协议白名单
+// 目的：证明「Markdown 渲染能不能用 WLWL 写出来」，并测吞吐
+IMPORT("wlwl:std.regex", ["RE", "RE_TEST", "RE_REPLACE"]);
+IMPORT("wlwl:std.str", ["CAT", "SPLIT_LINES"]);
+IMPORT("wlwl:std.sanitize", ["HTML_ESCAPE"]);
+IMPORT("wlwl:std.time", ["MONOTONIC"]);
+IMPORT("wlwl:std.fs", ["READ_FILE"]);
+
+LET(pFence, RE("^```([A-Za-z0-9_+-]*)[ \t]*$"));
+LET(pH1, RE("^# (.+)$"));
+LET(pH2, RE("^## (.+)$"));
+LET(pH3, RE("^### (.+)$"));
+LET(pHr, RE("^(-{3,}|\\*{3,})$"));
+LET(pUl, RE("^[-*+][ \t]+(.+)$"));
+LET(pQuote, RE("^>[ \t]?(.*)$"));
+LET(pCode, RE("`([^`]+)`"));
+LET(pBold, RE("\\*\\*([^*]+)\\*\\*"));
+LET(pItal, RE("\\*([^*]+)\\*"));
+LET(pLink, RE("\\[([^\\]]+)\\]\\((https?://[^)\\s]+|/[^)\\s]*)\\)"));
+LET(pWiki, RE("\\[\\[([^\\]]+)\\]\\]"));
+
+// ── 行内渲染 ────────────────────────────────────────────
+LET(inline, FUN((s),
+    (LET(a, HTML_ESCAPE(s));
+     LET(b, RE_REPLACE(pCode, a, "<code>$1</code>"));
+     LET(c, RE_REPLACE(pBold, b, "<strong>$1</strong>"));
+     LET(d, RE_REPLACE(pItal, c, "<em>$1</em>"));
+     LET(e, RE_REPLACE(pLink, d, "<a href=\"$2\" rel=\"noopener noreferrer\">$1</a>"));
+     LET(f, RE_REPLACE(pWiki, e, "<a class=\"wikilink\" href=\"/$1\">$1</a>"));
+     f)));
+
+// ── 块级渲染 ────────────────────────────────────────────
+LET(close_list, FUN((mode, out),
+    IF(==(mode, "ul"), CAT(out, "</ul>\n"), out)));
+
+LET(flush_para, FUN((mode, buf, out),
+    IF(==(mode, "para"), CAT(out, "<p>", inline(buf), "</p>\n"), out)));
+
+LET(render, FUN((text),
+    (LET(lines, SPLIT_LINES(text));
+     LET(n, LEN(lines));
+     LET MUT(i, 0);
+     LET MUT(out, "");
+     LET MUT(buf, "");
+     LET MUT(mode, "none");
+     WHILE(<(i, n),
+         (LET(line, lines[i]);
+          IF(==(mode, "code"),
+              IF(RE_TEST(pFence, line),
+                  (SET(out, CAT(out, "<pre><code>", HTML_ESCAPE(buf), "</code></pre>\n"));
+                   SET(buf, "");
+                   SET(mode, "none")),
+                  SET(buf, CAT(buf, line, "\n"))),
+              IF(==(line, ""),
+                  (SET(out, flush_para(mode, buf, out));
+                   SET(out, close_list(mode, out));
+                   SET(buf, "");
+                   SET(mode, "none")),
+                  IF(RE_TEST(pFence, line),
+                      (SET(out, flush_para(mode, buf, out));
+                       SET(out, close_list(mode, out));
+                       SET(buf, "");
+                       SET(mode, "code")),
+                      IF(RE_TEST(pUl, line),
+                          (SET(out, flush_para(mode, buf, out));
+                           SET(buf, "");
+                           SET(out, IF(==(mode, "ul"), out, CAT(out, "<ul>\n")));
+                           SET(out, CAT(out, "<li>", inline(RE_REPLACE(pUl, line, "$1")), "</li>\n"));
+                           SET(mode, "ul")),
+                          IF(RE_TEST(pH1, line),
+                              (SET(out, flush_para(mode, buf, out));
+                               SET(out, close_list(mode, out));
+                               SET(buf, "");
+                               SET(out, CAT(out, "<h1>", inline(RE_REPLACE(pH1, line, "$1")), "</h1>\n"))),
+                              IF(RE_TEST(pH2, line),
+                                  (SET(out, flush_para(mode, buf, out));
+                                   SET(out, close_list(mode, out));
+                                   SET(buf, "");
+                                   SET(out, CAT(out, "<h2>", inline(RE_REPLACE(pH2, line, "$1")), "</h2>\n"))),
+                                  IF(RE_TEST(pH3, line),
+                                      (SET(out, flush_para(mode, buf, out));
+                                       SET(out, close_list(mode, out));
+                                       SET(buf, "");
+                                       SET(out, CAT(out, "<h3>", inline(RE_REPLACE(pH3, line, "$1")), "</h3>\n"))),
+                                      IF(RE_TEST(pHr, line),
+                                          (SET(out, flush_para(mode, buf, out));
+                                           SET(out, close_list(mode, out));
+                                           SET(buf, "");
+                                           SET(out, CAT(out, "<hr>\n"))),
+                                          IF(RE_TEST(pQuote, line),
+                                              (SET(out, flush_para(mode, buf, out));
+                                               SET(buf, "");
+                                               SET(out, CAT(out, "<blockquote>", inline(RE_REPLACE(pQuote, line, "$1")), "</blockquote>\n"))),
+                                              (SET(out, flush_para(mode, buf, out));
+                                               SET(out, close_list(mode, out));
+                                               SET(buf, IF(==(mode, "para"), CAT(buf, "\n", line), line));
+                                               SET(mode, "para")))))))))));
+          SET(i, +(i, 1))));
+     LET(fin, flush_para(mode, buf, out));
+     close_list(mode, fin))));
+
+// ── 跑真实语料 ──────────────────────────────────────────
+LET(raw, READ_FILE("D:/Project/TinyPage/tp/probe/fixture.md"));
+IF(IS_ERR(raw),
+    (LET(p, ERR_PAYLOAD(raw));
+     PRINT("READ_ERR ", p);
+     PANIC("read failed")),
+    NULL);
+LET(t0, MONOTONIC());
+LET(html, render(raw));
+LET(ms, -(MONOTONIC(), t0));
+PRINT("src_bytes  ", LEN(raw));
+PRINT("html_bytes ", LEN(html));
+PRINT("first_ms   ", ms);
+PRINT("head ", SUB(html, 0, 100));
+LET(t1, MONOTONIC());
+LET(html2, render(raw));
+PRINT("second_ms  ", -(MONOTONIC(), t1));
+PRINT("same_out   ", ==(html, html2))

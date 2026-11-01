@@ -1,0 +1,18 @@
+// [能力探针 J] TCP_SERVE 行为：单条连接异常是否影响循环、handler 能否写响应、超时如何退出
+IMPORT("wlwl:std.net", ["TCP_LISTEN", "TCP_SERVE", "TCP_CLOSE_LISTENER", "TCP_LOCAL_ADDR"]);
+IMPORT("wlwl:std.str", ["CAT"]);
+IMPORT("wlwl:std.time", ["MONOTONIC"]);
+
+LET(l, TCP_LISTEN("127.0.0.1", 18470));
+PRINT("LISTEN ", AT_K(TCP_LOCAL_ADDR(l), "port", 0));
+
+LET(cnt, AT_K(TCP_LOCAL_ADDR(l), "port", 0));
+LET(served, TCP_SERVE(l, 3000, NULL, FUN((req),
+    (LET(path, AT_K(req, "path", "/"));
+     ["status": 200,
+      "headers": ["content-type": "text/plain"],
+      "body": CAT("handled:", path)]))));
+PRINT("SERVED_COUNT ", served);
+PRINT("note: X-Middleware header absent, verifying body passthrough");
+TCP_CLOSE_LISTENER(l);
+PRINT("DONE")

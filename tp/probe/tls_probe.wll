@@ -1,0 +1,41 @@
+// [能力探针 A] 用 wlwl_tls.dll 做 TLS 终止 + 手写 HTTP/1.1 响应
+// 目的：验证「能否用 WLWL 搭出支持 TLS 的中间件」
+LET(CERT_PATH, "D:/wlwl_v0.12.1/wlwl-src/impl/ext/wlwl-tls-ext/tests/fixtures/server.crt");
+LET(KEY_PATH, "D:/wlwl_v0.12.1/wlwl-src/impl/ext/wlwl-tls-ext/tests/fixtures/server.key");
+IMPORT("tls", ["LISTEN", "ACCEPT", "RECV", "SEND", "CLOSE", "LOCAL_ADDR"]);
+
+// 自检：字符串转义与长度语义
+PRINT("crlf_ok ", ==(LEN("a\r\nb"), 4));
+
+LET(cert, CERT_PATH);
+LET(key, KEY_PATH);
+
+LET(l, LISTEN("127.0.0.1", 18461, ["cert": cert, "key": key]));
+IF(IS_ERR(l),
+    (LET(p, ERR_PAYLOAD(l));
+     PRINT("LISTEN_ERR ", p);
+     PANIC("listen failed")),
+    NULL);
+LET(addr, LOCAL_ADDR(l));
+PRINT("LISTEN_OK ", AT_K(addr, "port", 0));
+
+LET(conn, ACCEPT(l, 20000));
+IF(IS_ERR(conn),
+    (LET(p, ERR_PAYLOAD(conn));
+     PRINT("ACCEPT_ERR ", p);
+     PANIC("accept failed")),
+    PRINT("ACCEPT_OK"));
+
+LET(req, RECV(conn, 8192, 5000));
+IF(IS_ERR(req),
+    (LET(p, ERR_PAYLOAD(req));
+     PRINT("RECV_ERR ", p)),
+    (LET(text, AT_K(req, "text", ""));
+     PRINT("REQ_BYTES ", AT_K(req, "eof", TRUE));
+     PRINT("REQ_HEAD ", SUB(text, 0, 24))));
+
+LET(body, "hello over tls");
+LET(resp, +("HTTP/1.1 200 OK\r\nContent-Type: text/plain; charset=utf-8\r\nContent-Length: 14\r\nConnection: close\r\n\r\n", body));
+PRINT("SENT_BYTES ", SEND(conn, resp));
+CLOSE(conn);
+PRINT("DONE")

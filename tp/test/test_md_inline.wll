@@ -1,0 +1,156 @@
+// tp/test/test_md_inline.wll —— 行内解析器测试
+//
+// ⚠ 本文件由 tp/test/gen_test_md_inline.py 生成 —— 请勿手改。
+//   改用例请改生成器里的 CASES。
+//
+// 验收：D:\wlwl_v0.12.1\wlwl.exe run tp\test\test_md_inline.wll
+//       ⇒ 退出码 0，且全部用例 passed
+//
+// ⚠ RUN_TESTS() 的失败**不影响退出码**（规范明载）⇒ 本文件自己把关：
+//   有任何失败 ⇒ PANIC ⇒ 非零退出。
+IMPORT("wlwl:std.test", ["TEST", "ASSERT", "ASSERT_EQ", "ASSERT_NEQ", "RUN_TESTS"]);
+// ⚠ CONTAINS_SUB 在 std.str，**不是全局名** ⇒ 必须 IMPORT（否则 E0020）。
+IMPORT("wlwl:std.str", ["CONTAINS_SUB"]);
+IMPORT("./../lib/md_inline.wll", ["INLINE", "INLINE_WITH_MAP", "IS_SAFE_URL", "WIKILINK_TARGET"]);
+
+// inline/code
+LET(body_0, FUN(() ,
+    (ASSERT_EQ(INLINE("use `x` here"), "use <code>x</code> here"));
+    TRUE));
+
+// inline/bold
+LET(body_1, FUN(() ,
+    (ASSERT_EQ(INLINE("a **b** c"), "a <strong>b</strong> c"));
+    TRUE));
+
+// inline/italic
+LET(body_2, FUN(() ,
+    (ASSERT_EQ(INLINE("a *b* c"), "a <em>b</em> c"));
+    TRUE));
+
+// inline/bold_before_italic
+LET(body_3, FUN(() ,
+    (ASSERT_EQ(INLINE("**x**"), "<strong>x</strong>"));
+    TRUE));
+
+// inline/link
+LET(body_4, FUN(() ,
+    (ASSERT_EQ(INLINE("[t](https://a.b/c)"), "<a href=\"https://a.b/c\" rel=\"noopener noreferrer\">t</a>"));
+    TRUE));
+
+// inline/wikilink
+LET(body_5, FUN(() ,
+    (ASSERT_EQ(INLINE("[[Page]]"), "<a class=\"wikilink\" href=\"/article/page.html\">Page</a>"));
+    TRUE));
+
+// inline/wikilink_alias
+LET(body_6, FUN(() ,
+    (ASSERT_EQ(INLINE("[[Page|显示]]"), "<a class=\"wikilink\" href=\"/article/page.html\">显示</a>"));
+    TRUE));
+
+// guard/unpaired_bold_keeps_rest
+LET(body_7, FUN(() ,
+    (LET(out, INLINE("**未闭合 后面还有正文")); ASSERT(CONTAINS_SUB(out, "后面还有正文")); ASSERT(NOT(CONTAINS_SUB(out, "<strong>"))));
+    TRUE));
+
+// guard/unpaired_italic_keeps_rest
+LET(body_8, FUN(() ,
+    (LET(out, INLINE("a *b")); ASSERT(CONTAINS_SUB(out, "a *b")); ASSERT(NOT(CONTAINS_SUB(out, "<em>"))));
+    TRUE));
+
+// guard/script_is_escaped
+LET(body_9, FUN(() ,
+    (LET(out, INLINE("<script>alert(1)</script>")); ASSERT(NOT(CONTAINS_SUB(out, "<script>"))); ASSERT(CONTAINS_SUB(out, "&lt;script&gt;")));
+    TRUE));
+
+// guard/quotes_are_escaped
+LET(body_10, FUN(() ,
+    (LET(out, INLINE("a \"b\" c")); ASSERT(NOT(CONTAINS_SUB(out, "\"b\""))); ASSERT(CONTAINS_SUB(out, "&quot;")));
+    TRUE));
+
+// guard/javascript_protocol_blocked
+LET(body_11, FUN(() ,
+    (LET(out, INLINE("[x](javascript:alert(1))")); ASSERT(NOT(CONTAINS_SUB(out, "<a "))));
+    TRUE));
+
+// guard/data_protocol_blocked
+LET(body_12, FUN(() ,
+    (LET(out, INLINE("[x](data:text/html,x)")); ASSERT(NOT(CONTAINS_SUB(out, "<a "))));
+    TRUE));
+
+// guard/vbscript_protocol_blocked
+LET(body_13, FUN(() ,
+    (LET(out, INLINE("[x](vbscript:msgbox)")); ASSERT(NOT(CONTAINS_SUB(out, "<a "))));
+    TRUE));
+
+// url/safe_protocols
+LET(body_14, FUN(() ,
+    (ASSERT(IS_SAFE_URL("https://example.com")); ASSERT(IS_SAFE_URL("http://example.com")); ASSERT(IS_SAFE_URL("/relative/path")); ASSERT(IS_SAFE_URL("mailto:a@b.c")); ASSERT(IS_SAFE_URL("//protocol-relative")));
+    TRUE));
+
+// url/dangerous_protocols
+LET(body_15, FUN(() ,
+    (ASSERT(NOT(IS_SAFE_URL("javascript:alert(1)"))); ASSERT(NOT(IS_SAFE_URL("JavaScript:alert(1)"))); ASSERT(NOT(IS_SAFE_URL("data:text/html,x"))); ASSERT(NOT(IS_SAFE_URL("file:///etc/passwd"))); ASSERT(NOT(IS_SAFE_URL("vbscript:x"))); ASSERT(NOT(IS_SAFE_URL(""))); ASSERT(NOT(IS_SAFE_URL(NULL))));
+    TRUE));
+
+// url/unknown_protocol_rejected
+LET(body_16, FUN(() ,
+    (ASSERT(NOT(IS_SAFE_URL("weirdscheme://x"))));
+    TRUE));
+
+// wiki/article_map
+LET(body_17, FUN(() ,
+    (LET(m, ["另一篇": "/article/other.html"]); ASSERT_EQ(WIKILINK_TARGET("另一篇", m), "/article/other.html"); ASSERT_EQ(WIKILINK_TARGET("没找到", m), "/article/没找到.html"));
+    TRUE));
+
+// inline/code_has_priority
+LET(body_18, FUN(() ,
+    (LET(out, INLINE("`*not italic*`")); ASSERT(CONTAINS_SUB(out, "<code>*not italic*</code>")); ASSERT(NOT(CONTAINS_SUB(out, "<em>"))));
+    TRUE));
+
+// inline/mixed
+LET(body_19, FUN(() ,
+    (LET(out, INLINE("**粗** 与 *斜* 与 `码` 与 [链](https://x.y)")); ASSERT(CONTAINS_SUB(out, "<strong>粗</strong>")); ASSERT(CONTAINS_SUB(out, "<em>斜</em>")); ASSERT(CONTAINS_SUB(out, "<code>码</code>")); ASSERT(CONTAINS_SUB(out, "href=\"https://x.y\"")));
+    TRUE));
+
+// inline/deterministic
+LET(body_20, FUN(() ,
+    (LET(a, INLINE("**a** *b* `c` [d](https://e.f) [[g]]")); LET(b, INLINE("**a** *b* `c` [d](https://e.f) [[g]]")); ASSERT_EQ(a, b));
+    TRUE));
+
+// ── 注册并运行 ────────────────────────────────────────────
+TEST("inline/code", body_0);
+TEST("inline/bold", body_1);
+TEST("inline/italic", body_2);
+TEST("inline/bold_before_italic", body_3);
+TEST("inline/link", body_4);
+TEST("inline/wikilink", body_5);
+TEST("inline/wikilink_alias", body_6);
+TEST("guard/unpaired_bold_keeps_rest", body_7);
+TEST("guard/unpaired_italic_keeps_rest", body_8);
+TEST("guard/script_is_escaped", body_9);
+TEST("guard/quotes_are_escaped", body_10);
+TEST("guard/javascript_protocol_blocked", body_11);
+TEST("guard/data_protocol_blocked", body_12);
+TEST("guard/vbscript_protocol_blocked", body_13);
+TEST("url/safe_protocols", body_14);
+TEST("url/dangerous_protocols", body_15);
+TEST("url/unknown_protocol_rejected", body_16);
+TEST("wiki/article_map", body_17);
+TEST("inline/code_has_priority", body_18);
+TEST("inline/mixed", body_19);
+TEST("inline/deterministic", body_20);
+
+LET(records, RUN_TESTS());
+PRINT("test_md_inline: ", LEN(records), " test(s) run");
+
+LET MUT(failed, 0);
+FOR(rec, records,
+    (IF(AT_K(rec, "passed", FALSE),
+        PRINT("  PASS ", AT_K(rec, "name", "?")),
+        (SET(failed, +(failed, 1));
+         PRINT("  FAIL ", AT_K(rec, "name", "?"))))));
+
+PRINT("test_md_inline: failed=", failed);
+IF(>(failed, 0), (PRINT_ERR("test_md_inline: FAILED"); PANIC("md_inline tests failed")), NULL);
+PRINT("test_md_inline: OK");

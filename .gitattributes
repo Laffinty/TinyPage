@@ -1,0 +1,13 @@
+# 行尾策略
+#
+# 本仓库在 Windows 上开发（core.autocrlf=true），但有两类文件对行尾敏感：
+#
+# ① `*.wll` —— 由 tp/test/gen_*.py **生成**，生成器以 LF 写出。
+#    若 checkout 时被转成 CRLF，重新跑生成器会产生整文件 diff
+#    ⇒ 固定为 LF（text eol=lf），并禁止 git 改写行尾。
+#
+# ② `*.py` —— 同样是生成器与静态检查器，固定 LF。
+#
+# 其余文件（HTML/CSS/JS/Markdown）保持仓库现状，不做特殊处理。
+*.wll text eol=lf
+*.py text eol=lf

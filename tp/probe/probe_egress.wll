@@ -1,0 +1,28 @@
+﻿// [鑳藉姏鎺㈤拡 I] 鍑虹珯 HTTPS 璺緞锛歴td.net 鍙敮鎸佹槑鏂?http锛屽嚭绔?https 蹇呴』闈?tls.CONNECT
+// 鐩殑锛氶獙璇?AI 鍔熻兘锛圤penAI 鍏煎 API锛夊湪銆屼笉鐣?Python銆嶇害鏉熶笅鑳藉惁鎴愮珛
+IMPORT("tls", ["CONNECT", "SEND", "RECV", "CLOSE", "PEER"]);
+IMPORT("wlwl:std.str", ["CAT"]);
+IMPORT("wlwl:std.encode", ["UTF8_ENCODE", "BYTE_LEN"]);
+IMPORT("wlwl:std.time", ["MONOTONIC"]);
+
+LET(t0, MONOTONIC());
+LET(c, CONNECT("127.0.0.1", 18499, ["verify": FALSE, "server_name": "localhost"]));
+IF(IS_ERR(c),
+    (LET(p, ERR_PAYLOAD(c));
+     PRINT("CONNECT_ERR ", p);
+     PANIC("no tls peer")),
+    PRINT("CONNECT_OK handle=", c));
+
+LET(peer, PEER(c));
+PRINT("PEER ", peer);
+
+LET(body, CAT("GET / HTTP/1.1\r\nHost: 127.0.0.1\r\nConnection: close\r\n\r\n"));
+LET(n, SEND(c, body));
+PRINT("SENT ", n);
+LET(chunk, RECV(c, 4096, 5000));
+IF(IS_ERR(chunk),
+    (LET(p, ERR_PAYLOAD(chunk));
+     PRINT("RECV_ERR ", p)),
+    PRINT("RECV_TEXT ", SUB(AT_K(chunk, "text", ""), 0, 60)));
+CLOSE(c);
+PRINT("ELAPSED ", -(MONOTONIC(), t0))

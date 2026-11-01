@@ -1,0 +1,45 @@
+// [能力探针 B] Markdown 可行性三约束：正则能力 / 拼接复杂度 / 递归深度
+IMPORT("wlwl:std.regex", ["RE", "RE_TEST", "RE_FIND_ALL", "RE_REPLACE"]);
+IMPORT("wlwl:std.time", ["MONOTONIC"]);
+
+// ── P1 正则：Markdown 解析真正需要的形状 ──────────────────
+LET(h, RE("^(#{1,6})[ \t]+(.+)$"));
+PRINT("re_heading      ", RE_TEST(h, "## Hello"));
+LET(fence, RE("^```([A-Za-z0-9_+-]*)\\s*$"));
+PRINT("re_fence        ", RE_TEST(fence, "```python"));
+LET(li, RE("^( *)([-*+]|[0-9]{1,9}[.)])[ \t]+(.*)$"));
+PRINT("re_listitem     ", RE_TEST(li, "  - item text"));
+LET(link, RE("\\[([^\\]]*)\\]\\(([^)]*)\\)"));
+PRINT("re_link         ", RE_TEST(link, "[a](b)"));
+// 反向引用 \\1 被硬拒（E0030：破坏线性时间）⇒ 强调必须手写扫描，不能一条正则搞定
+LET(delim, RE("(\\*\\*|__|\\*|_)"));
+PRINT("re_delim_only   ", LEN(RE_FIND_ALL(delim, "**bold** and *it*")));
+LET(table, RE("^\\|(.+)\\|$"));
+PRINT("re_table        ", RE_TEST(table, "| a | b |"));
+
+// ── P2 字符串拼接复杂度：同一份数据两种规模，比较毫秒 ────
+LET MUT(a, "");
+LET MUT(i, 0);
+LET(t0, MONOTONIC());
+WHILE(<(i, 4000),
+    (SET(a, +(a, "0123456789"));
+     SET(i, +(i, 1))));
+LET(d1, -(MONOTONIC(), t0));
+PRINT("concat_40KB_ms  ", d1);
+PRINT("concat_40KB_len ", LEN(a));
+
+LET MUT(b, "");
+LET MUT(j, 0);
+LET(t1, MONOTONIC());
+WHILE(<(j, 8000),
+    (SET(b, +(b, "0123456789"));
+     SET(j, +(j, 1))));
+LET(d2, -(MONOTONIC(), t1));
+PRINT("concat_80KB_ms  ", d2);
+PRINT("concat_80KB_len ", LEN(b));
+
+// ── P3 递归深度：递归下降解析器要能进多深 ────────────────
+LET(rec, FUN((n), IF(<(n, 1), 0, +(1, rec(-(n, 1))))));
+PRINT("rec_depth_200   ", rec(200));
+PRINT("rec_depth_500   ", rec(500));
+PRINT("rec_depth_1000  ", rec(1000));

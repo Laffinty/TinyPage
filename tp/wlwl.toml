@@ -1,0 +1,37 @@
+# TinyPage · WLWL 实现 —— 真清单
+#
+# ⚠⚠⚠ **这个文件名不能改。**
+#
+# WLWL 运行时写死了字面量 "wlwl.toml"：
+#   - `find_project_root()` 从被检查文件所在目录**向上查找**这个文件名
+#     ⇒ **项目根 = 最近的含本文件的祖先目录**
+#   - `load_features()` 读本文件的 `[features]`
+#   - `try_write_lock()` 在本文件同目录写 `wlwl.lock`
+#   - `reserved_project_namespaces()` 用它算保留命名空间
+#
+# 为什么存在两份清单（`wlwl.toml` + `tp.toml`）：
+#   - `tp.toml`   —— 业主指定的名字，是**面向人的项目说明**
+#   - `wlwl.toml` —— 本文件，**运行时唯一会读的**那份
+#   两者 `[features]` 必须**同步**；改动任何一份都要改另一份。
+#   （边界与实测见 docs/plans/tinypage-wlwl-rewrite-plan.md §2.6）
+#
+# ⚠ **静态层开关必须保持 off**：本项目不使用类型注解、不用 `SEALED`、不写 `.wll.sig`
+#   ⇒ 静态契约层本来就不需要开。开启时**必须改本文件**（不是只改 `tp.toml`），
+#   否则类型写错也查不出来。
+#
+# ⚠ 本文件存在 ⇒ 每次成功 `wlwl run` 会在同目录生成 `wlwl.lock`（已加进 .gitignore）。
+
+[package]
+name = "tinypage-tp"
+version = "0.12.1"
+entry = "bin/build.wll"
+
+[features]
+# 渐进类型：off | warn | error —— 当前 off（WLWL 默认行为）
+gradual_typing = "off"
+
+# MATCH 穷尽性检查：跟随 gradual_typing
+match_exhaustiveness = "off"
+
+# 调用边界的类型检查
+strict_types = false
