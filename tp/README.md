@@ -50,6 +50,32 @@ $WLWL = 'D:\wlwl_v0.12.1\wlwl.exe'
 & $WLWL check tp\lib\md_inline.wll      # ⇒ OK: parsed ...
 ```
 
+## CI（GitHub Actions，Windows runner）
+
+`.github/workflows/wlwl.yml`，9 步，触发条件：`tp/**` 或 workflow 自身变更
+（文档改动不烧配额）。
+
+| # | 步骤 | 作用 |
+|---|---|---|
+| 1 | 下载官方 WLWL 0.12.1 Windows zip | **校验 sha256** `7b8c9650…8e545` |
+| 2 | 验证版本 | 必须是 0.12.1 |
+| 3 | **重跑生成器 + 要求 `git diff` 为空** | ⭐ **产物必须与生成器一致** |
+| 4 | 静态检查器 | 括号平衡 / 无中缀 / 分号 / 生成器参数 |
+| 5 | `wlwl check` 全部 `.wll` | 语法 |
+| 6 | **反向守卫** | 坏文件必须被 check 拒掉（非零退出） |
+| 7 | 跑 `smoke.wll` + `test_md_inline.wll` | 行为 |
+
+⭐ **第 3 步是本 CI 存在的首要理由**：`.wll` 是生成物，若有人改了生成器却忘了重跑
+（或直接手改 `.wll`），产物就与生成器不一致 —— 而这种不一致**编译期不报错**，
+只在运行期行为诡异（占位符没被还原、括号层级错位）。
+
+**本地一键复现全部 9 步**：
+```powershell
+powershell -File tp\test\ci_local_check.ps1
+```
+
+⚠ **生成器不得硬编码绝对路径**（CI 上仓库在别处）⇒ 产物路径由 `__file__` 推导。
+
 ## 开发流程
 
 1. **改生成器**，不改 `.wll`：

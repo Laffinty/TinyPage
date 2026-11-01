@@ -61,6 +61,14 @@
    字符串转义白名单、布尔大写、递归上限 2000、`SORT` 二次复杂度）。
 5. **项目根 = 含 `wlwl.toml` 的最近祖先目录** ⇒ `tp/wlwl.toml` 必须存在，
    否则 `tp/test/` 里的 `IMPORT("./../lib/...")` 越界（`E0040`）。
+6. **CI 已就位**（`.github/workflows/wlwl.yml`，Windows runner，9 步）：
+   ① 下载官方 WLWL 0.12.1 Windows zip（**校验 sha256**）② 验证版本
+   ③ **重跑生成器并要求 `git diff` 为空**（产物与生成器必须一致）
+   ④ 静态检查器（括号+中缀 / 分号 / 生成器参数）
+   ⑤ `wlwl check` 全部 `.wll` ⑥ **反向守卫**（坏文件必须被 check 拒掉）
+   ⑦ 跑 `smoke.wll` 与 `test_md_inline.wll`。
+   ⇒ 本地可一键复现全部步骤：`powershell -File tp\test\ci_local_check.ps1`。
+   ⚠ 生成器**不得**硬编码绝对路径（CI 上仓库在别处）⇒ 产物路径由 `__file__` 推导。
 
 ---
 
@@ -916,6 +924,7 @@ TinyPage/
 | G16 | 静态层未被误开 | `Select-String -Path 'tp\wlwl.toml' -Pattern 'gradual_typing'` | 必须是 `off`（开了也没类型注解，白担风险） |
 | G17 | 两份清单同步 | 比较 `tp/wlwl.toml` 与 `tp/tp.toml` 的 `[features]` 段 | 两边一致（改动任何一份都要改另一份） |
 | G18 | 静态检查器全绿 | `python tp\test\paren_check.py tp\lib\*.wll` 等四条 | 全部 OK |
+| G19 | **CI 全绿** | GitHub Actions `wlwl` workflow | 9 步全过（生成物无漂移 / 静态检查 / check / 反向守卫 / 两个测试） |
 
 ---
 

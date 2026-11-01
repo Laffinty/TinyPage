@@ -8,6 +8,10 @@
 """
 import os
 
+# 本脚本自身所在目录 —— 产物路径由它推导 ⇒ **不硬编码绝对路径**
+# （CI 上仓库在别处，硬编码会写到错误位置）
+HERE = os.path.dirname(os.path.abspath(__file__))
+
 HEADER = '''// tp/test/test_md_inline.wll —— 行内解析器测试
 //
 // ⚠ 本文件由 tp/test/gen_test_md_inline.py 生成 —— 请勿手改。
@@ -168,7 +172,7 @@ def main():
     out.append(FOOTER)
 
     src = '\n'.join(out)
-    path = r'D:\Project\TinyPage\tp\test\test_md_inline.wll'
+    path = os.path.join(HERE, 'test_md_inline.wll')
     open(path, 'w', encoding='utf-8', newline='\n').write(src)
     print(f'wrote {path} ({len(src)} chars, {len(CASES)} cases)')
 

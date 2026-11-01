@@ -6,7 +6,11 @@
 """
 import os
 
-OUT = r'D:\Project\TinyPage\tp\test\smoke.wll'
+# 本脚本自身所在目录 —— 产物路径由它推导 ⇒ **不硬编码绝对路径**
+# （CI 上仓库在别处，硬编码会写到错误位置）
+HERE = os.path.dirname(os.path.abspath(__file__))
+
+OUT = os.path.join(HERE, 'smoke.wll')
 
 SRC = '''// tp/test/smoke.wll —— 工具链冒烟用例
 //

@@ -1,0 +1,150 @@
+name: wlwl
+
+# 只在 WLWL 相关内容变化时触发 —— 文档改动不该烧 CI 配额
+on:
+  push:
+    branches: [main]
+    paths:
+      - 'tp/**'
+      - '.github/workflows/wlwl.yml'
+      - '.gitattributes'
+  pull_request:
+    paths:
+      - 'tp/**'
+      - '.github/workflows/wlwl.yml'
+      - '.gitattributes'
+  workflow_dispatch:
+
+# 同一分支的连续推送只跑最新一次
+concurrency:
+  group: wlwl-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  build:
+    # ⚠ Windows runner —— WLWL 的 Windows 构建是 .exe；
+    #   Linux 构建是 .tar.xz 且 TLS 扩展名不同（libwlwl_tls.so）。
+    runs-on: windows-latest
+    timeout-minutes: 15
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.13'
+
+      # ── 1) 取 WLWL 编译器 ────────────────────────────────
+      - name: Download WLWL 0.12.1 (Windows x86_64)
+        shell: pwsh
+        run: |
+          $ErrorActionPreference = 'Stop'
+          $ver = '0.12.1'
+          $asset = "wlwl-v$ver-x86_64-pc-windows-msvc.zip"
+          # 官方 release 的 sha256（见 https://github.com/Laffinty/wlwl/releases/tag/v0.12.1）
+          $sha = '7b8c9650276a3f662ef9d7ba6aa778382a7977e0269ff43dc1cc54420ff8e545'
+          $url = "https://github.com/Laffinty/wlwl/releases/download/v$ver/$asset"
+
+          Invoke-WebRequest -Uri $url -OutFile "$env:RUNNER_TEMP\$asset"
+          $got = (Get-FileHash "$env:RUNNER_TEMP\$asset" -Algorithm SHA256).Hash.ToLower()
+          if ($got -ne $sha) {
+            Write-Error "sha256 mismatch: expected $sha got $got"
+            exit 1
+          }
+          Write-Host "sha256 OK: $got"
+
+          Expand-Archive "$env:RUNNER_TEMP\$asset" -DestinationPath "$env:RUNNER_TEMP\wlwl" -Force
+          # ⚠ stdlib 是**外部文件**（lib/stdlib/*.wll），不是内嵌的 ⇒ 必须一起解压
+          Add-Content $env:GITHUB_PATH "$env:RUNNER_TEMP\wlwl"
+
+      - name: Verify WLWL version
+        shell: pwsh
+        run: |
+          $ErrorActionPreference = 'Stop'
+          $v = & wlwl.exe --version
+          Write-Host "wlwl: $v"
+          if ($v -notmatch '0\.12\.1') {
+            Write-Error "unexpected wlwl version: $v"
+            exit 1
+          }
+
+      # ── 2) 生成物必须与生成器一致 ──────────────────────────
+      # 这是本 CI 存在的**首要理由**：tp/**/*.wll 是 tp/test/gen_*.py 的产物。
+      # 若有人改了生成器却忘了重跑（或直接手改 .wll），仓库里的产物就与生成器
+      # 不一致 —— 而这种不一致**编译期不报错**，只会在运行期行为诡异
+      # （例如占位符没被还原、括号层级错位）。
+      - name: Regenerate .wll artifacts and verify no drift
+        shell: pwsh
+        run: |
+          $ErrorActionPreference = 'Stop'
+          python tp\test\gen_md_inline.py
+          python tp\test\gen_test_md_inline.py
+          python tp\test\gen_smoke.py
+
+          $diff = git diff --stat -- 'tp/lib/*.wll' 'tp/test/*.wll'
+          if ($diff) {
+            Write-Host "::error::Generated .wll files are out of sync with their generators."
+            Write-Host $diff
+            Write-Host "Run: python tp\test\gen_md_inline.py (and the other generators), then commit."
+            exit 1
+          }
+          Write-Host "generated artifacts are in sync"
+
+      # ── 3) 静态检查（秒级，先于编译给出精确诊断）────────────
+      - name: Static checks (paren / semicolon / generator args)
+        shell: pwsh
+        run: |
+          $ErrorActionPreference = 'Stop'
+          $wll = @(Get-ChildItem -Path tp\lib,tp\test -Filter *.wll -File |
+                   Where-Object { $_.FullName -notlike '*broken*' })
+          python tp\test\paren_check.py @($wll | ForEach-Object { $_.FullName })
+          python tp\test\check_semis.py @($wll | ForEach-Object { $_.FullName })
+          python tp\test\check_c_args.py tp\test\gen_md_inline.py
+          python tp\test\check_c_args.py tp\test\gen_test_md_inline.py
+          python tp\test\check_c_args.py tp\test\gen_smoke.py
+
+      # ── 4) 编译 ────────────────────────────────────────
+      - name: wlwl check
+        shell: pwsh
+        run: |
+          $ErrorActionPreference = 'Stop'
+          $wll = @(Get-ChildItem -Path tp\lib,tp\test -Filter *.wll -File |
+                   Where-Object { $_.FullName -notlike '*broken*' })
+          foreach ($f in $wll) {
+            Write-Host "check $($f.Name)"
+            & wlwl.exe check $f.FullName
+            if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+          }
+
+      # ── 5) 反向守卫：坏文件必须被 check 拒掉 ─────────────────
+      # 若 check 对坏文件也返回 0，说明工具链用法错了 ⇒ 上面所有验收都不可信。
+      - name: Reverse guard (broken file must fail to check)
+        shell: pwsh
+        run: |
+          # ⚠ broken.wll 必然报错。PowerShell 会把 native 命令的 stderr 当成
+          #   NativeCommandError 抛出（即使 2>&1 | Out-Null 也一样）⇒ step 会
+          #   **误报红**。这里要的是**退出码**，所以用 cmd /c 绕开该行为
+          #   （跨 PowerShell 版本安全；本仓库开发机是 PS 5.1，runner 是 PS 7.x）。
+          $ErrorActionPreference = 'Continue'
+          $out = cmd /c 'wlwl.exe check tp\test\broken\broken.wll 2>&1'
+          $code = $LASTEXITCODE
+          $ErrorActionPreference = 'Stop'
+          if ($code -eq 0) {
+            Write-Error "GUARD FAILED: broken.wll passed wlwl check (exit 0)"
+            exit 1
+          }
+          Write-Host "guard OK: broken.wll rejected with exit $code"
+          Write-Host $out
+
+      # ── 6) 跑测试 ───────────────────────────────────────
+      # ⚠ RUN_TESTS() 的失败不影响退出码 ⇒ 测试文件自己会 PANIC（已实现），
+      #   所以这里的退出码是有意义的。
+      - name: Run tests
+        shell: pwsh
+        run: |
+          $ErrorActionPreference = 'Stop'
+          & wlwl.exe run tp\test\smoke.wll
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+          & wlwl.exe run tp\test\test_md_inline.wll
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
