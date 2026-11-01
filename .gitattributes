@@ -1,6 +1,6 @@
-# 行尾策略
+# 行尾与编码策略
 #
-# 本仓库在 Windows 上开发（core.autocrlf=true），但有两类文件对行尾敏感：
+# 本仓库在 Windows 上开发（core.autocrlf=true）。有三类文件对行尾/编码敏感：
 #
 # ① `*.wll` —— 由 tp/test/gen_*.py **生成**，生成器以 LF 写出。
 #    若 checkout 时被转成 CRLF，重新跑生成器会产生整文件 diff
@@ -8,6 +8,13 @@
 #
 # ② `*.py` —— 同样是生成器与静态检查器，固定 LF。
 #
+# ③ `*.ps1` —— PowerShell 脚本，固定 CRLF（Windows 原生）。
+#    ⚠ 这些脚本**必须保持纯 ASCII**：Windows PowerShell 5.1 读 .ps1 时，
+#    无 BOM 就按系统 ANSI 码页解析 ⇒ 文件里的中文注释会让字节错位 ⇒
+#    引号被破坏 ⇒ 脚本语法错误（实测 "Unexpected token '}'"）。
+#    ⇒ 脚本与 CI yml 的注释一律用英文；中文说明放在 Markdown 文档里。
+#
 # 其余文件（HTML/CSS/JS/Markdown）保持仓库现状，不做特殊处理。
 *.wll text eol=lf
 *.py text eol=lf
+*.ps1 text eol=crlf

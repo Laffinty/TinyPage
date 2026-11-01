@@ -1,4 +1,4 @@
-$ErrorActionPreference = 'Stop'
+$ErrorActionPreference = 'Continue'
 $env:PYTHONIOENCODING = 'utf-8'
 Set-Location 'D:\Project\TinyPage'
 $exe = 'D:\wlwl_v0.12.1\wlwl.exe'
@@ -15,17 +15,17 @@ function Step($name, $block) {
     }
 }
 
-# ── 步骤 2：生成物一致性 ──────────────────────────────
+# --- step 1: generated artifacts must match their generators ---
 Step 'regenerate + no drift' {
     python tp\test\gen_md_inline.py | Out-Null
     python tp\test\gen_test_md_inline.py | Out-Null
     python tp\test\gen_smoke.py | Out-Null
-    # ⚠ 只查 **.wll 产物** —— 生成器自身的改动不算 drift
+    # only the .wll products count as drift - generator edits are expected
     $diff = git diff --stat -- 'tp/lib/*.wll' 'tp/test/*.wll'
     if ($diff) { throw "drift detected: $diff" }
 }
 
-# ── 步骤 3：静态检查 ────────────────────────────────
+# --- step 2: static checks ---
 Step 'static checks' {
     $wll = @(Get-ChildItem -Path tp\lib, tp\test -Filter *.wll -File |
              Where-Object { $_.FullName -notlike '*broken*' })
@@ -42,7 +42,7 @@ Step 'static checks' {
     if ($LASTEXITCODE -ne 0) { throw 'check_c_args gen_smoke failed' }
 }
 
-# ── 步骤 4：wlwl check ───────────────────────────────
+# --- step 3: compile ---
 Step 'wlwl check' {
     $wll = @(Get-ChildItem -Path tp\lib, tp\test -Filter *.wll -File |
              Where-Object { $_.FullName -notlike '*broken*' })
@@ -53,20 +53,39 @@ Step 'wlwl check' {
     Write-Host "  checked $($wll.Count) files"
 }
 
-# ── 步骤 5：反向守卫 ─────────────────────────────────
+# --- step 4: reverse guard ---
+# NOTE: the exit code must be read via **cmd** - PowerShell (incl. pwsh 7)
+#   turns native stderr into an error stream and throws under
+#   $ErrorActionPreference='Stop' => the step would report red.
+#   CI uses shell: cmd there too; this script runs the same cmd block so we
+#   know it really works before pushing.
+# NOTE: stderr must be dropped INSIDE cmd (2>nul) - if it reaches
+#   PowerShell it becomes an exception and this step reports red.
 Step 'reverse guard' {
-    # ⚠ broken.wll 必然报错。PowerShell 会把 native 命令的 stderr 当成
-    #   NativeCommandError 抛出（即使 2>&1 | Out-Null 也一样）⇒ step 会
-    #   **误报红**。这里要的是**退出码**，所以用 cmd /c 绕开该行为。
-    $ErrorActionPreference = 'Continue'
-    $out = cmd /c "`"$exe`" check tp\test\broken\broken.wll 2>&1"
+    $ciBlock = @'
+call :guard tp\test\broken\broken.wll
+exit /b %ERRORLEVEL%
+
+:guard
+wlwl.exe check %1
+if %ERRORLEVEL% EQU 0 (
+  echo ::error::GUARD FAILED: %1 passed wlwl check
+  exit /b 1
+)
+echo guard OK: %1 rejected with exit %ERRORLEVEL%
+exit /b 0
+'@
+    $tmp = Join-Path $env:TEMP 'ci_guard_sim.cmd'
+    [System.IO.File]::WriteAllText($tmp, $ciBlock, (New-Object System.Text.UTF8Encoding($false)))
+    $env:PATH = (Split-Path -Parent $exe) + ';' + $env:PATH
+    cmd /c "`"$tmp`" 2>nul" | Out-Null
     $code = $LASTEXITCODE
-    $ErrorActionPreference = 'Stop'
-    if ($code -eq 0) { throw 'GUARD FAILED: broken.wll exited 0' }
-    Write-Host "  broken.wll rejected with exit $code"
+    Remove-Item $tmp -ErrorAction SilentlyContinue
+    if ($code -ne 0) { throw "guard block failed (exit $code)" }
+    Write-Host "  broken.wll rejected; CI cmd block exits 0"
 }
 
-# ── 步骤 6：跑测试 ───────────────────────────────────
+# --- step 5: run the tests ---
 Step 'run tests' {
     & $exe run tp\test\smoke.wll | Out-Null
     if ($LASTEXITCODE -ne 0) { throw "smoke failed exit=$LASTEXITCODE" }
