@@ -69,6 +69,14 @@
    ⑦ 跑 `smoke.wll` 与 `test_md_inline.wll`。
    ⇒ 本地可一键复现全部步骤：`powershell -File tp\test\ci_local_check.ps1`。
    ⚠ 生成器**不得**硬编码绝对路径（CI 上仓库在别处）⇒ 产物路径由 `__file__` 推导。
+   ✅ **实测状态：GitHub Actions run 41317062756 ⇒ 9/9 步全绿**。
+
+   **⚠ 写 CI 时踩到的三个坑（都已在配置里规避并注释）**：
+   | # | 坑 | 症状 | 规避 |
+   |---|---|---|---|
+   | a | PowerShell 把 native 命令的 stderr 当错误流 | pwsh 7 下守卫步**误报红**（退出码明明是 3） | 该步用 `shell: cmd` + `call :label` 取退出码，**不让 PowerShell 参与** |
+   | b | cmd 的 `REM` 行不认 UTF-8 | yml 里的中文注释被当命令执行 | CI yml 与 `.ps1` 的注释**一律英文** |
+   | c | PowerShell 5.1 读无 BOM 的 `.ps1` 按 ANSI 码页解析 | 中文注释让字节错位 ⇒ 引号被破坏 ⇒ `Unexpected token '}'` | `.ps1` 保持**纯 ASCII**；`.gitattributes` 用 `text eol=crlf` |
 
 ---
 
@@ -924,7 +932,7 @@ TinyPage/
 | G16 | 静态层未被误开 | `Select-String -Path 'tp\wlwl.toml' -Pattern 'gradual_typing'` | 必须是 `off`（开了也没类型注解，白担风险） |
 | G17 | 两份清单同步 | 比较 `tp/wlwl.toml` 与 `tp/tp.toml` 的 `[features]` 段 | 两边一致（改动任何一份都要改另一份） |
 | G18 | 静态检查器全绿 | `python tp\test\paren_check.py tp\lib\*.wll` 等四条 | 全部 OK |
-| G19 | **CI 全绿** | GitHub Actions `wlwl` workflow | 9 步全过（生成物无漂移 / 静态检查 / check / 反向守卫 / 两个测试） |
+| G19 | **CI 全绿** | GitHub Actions `wlwl` workflow | 9 步全过（生成物无漂移 / 静态检查 / check / 反向守卫 / 两个测试）✅ run 41317062756 |
 
 ---
 
