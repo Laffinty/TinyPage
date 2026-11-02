@@ -31,6 +31,11 @@
 | `probe_fs.wll` | 文件元数据 | `FILE_META` 给 `{exists,is_dir,mtime,mtime_http,size}` ⇒ 增量构建可用 |
 | `upstream.wll` | 明文 HTTP 上游 | 用 `TCP_SERVE` 写的上游（**零 Python**）⇒ 探针链本身不含 Python |
 | `md_proto.wll` + `fixture.md` | Markdown 原型 | 40KB 文档 → 324–427ms；两次输出一致 |
+| `probe_s21h.wll` | S2-1 语义：`TO_INT` 严格性 / `UTF8_DECODE` 造字符 / 尾随换行 / `[0-9]` vs `\d` / `HTML_UNESCAPE` 实体表 | `TO_INT` 拒绝 Unicode 数字；`UTF8_DECODE([0])` 是 NUL；`RE_TEST` 整串锚定（`$` 不允尾随 `\n`）；`HTML_UNESCAPE` 与 Python `html.unescape` **逐条一致**（含 `&notit;`→`¬it;`、`&amp` 无分号） |
+| `probe_s21j.wll` | 正则里怎么表达**字面点** | `[.]` 是字面点（`RE_TEST(RE("^[.]$"), ".")`=TRUE）；`[.][.]` 精确匹配 `..`；⚠ `SPLIT(s,"..")` **判不出**含 `..`（`"a..b"`→`["a","b"]`，无空串） |
+| `probe_s21m.wll` | `safe_path_check` 的中间值 | `PATH_JOIN(base, 绝对路径)` **只拼接不覆盖**；`PATH_CONTAINS` 逐段判定、挡得住 `..`；`PATH_EXT` 不含点 |
+| `probe_s21o.wll` | `IF` / 语句分组的**返回值**语义 | 分组与 `IF` 的值 = **最后一个语句的值**（`(stmt; 7)`→7，`(7; stmt)`→NULL）⇒ 分支用语句列表是对的写法 |
+| `probe_s21p.wll` | `ERR` 的**消费**语义 | ⚠ **`LET(r, <ERR>)` 绑定不算消费**：`E0103` 报在绑定那一行，事后再 `IS_ERR(r)` 无效 ⇒ 必须让调用**直接**进 `IS_ERR(...)` |
 
 ## 怎么跑
 

@@ -33,7 +33,7 @@
 | S1-2 行内解析器 | ✅ 完成 | `tp/lib/md_inline.wll`（生成器产出）；**21/21 测试通过**，含 3 个反向守卫 |
 | S1-3 块级解析器 | ✅ 完成 | `tp/lib/md.wll`（生成器产出）；**28/28 对照 mistune 3.2.1 逐字节通过**（25 基准 + 3 守卫）；链接去掉自加的 `rel` 属性以逐字节对齐 |
 | S1-4 front-matter/TOC/脚注/wikilink | ✅ 完成 | `frontmatter.wll` / `toc.wll` / `footnotes.wll` / `wikilink.wll` + 共享 `esc.wll`（全部生成器产出）；**38/38 + 41/41 + 23/23 + 28/28 + esc 19/19 全绿**；本地 CI 5 步全过（21 生成器 / 21 产物无 drift） |
-| S2 内容模型与生成器 | 🔄 进行中（**卡 S2-2 补缺口 + 卡 S2-1 实现**；断点见 §0.3） | 卡 S2-2 首轮 ✅（`tp/lib/sort_util.wll`，**25/25**，2000 元素 618ms，比内建 `SORT` 快约 170 倍）；卡 S2-2 补缺口 ⚠（4 个导出已落地，**新导出零基准零测试**）；卡 S2-1 ⚠（**基准 246 条已交付**，实现与测试未写）；S2-3/S2-4/S2-5 ⬜ |
+| S2 内容模型与生成器 | 🔄 进行中（**S2-1 / S2-2 已完成**；余 S2-3/S2-4/S2-5） | 卡 S2-2 ✅（`sort_util.wll` 4 导出，**39/39**）；卡 S2-1 ✅（`article_store.wll` 11 导出，**277/277**，3 条已知差异 D2/D3/D4）；S2-3/S2-4/S2-5 ⬜ |
 | S3 前台静态服务（TLS） | ⬜ 未开始 | `serve_public.wll`（TLS 终止 + 静态文件） |
 | S4 Admin 后台 | ⬜ 未开始 | `serve_admin.wll` + 会话/CSRF/限流/CRUD |
 | S5 AI 助手（出站 HTTPS） | ⬜ 未开始 | `ai.wll`（`tls.CONNECT` + 手写 HTTP/1.1） |
@@ -819,6 +819,18 @@ TinyPage/
     否则抛 `OSError("File deletion verification failed")`；
     ⑥ 删两个 backup；**任何异常 ⇒ 把 backup 移回原位并向上抛**。
 
+- **✅ 实测状态（2026-11-02 完成，父进程独立复跑核验）**：
+  | 项 | 读数 |
+  |---|---|
+  | `wlwl check tp/lib/article_store.wll` | `OK: parsed`（~20KB），exit 0 |
+  | `wlwl run tp/test/test_article_store.wll` | **277/277**，failed=0，末行 `test_article_store: OK`，exit 0 |
+  | 导出面（11 个） | `VALIDATE_FILENAME` / `VALIDATE_CONTENT` / `VALIDATE_DATE_FORMAT` / `VALIDATE_TITLE` / `SAFE_PATH_CHECK` / `SOURCE_PATH` / `WRITE_SOURCE` / `DECODE_CONTENT` / `DECODE_LEGACY_BODY` / `UNESCAPE_TO_FIXPOINT` / `META_VALUE`（后者**复用** `frontmatter.wll`） |
+  | 基准来源 | **直接 import 真 Python**：security / content / core.article_store 共 11 个函数，**246 条**用例（11 组） |
+  | 已知差异（已登记在夹具 `note`） | **D2** 文件名 `\d` 认 Unicode 数字（WLWL 拒）／**D3** 含 `..` 的输入（WLWL 故意更严）／**D4** 日期**年位置**的 Unicode 数字（WLWL 拒：`TO_INT` 不接受、`NFKC` 也不归一） |
+  | 反向守卫（5 条） | `../etc/passwd` 拒／`../pages-evil/x.html` 拒／`sub/../ok.html` 拒（D3）／写入失败不留半截文件／原子写不留 `.tmp` |
+  | 实现要点（实测） | `RE_TEST` 整串锚定 ⇒ 用 `$` 处先剥结尾单个 `\n`；正则 `\xNN`/`\.` 是**字面**字符 ⇒ 用字符类 `[.]`；无 `ORD`/`CHR` ⇒ 控制字符靠 `UTF8_DECODE` 造字符逐个比；`LET(r,<ERR>)` 不算消费 ERR（E0103 报在绑定行）⇒ ERR 就地进 `IS_ERR(...)`；`PATH_JOIN` 对绝对路径只拼接 |
+  | 本地 CI | 5 步全过（21 生成器无 drift / 19 个 `.wll` check 过 / 反向守卫 / 10 个测试文件全绿） |
+
 #### 卡 S2-2：手写排序（替代 `SORT`）
 
 - **依赖**：S2-1
@@ -842,13 +854,14 @@ TinyPage/
 - **✅ 实测状态（2026-11-02 完成，父进程独立复跑核验）**：
   | 项 | 读数 |
   |---|---|
-  | `wlwl check tp/lib/sort_util.wll` | `OK: parsed`（6648 bytes），exit 0 |
-  | `wlwl run tp/test/test_sort_util.wll` | **25/25**（22 基准 + 3 守卫），failed=0，末行 `test_sort_util: OK`，exit 0 |
-  | 导出面 | `SORT_BY_DATE(items)`（日期倒序，稳定）/ `SORT_STRINGS(items)`（码点升序，稳定） |
-  | 元素形态 | `SORT_BY_DATE` 接受 `ARRAY[DICT{"date":…}]` **或** `ARRAY[STRING]`（可混排）；`SORT_STRINGS` 接受 `ARRAY[STRING]` |
-  | 基准来源 | **两个互相独立的 Python 来源**：① Python 内建 `sorted`；② 真项目函数 `tinypage.content.list_articles()` 在临时目录真跑一遍的返回顺序 |
+  | `wlwl check tp/lib/sort_util.wll` | `OK: parsed`，exit 0 |
+  | `wlwl run tp/test/test_sort_util.wll` | **39/39**（36 基准 + 3 守卫），failed=0，末行 `test_sort_util: OK`，exit 0 |
+  | 导出面（4 个） | `SORT_BY_DATE`（日期倒序，稳定）/ `SORT_STRINGS`（码点升序，稳定）/ `SORT_BY_TITLE_OR_FILE`（`title or file` 升序，稳定，缺口 A）/ `SORT_BY_NUM_DESC`（数值键倒序，稳定，缺口 B） |
+  | 元素形态 | `SORT_BY_DATE` 接受 `ARRAY[DICT{"date":…}]` **或** `ARRAY[STRING]`（可混排）；`SORT_STRINGS` 接受 `ARRAY[STRING]`；`SORT_BY_TITLE_OR_FILE` 接受 `ARRAY[DICT{"title","file"}]`；`SORT_BY_NUM_DESC` 接受 `ARRAY[ARRAY[payload, number]]`（键取元素[1]，INTEGER/FLOAT 均可） |
+  | 基准来源 | **每个导出两个互相独立的 Python 来源**：① Python 内建 `sorted`；② 真项目函数 —— `list_articles()`（日期）/ `list_standalones()`（缺口 A，`content.py:698` 的 `title or file`）/ `find_related_articles()`（缺口 B，`content.py:237` 的 Jaccard 倒序） |
+  | 缺口 A/B 覆盖 | 各 **7 条**（空数组/单元素/基本/空标题回落文件名/相等键稳定性/非 ASCII/真项目函数）；缺口 A 的 B 类来源**真实造了空标题与无 title 注释**的独立页，确保「空串回落」被验到 |
   | 静态检查器 | `paren_check` / `check_semis` / `check_c_args`（三个生成器）全过 |
-  | 本地 CI | 5 步全过（生成器无 drift、27 个 .wll 全 check 过、反向守卫、9 个测试文件全绿） |
+  | 本地 CI | 5 步全过（生成器无 drift、19 个 `.wll` 全 check 过、反向守卫、10 个测试文件全绿） |
 
   1. **日期键只取前 16 字符**（对齐 `content.py:185` 的 `meta.date[:16]`，分钟精度）。
      原因不是偷懒：若比较整串（可能带秒），同一分钟内带秒的两篇文章两侧顺序会不同 ⇒ 逐字节对照会红。

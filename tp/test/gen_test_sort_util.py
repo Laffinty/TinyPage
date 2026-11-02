@@ -98,6 +98,17 @@ def wl_value(v):
         return 'NULL'
     if isinstance(v, int):
         return str(v)
+    if isinstance(v, float):
+        # ⚠ FLOAT 字面量必须带小数点（否则 WLWL 会当成 INTEGER）。
+        #   repr 给出的是 Python 的最短往返表示（0.6666666666666666），
+        #   与 Python 的 float 完全同值 ⇒ 逐字节对照成立。
+        #   ⚠ 必须避开 inf / nan（WLWL 无对应字面量）。
+        if v != v or v in (float('inf'), float('-inf')):
+            raise ValueError('bad fixture float: %r' % (v,))
+        s = repr(v)
+        if '.' not in s and 'e' not in s and 'E' not in s:
+            s += '.0'
+        return s
     raise TypeError('bad fixture value: %r' % (v,))
 
 
@@ -135,7 +146,8 @@ def main():
     A('// ⚠ RUN_TESTS() 的失败**不影响退出码**（规范明载）⇒ 本文件自己把关。')
     A('IMPORT("wlwl:std.test", ["TEST", "ASSERT", "ASSERT_EQ", "RUN_TESTS"]);')
     A('IMPORT("wlwl:std.time", ["MONOTONIC"]);')
-    A('IMPORT("./../lib/sort_util.wll", ["SORT_BY_DATE", "SORT_STRINGS"]);')
+    A('IMPORT("./../lib/sort_util.wll", ["SORT_BY_DATE", "SORT_BY_NUM_DESC", '
+      '"SORT_BY_TITLE_OR_FILE", "SORT_STRINGS"]);')
     A('')
 
     A('// ── 用例数据（逐字节来自基准）─────────────────────────────────')

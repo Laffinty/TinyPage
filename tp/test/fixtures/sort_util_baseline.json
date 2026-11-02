@@ -7481,6 +7481,416 @@
           "tag": "2024-01-15-real-00.html"
         }
       ]
+    },
+    {
+      "name": "titles_empty",
+      "fn": "SORT_BY_TITLE_OR_FILE",
+      "note": "空数组",
+      "input": [],
+      "expected": []
+    },
+    {
+      "name": "titles_single",
+      "fn": "SORT_BY_TITLE_OR_FILE",
+      "note": "单元素 DICT",
+      "input": [
+        {
+          "title": "Only",
+          "file": "only.html"
+        }
+      ],
+      "expected": [
+        {
+          "title": "Only",
+          "file": "only.html"
+        }
+      ]
+    },
+    {
+      "name": "titles_basic",
+      "fn": "SORT_BY_TITLE_OR_FILE",
+      "note": "三个不同标题 ⇒ **升序**（码点序），对齐 content.py:698",
+      "input": [
+        {
+          "title": "Zebra",
+          "file": "z.html"
+        },
+        {
+          "title": "Alpha",
+          "file": "a.html"
+        },
+        {
+          "title": "Mango",
+          "file": "m.html"
+        }
+      ],
+      "expected": [
+        {
+          "title": "Alpha",
+          "file": "a.html"
+        },
+        {
+          "title": "Mango",
+          "file": "m.html"
+        },
+        {
+          "title": "Zebra",
+          "file": "z.html"
+        }
+      ]
+    },
+    {
+      "name": "titles_empty_falls_back_to_file",
+      "fn": "SORT_BY_TITLE_OR_FILE",
+      "note": "⚠ **空标题回落文件名**（Python 的 `or` 对空串也回落，不只是 None）⇒ 键分别是 \"Alpha\" / \"a.html\" / \"b.html\"",
+      "input": [
+        {
+          "title": "",
+          "file": "b.html"
+        },
+        {
+          "title": "Alpha",
+          "file": "a.html"
+        },
+        {
+          "title": "",
+          "file": "a.html"
+        }
+      ],
+      "expected": [
+        {
+          "title": "Alpha",
+          "file": "a.html"
+        },
+        {
+          "title": "",
+          "file": "a.html"
+        },
+        {
+          "title": "",
+          "file": "b.html"
+        }
+      ]
+    },
+    {
+      "name": "titles_stability",
+      "fn": "SORT_BY_TITLE_OR_FILE",
+      "note": "**相等键** ⇒ 相对次序必须不变（Python sorted 稳定）",
+      "input": [
+        {
+          "title": "Same",
+          "file": "p1.html"
+        },
+        {
+          "title": "Same",
+          "file": "q1.html"
+        },
+        {
+          "title": "Same",
+          "file": "p2.html"
+        }
+      ],
+      "expected": [
+        {
+          "title": "Same",
+          "file": "p1.html"
+        },
+        {
+          "title": "Same",
+          "file": "q1.html"
+        },
+        {
+          "title": "Same",
+          "file": "p2.html"
+        }
+      ]
+    },
+    {
+      "name": "titles_unicode",
+      "fn": "SORT_BY_TITLE_OR_FILE",
+      "note": "非 ASCII 标题 ⇒ 码点序（\"Apple\" < \"éclair\" < \"中文\"）",
+      "input": [
+        {
+          "title": "中文",
+          "file": "c.html"
+        },
+        {
+          "title": "Apple",
+          "file": "a.html"
+        },
+        {
+          "title": "éclair",
+          "file": "e.html"
+        }
+      ],
+      "expected": [
+        {
+          "title": "Apple",
+          "file": "a.html"
+        },
+        {
+          "title": "éclair",
+          "file": "e.html"
+        },
+        {
+          "title": "中文",
+          "file": "c.html"
+        }
+      ]
+    },
+    {
+      "name": "titles_real_list_standalones",
+      "fn": "SORT_BY_TITLE_OR_FILE",
+      "note": "**真项目函数** tinypage.content.list_standalones() 的返回顺序（它内部就是 content.py:698 那行 `pages.sort(key=lambda x: x.title or x.file)`）⇒ 与上面的内建 sorted 口径互相独立、必须一致",
+      "input": [
+        {
+          "title": "About",
+          "file": "about.html"
+        },
+        {
+          "title": "Zebra",
+          "file": "zebra.html"
+        },
+        {
+          "title": "",
+          "file": "beta.html"
+        },
+        {
+          "title": "Alpha",
+          "file": "alpha.html"
+        },
+        {
+          "title": "",
+          "file": "gamma.html"
+        }
+      ],
+      "expected": [
+        {
+          "title": "About",
+          "file": "about.html"
+        },
+        {
+          "title": "Alpha",
+          "file": "alpha.html"
+        },
+        {
+          "title": "Zebra",
+          "file": "zebra.html"
+        },
+        {
+          "title": "",
+          "file": "beta.html"
+        },
+        {
+          "title": "",
+          "file": "gamma.html"
+        }
+      ]
+    },
+    {
+      "name": "nums_empty",
+      "fn": "SORT_BY_NUM_DESC",
+      "note": "空数组",
+      "input": [],
+      "expected": []
+    },
+    {
+      "name": "nums_single",
+      "fn": "SORT_BY_NUM_DESC",
+      "note": "单元素",
+      "input": [
+        [
+          "x",
+          1
+        ]
+      ],
+      "expected": [
+        [
+          "x",
+          1
+        ]
+      ]
+    },
+    {
+      "name": "nums_basic_desc",
+      "fn": "SORT_BY_NUM_DESC",
+      "note": "三个不同数值 ⇒ **倒序**（大→小），对齐 content.py:237",
+      "input": [
+        [
+          "a",
+          0.1
+        ],
+        [
+          "b",
+          0.9
+        ],
+        [
+          "c",
+          0.5
+        ]
+      ],
+      "expected": [
+        [
+          "b",
+          0.9
+        ],
+        [
+          "c",
+          0.5
+        ],
+        [
+          "a",
+          0.1
+        ]
+      ]
+    },
+    {
+      "name": "nums_int_keys",
+      "fn": "SORT_BY_NUM_DESC",
+      "note": "INTEGER 键（对齐 core/ai_assistance.py:258 的词频形态）",
+      "input": [
+        [
+          "word_a",
+          5
+        ],
+        [
+          "word_b",
+          9
+        ],
+        [
+          "word_c",
+          1
+        ]
+      ],
+      "expected": [
+        [
+          "word_b",
+          9
+        ],
+        [
+          "word_a",
+          5
+        ],
+        [
+          "word_c",
+          1
+        ]
+      ]
+    },
+    {
+      "name": "nums_stability_equal_keys",
+      "fn": "SORT_BY_NUM_DESC",
+      "note": "⚠ **相等键** ⇒ 保持输入次序（Python 的 `reverse=True` **仍保持稳定**）",
+      "input": [
+        [
+          "first",
+          0.5
+        ],
+        [
+          "second",
+          0.5
+        ],
+        [
+          "third",
+          0.5
+        ]
+      ],
+      "expected": [
+        [
+          "first",
+          0.5
+        ],
+        [
+          "second",
+          0.5
+        ],
+        [
+          "third",
+          0.5
+        ]
+      ]
+    },
+    {
+      "name": "nums_zero_and_negative",
+      "fn": "SORT_BY_NUM_DESC",
+      "note": "含 0 与负数 ⇒ 倒序（0 在负数之上）",
+      "input": [
+        [
+          "zero",
+          0
+        ],
+        [
+          "neg",
+          -1.5
+        ],
+        [
+          "pos",
+          2
+        ]
+      ],
+      "expected": [
+        [
+          "pos",
+          2
+        ],
+        [
+          "zero",
+          0
+        ],
+        [
+          "neg",
+          -1.5
+        ]
+      ]
+    },
+    {
+      "name": "nums_real_find_related_articles",
+      "fn": "SORT_BY_NUM_DESC",
+      "note": "**真项目函数** tinypage.content.find_related_articles() 算出的 Jaccard 排序（它内部就是 content.py:237 那行 `related.sort(key=lambda x: x[1], reverse=True)`）⇒ 与上面的内建 sorted 口径互相独立、必须一致",
+      "input": [
+        [
+          "a.html",
+          0.6666666666666666
+        ],
+        [
+          "b.html",
+          0.6666666666666666
+        ],
+        [
+          "c.html",
+          0.3333333333333333
+        ],
+        [
+          "d.html",
+          1.0
+        ],
+        [
+          "f.html",
+          1.0
+        ]
+      ],
+      "expected": [
+        [
+          "d.html",
+          1.0
+        ],
+        [
+          "f.html",
+          1.0
+        ],
+        [
+          "a.html",
+          0.6666666666666666
+        ],
+        [
+          "b.html",
+          0.6666666666666666
+        ],
+        [
+          "c.html",
+          0.3333333333333333
+        ]
+      ]
     }
   ]
 }

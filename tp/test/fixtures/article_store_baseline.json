@@ -1,7 +1,7 @@
 {
   "_meta": {
     "generated_by": "tp/test/gen_article_store_baseline.py",
-    "known_difference_count": 2,
+    "known_difference_count": 3,
     "python_functions": {
       "decode_content": "tinypage.core.article_store.decode_content (article_store.py:104)",
       "decode_legacy_body": "tinypage.core.article_store.decode_legacy_body (article_store.py:121)",
@@ -1566,9 +1566,9 @@
       },
       "d22": {
         "input": "٢٠٢٦-01-01 10:00",
-        "note": null,
+        "note": "已知差异 D4：Python 的 `re` 的 `\\d` 匹配 Unicode 数字，且 `strptime` 的 `%Y` 用 `int()` 解析 ⇒ **年位置接受 Unicode 数字**；WLWL 的 `TO_INT` 拒绝 Unicode 数字（返回 ERR）、`NFKC` 也不归一它 ⇒ WLWL 侧无法复刻 ⇒ WLWL 拒绝、Python 接受。",
         "python": true,
-        "want": true
+        "want": false
       }
     },
     "validate_filename": {

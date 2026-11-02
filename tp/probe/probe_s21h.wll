@@ -1,0 +1,50 @@
+// probe 3h: facts needed by the S2-1 implementation.
+
+IMPORT("wlwl:std.regex", ["RE", "RE_TEST", "RE_SEARCH", "RE_FIND_ALL", "RE_REPLACE"]);
+IMPORT("wlwl:std.encode", ["BYTE_LEN", "UTF8_DECODE"]);
+IMPORT("wlwl:std.text", ["TO_INT"]);
+IMPORT("wlwl:std.sanitize", ["HTML_UNESCAPE"]);
+
+// --- 1. TO_INT strictness ---
+PRINT("TO_INT(2026) err? ", IS_ERR(TO_INT("2026")));
+PRINT("TO_INT(arabic) err? ", IS_ERR(TO_INT("٢٠٢٦")));
+PRINT("TO_INT(one arabic) err? ", IS_ERR(TO_INT("٢")));
+PRINT("TO_INT(20a6) err? ", IS_ERR(TO_INT("20a6")));
+PRINT("TO_INT(sp 2026) err? ", IS_ERR(TO_INT(" 2026")));
+PRINT("TO_INT(+2026) err? ", IS_ERR(TO_INT("+2026")));
+PRINT("TO_INT(2026sp) err? ", IS_ERR(TO_INT("2026 ")));
+PRINT("TO_INT(empty) err? ", IS_ERR(TO_INT("")));
+PRINT("TO_INT(13) err? ", IS_ERR(TO_INT("13")));
+PRINT("TO_INT(00) err? ", IS_ERR(TO_INT("00")));
+
+// --- 2. UTF8_DECODE([0]) vs NUL ---
+LET(ch0, UTF8_DECODE([0]));
+PRINT("UTF8_DECODE([0]) == NUL: ", ==(ch0, "\0"));
+LET(ch1, UTF8_DECODE([1]));
+PRINT("UTF8_DECODE([1]) == UTF8_DECODE([1]): ", ==(ch1, UTF8_DECODE([1])));
+PRINT("UTF8_DECODE([1]) len: ", LEN(ch1));
+
+// --- 3. trailing newline + python $ semantics ---
+PRINT("RE_TEST(^a$, a NL): ", RE_TEST(RE("^a$"), "a\n"));
+PRINT("RE_TEST(^a$, a NL NL): ", RE_TEST(RE("^a$"), "a\n\n"));
+
+// --- 4. [0-9] vs \d, and literal CJK class ---
+PRINT("RE_TEST([0-9]{4}, arabic): ", RE_TEST(RE("^[0-9]{4}$"), "٢٠٢٦"));
+PRINT("RE_TEST([0-9]{4}, ascii):  ", RE_TEST(RE("^[0-9]{4}$"), "2026"));
+PRINT("RE_TEST(CJK class, one): ", RE_TEST(RE("^[a-zA-Z0-9一-龥-]+$"), "一"));
+PRINT("RE_TEST(CJK class, out): ", RE_TEST(RE("^[a-zA-Z0-9一-龥-]+$"), "龦"));
+
+// --- 5. HTML_UNESCAPE one pass vs python html.unescape ---
+PRINT("unesc notit: ", HTML_UNESCAPE("&notit;"));
+PRINT("unesc ampNoSemi: ", HTML_UNESCAPE("&amp"));
+PRINT("unesc tooBig: ", HTML_UNESCAPE("&#1114112;"));
+PRINT("unesc badhex: ", HTML_UNESCAPE("&#xZZ;"));
+PRINT("unesc ampX: ", HTML_UNESCAPE("&amp;x"));
+PRINT("unesc num38: ", HTML_UNESCAPE("&#38;"));
+PRINT("unesc hex26: ", HTML_UNESCAPE("&#x26;"));
+PRINT("unesc AMPcaps: ", HTML_UNESCAPE("&AMP;"));
+PRINT("unesc ltNoSemi: ", HTML_UNESCAPE("&lt"));
+
+// --- 6. SUB / TO_INT roundtrip ---
+PRINT("SUB(arabic date,0,4): ", SUB("٢٠٢٦-01-01 10:00", 0, 4));
+PRINT("LEN(arabic date): ", LEN("٢٠٢٦-01-01 10:00"));

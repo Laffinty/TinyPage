@@ -69,6 +69,9 @@ OUT = os.path.join(HERE, 'fixtures', 'sort_util_baseline.json')
 
 sys.path.insert(0, REPO)
 from tinypage.content import list_articles  # noqa: E402  ← 真项目实现
+from tinypage.content import list_standalones  # noqa: E402  ← 真项目实现（缺口 A）
+from tinypage.content import find_related_articles  # noqa: E402  ← 真项目实现（缺口 B）
+from tinypage.models import ArticleMeta  # noqa: E402  ← 真项目的数据类
 
 # ── 随机数据的固定种子（CI 的 no-drift 守卫要求产物逐字节可复现）────────────
 SEED = 20261102
@@ -163,6 +166,132 @@ def build_real_list_articles_case(rng):
         return inp, got
     finally:
         shutil.rmtree(tmp, ignore_errors=True)
+
+
+# ── 缺口 A：`title or file` 的键（对齐 content.py:698）────────────────────
+def title_or_file_key(item):
+    """缺口 A 的键 —— 与 `pages.sort(key=lambda x: x.title or x.file)` **同口径**。
+
+    ⚠ Python 的 `or` 对**空串**也回落（不只是 None）：`""` 是 falsy。
+      而 `x.file` 本身若也为空，Python 的 `or` 链会返回**最后一个操作数**
+      （即 `x.file`，可能仍是 ""）⇒ 键恒为 str（不会变成 None）⇒ 可排序。
+    """
+    return item.title or item.file
+
+
+def sorted_title_or_file(items):
+    """按「标题优先、空标题回落文件名」升序、稳定 —— 用 Python **内建** `sorted`。"""
+    return sorted(items, key=title_or_file_key)
+
+
+def build_real_list_standalones_case():
+    """B 类用例（缺口 A）：真跑 `tinypage.content.list_standalones()` 拿排序结果。
+
+    做法：在临时目录里造若干**合法**独立页文件（文件名过
+    `validate_page_filename`，front-matter 里带 `<!-- title: ... -->`），
+    然后调用**真项目函数** `list_standalones()` —— 它内部就是
+    content.py:698 那行 `pages.sort(key=lambda x: x.title or x.file)`。
+
+    ⚠ **空标题的独立页必须造出来**：`parse_meta` 只在文件里有
+      `<!-- title: ... -->` 时才设 title ⇒ 不写 title 注释 ⇒ title == ""
+      ⇒ 正是「空标题回落文件名」这条规则的触发条件。
+    """
+    tmp = tempfile.mkdtemp(prefix='tinypage_standalone_')
+    try:
+        # (文件名, 标题注释或 None)
+        spec = [
+            ('about.html', 'About'),
+            ('zebra.html', 'Zebra'),
+            ('beta.html', ''),          # 空标题 ⇒ 回落文件名
+            ('alpha.html', 'Alpha'),
+            ('gamma.html', None),       # 无 title 注释 ⇒ title == "" ⇒ 回落文件名
+        ]
+        for fname, title in spec:
+            head = ''
+            if title is not None:
+                head = '<!-- title: %s -->\n' % title
+            body = head + '<div class="post-content"><p>body</p></div>\n'
+            with open(os.path.join(tmp, fname), 'w', encoding='utf-8') as f:
+                f.write(body)
+        pages = list_standalones(Path(tmp))
+        got = [{'title': p.title, 'file': p.file} for p in pages]
+        # 输入：喂给 WLWL 的 DICT 形态（元素含 title 与 file 两个键）
+        inp = []
+        for fname, title in spec:
+            # Python 侧的空标题 = 解析结果里的 ""（不是 None）
+            inp.append({'title': '' if title is None else title, 'file': fname})
+        return inp, got
+    finally:
+        shutil.rmtree(tmp, ignore_errors=True)
+
+
+# ── 缺口 B：`x[1]` 数值键（对齐 content.py:237）────────────────────────────
+def sorted_by_second(items):
+    """按二元组第 2 项**倒序**、稳定 —— 用 Python **内建** `sorted`。
+
+    ⚠ `reverse=True` **保持稳定**（相等键保持输入次序）⇒ 这是它的答案。
+      元素是 `(payload, number)` 二元组 ⇒ 键取 `x[1]`。
+    """
+    return sorted(items, key=lambda x: x[1], reverse=True)
+
+
+def build_real_find_related_articles_case():
+    """B 类用例（缺口 B）：真跑 `tinypage.content.find_related_articles()`。
+
+    做法：真造 `ArticleMeta`（带 tags）、真算 Jaccard、真排一遍 ——
+    `find_related_articles` 内部就是 content.py:237 那行
+    `related.sort(key=lambda x: x[1], reverse=True)`。
+
+    ⚠ 它返回的是**截断到 limit 的文章列表**（不返回相似度）⇒ 期望值是
+      「按相似度倒序、且**去掉相等键**后取前 limit 篇」的**文件名顺序**。
+      为了能逐字节对照相似度本身，这里用 `limit` 足够大的值（不截断），
+      并把**相似度**一并放进期望值里（`sim` 字段）。
+    """
+    current = ArticleMeta(
+        title='Current', date='2024-01-01 00:00', slug='current',
+        tags='python,testing,wlwl', status='published', file='current.html',
+    )
+    # 标签集刻意设计成**有相等 Jaccard** 的几组 ⇒ 验稳定性
+    all_articles = [
+        ArticleMeta(title='A', tags='python,testing', status='published',
+                    file='a.html'),
+        ArticleMeta(title='B', tags='python,testing', status='published',
+                    file='b.html'),
+        ArticleMeta(title='C', tags='python', status='published', file='c.html'),
+        ArticleMeta(title='D', tags='wlwl,testing,python', status='published',
+                    file='d.html'),
+        ArticleMeta(title='E', tags='rust,go', status='published', file='e.html'),
+        ArticleMeta(title='F', tags='python,testing,wlwl', status='published',
+                    file='f.html'),
+        ArticleMeta(title='G', tags='python', status='draft', file='g.html'),
+    ]
+    got_articles = find_related_articles(current, all_articles, limit=100)
+    got_files = [a.file for a in got_articles]
+
+    # A 类来源：Python 内建 sorted 的等价复刻（键 = Jaccard，倒序、稳定）
+    cur_tags = set(current.tag_list)
+    scored = []
+    for a in all_articles:
+        if a.file == current.file or a.is_draft or not a.tag_list:
+            continue
+        at = set(a.tag_list)
+        inter = cur_tags & at
+        union = cur_tags | at
+        if inter:
+            scored.append((a.file, len(inter) / len(union)))
+    scored_sorted = sorted(scored, key=lambda x: x[1], reverse=True)
+
+    if got_files != [f for f, _ in scored_sorted]:
+        raise AssertionError(
+            '缺口 B 的两个 Python 来源不一致：\n'
+            '  真项目函数 find_related_articles → %r\n'
+            '  内建 sorted 复刻               → %r'
+            % (got_files, [f for f, _ in scored_sorted]))
+
+    # 喂给 WLWL 的输入：两元素数组 [payload, number]，payload = 文件名
+    inp = [[f, sim] for f, sim in scored]
+    expected = [[f, sim] for f, sim in scored_sorted]
+    return inp, expected
 
 
 def main():
@@ -302,6 +431,101 @@ def main():
         '**真项目函数** tinypage.content.list_articles() 的返回顺序'
         '（它内部就是 content.py:196 那行 sort）⇒ 与上面的内建 sorted 口径'
         '互相独立、必须一致')
+
+    # ══ 缺口 A：SORT_BY_TITLE_OR_FILE（键 = `title or file`）═════════════
+    # A 类来源：Python 内建 sorted + `x.title or x.file` 键
+    add('titles_empty', 'SORT_BY_TITLE_OR_FILE', [], [], '空数组')
+    add('titles_single', 'SORT_BY_TITLE_OR_FILE',
+        [{'title': 'Only', 'file': 'only.html'}],
+        [{'title': 'Only', 'file': 'only.html'}],
+        '单元素 DICT')
+    add('titles_basic', 'SORT_BY_TITLE_OR_FILE',
+        [{'title': 'Zebra', 'file': 'z.html'},
+         {'title': 'Alpha', 'file': 'a.html'},
+         {'title': 'Mango', 'file': 'm.html'}],
+        [
+            {'title': x.title, 'file': x.file}
+            for x in sorted_title_or_file([
+                ArticleMeta(title='Zebra', file='z.html'),
+                ArticleMeta(title='Alpha', file='a.html'),
+                ArticleMeta(title='Mango', file='m.html'),
+            ])
+        ],
+        '三个不同标题 ⇒ **升序**（码点序），对齐 content.py:698')
+    add('titles_empty_falls_back_to_file', 'SORT_BY_TITLE_OR_FILE',
+        [{'title': '', 'file': 'b.html'},
+         {'title': 'Alpha', 'file': 'a.html'},
+         {'title': '', 'file': 'a.html'}],
+        [
+            {'title': x.title, 'file': x.file}
+            for x in sorted_title_or_file([
+                ArticleMeta(title='', file='b.html'),
+                ArticleMeta(title='Alpha', file='a.html'),
+                ArticleMeta(title='', file='a.html'),
+            ])
+        ],
+        '⚠ **空标题回落文件名**（Python 的 `or` 对空串也回落，不只是 None）'
+        '⇒ 键分别是 "Alpha" / "a.html" / "b.html"')
+    add('titles_stability', 'SORT_BY_TITLE_OR_FILE',
+        [{'title': 'Same', 'file': 'p1.html'},
+         {'title': 'Same', 'file': 'q1.html'},
+         {'title': 'Same', 'file': 'p2.html'}],
+        [
+            {'title': x.title, 'file': x.file}
+            for x in sorted_title_or_file([
+                ArticleMeta(title='Same', file='p1.html'),
+                ArticleMeta(title='Same', file='q1.html'),
+                ArticleMeta(title='Same', file='p2.html'),
+            ])
+        ],
+        '**相等键** ⇒ 相对次序必须不变（Python sorted 稳定）')
+    add('titles_unicode', 'SORT_BY_TITLE_OR_FILE',
+        [{'title': '中文', 'file': 'c.html'},
+         {'title': 'Apple', 'file': 'a.html'},
+         {'title': 'éclair', 'file': 'e.html'}],
+        [
+            {'title': x.title, 'file': x.file}
+            for x in sorted_title_or_file([
+                ArticleMeta(title='中文', file='c.html'),
+                ArticleMeta(title='Apple', file='a.html'),
+                ArticleMeta(title='éclair', file='e.html'),
+            ])
+        ],
+        '非 ASCII 标题 ⇒ 码点序（"Apple" < "éclair" < "中文"）')
+
+    # 缺口 A 的 B 类来源：真项目函数 list_standalones()
+    inp, exp = build_real_list_standalones_case()
+    add('titles_real_list_standalones', 'SORT_BY_TITLE_OR_FILE', inp, exp,
+        '**真项目函数** tinypage.content.list_standalones() 的返回顺序'
+        '（它内部就是 content.py:698 那行 `pages.sort(key=lambda x: x.title or x.file)`）'
+        '⇒ 与上面的内建 sorted 口径互相独立、必须一致')
+
+    # ══ 缺口 B：SORT_BY_NUM_DESC（键 = 二元组的第 2 项，倒序）════════════
+    add('nums_empty', 'SORT_BY_NUM_DESC', [], [], '空数组')
+    add('nums_single', 'SORT_BY_NUM_DESC', [['x', 1]], [['x', 1]], '单元素')
+    add('nums_basic_desc', 'SORT_BY_NUM_DESC',
+        [['a', 0.1], ['b', 0.9], ['c', 0.5]],
+        [['b', 0.9], ['c', 0.5], ['a', 0.1]],
+        '三个不同数值 ⇒ **倒序**（大→小），对齐 content.py:237')
+    add('nums_int_keys', 'SORT_BY_NUM_DESC',
+        [['word_a', 5], ['word_b', 9], ['word_c', 1]],
+        [['word_b', 9], ['word_a', 5], ['word_c', 1]],
+        'INTEGER 键（对齐 core/ai_assistance.py:258 的词频形态）')
+    add('nums_stability_equal_keys', 'SORT_BY_NUM_DESC',
+        [['first', 0.5], ['second', 0.5], ['third', 0.5]],
+        [['first', 0.5], ['second', 0.5], ['third', 0.5]],
+        '⚠ **相等键** ⇒ 保持输入次序（Python 的 `reverse=True` **仍保持稳定**）')
+    add('nums_zero_and_negative', 'SORT_BY_NUM_DESC',
+        [['zero', 0], ['neg', -1.5], ['pos', 2]],
+        [['pos', 2], ['zero', 0], ['neg', -1.5]],
+        '含 0 与负数 ⇒ 倒序（0 在负数之上）')
+
+    # 缺口 B 的 B 类来源：真项目函数 find_related_articles()
+    inp, exp = build_real_find_related_articles_case()
+    add('nums_real_find_related_articles', 'SORT_BY_NUM_DESC', inp, exp,
+        '**真项目函数** tinypage.content.find_related_articles() 算出的 Jaccard '
+        '排序（它内部就是 content.py:237 那行 `related.sort(key=lambda x: x[1], '
+        'reverse=True)`）⇒ 与上面的内建 sorted 口径互相独立、必须一致')
 
     os.makedirs(os.path.dirname(OUT), exist_ok=True)
     with open(OUT, 'w', encoding='utf-8', newline='\n') as f:

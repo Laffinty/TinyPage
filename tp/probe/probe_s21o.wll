@@ -1,0 +1,32 @@
+// 探针 3o：WLWL 的 IF / 分组的返回值语义（决定实现怎么写）。
+// 用法：wlwl run tp/probe/probe_s21o.wll
+
+IMPORT("wlwl:std.regex", ["RE", "RE_TEST"]);
+
+PRINT("--- 1. IF 的返回值 ---");
+LET(a, IF(TRUE, 42, 99));
+PRINT("1a IF(TRUE,42,99) = ", a);
+LET(b, IF(FALSE, 42, 99));
+PRINT("1b IF(FALSE,42,99) = ", b);
+
+PRINT("--- 2. 括号序列的值 = 最后一个语句的值？ ---");
+LET(c, (PRINT("side"); 7));
+PRINT("2a (stmt; 7) = ", c);
+LET(d, (7; PRINT("side2")));
+PRINT("2b (7; stmt) = ", d);
+
+PRINT("--- 3. IF 的分支是语句序列时的值 ---");
+LET(e, IF(TRUE, (PRINT("t"); 5), (PRINT("f"); 6)));
+PRINT("3a IF(TRUE,(t;5),(f;6)) = ", e);
+
+PRINT("--- 4. 嵌套：IF 里再套 IF ---");
+LET(f, IF(TRUE, (IF(TRUE, 1, 2)), (IF(FALSE, 3, 4))));
+PRINT("4a nested = ", f);
+
+PRINT("--- 5. LET 之后 IF（LET 的值是 NULL）---");
+LET(g, (LET(x, 1); IF(TRUE, 8, 9)));
+PRINT("5a LET then IF = ", g);
+
+PRINT("--- 6. 函数体最后是 IF 的情况 ---");
+LET(H, FUN((), (IF(TRUE, 11, 12))));
+PRINT("6a FUN((),(IF(TRUE,11,12)))() = ", H());

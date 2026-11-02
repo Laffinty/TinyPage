@@ -1,0 +1,32 @@
+// probe 3j: literal dot in regex + ".." detection.
+IMPORT("wlwl:std.regex", ["RE", "RE_TEST", "RE_FIND_ALL", "RE_REPLACE"]);
+
+// A. 字符类 [.] 能否匹配字面点？
+PRINT("A1 RE_TEST([.], .):     ", RE_TEST(RE("^[.]$"), "."));
+PRINT("A2 RE_TEST([.], x):     ", RE_TEST(RE("^[.]$"), "x"));
+PRINT("A3 findall [.] in a.b.c: ", LEN(RE_FIND_ALL(RE("[.]"), "a.b.c")));
+
+// B. 两字符类 [.]+ 能否匹配 ".."?
+PRINT("B1 RE_TEST([.][.], ..):  ", RE_TEST(RE("^[.][.]$"), ".."));
+PRINT("B2 findall dotdot in a..b: ", LEN(RE_FIND_ALL(RE("[.][.]"), "a..b")));
+PRINT("B3 findall dotdot in ab.c: ", LEN(RE_FIND_ALL(RE("[.][.]"), "ab.c")));
+
+// C. RE_REPLACE 能否把 ".." 换成标记串（⇒ 判是否含 ..）
+PRINT("C1 replace a..b: [", RE_REPLACE(RE("[.][.]"), "a..b", "#"), "]");
+PRINT("C2 replace ab.c: [", RE_REPLACE(RE("[.][.]"), "ab.c", "#"), "]");
+
+// D. 不含正则的办法：SPLIT(s, "..") 的结果长度
+PRINT("D1 SPLIT(a..b, ..) len: ", LEN(SPLIT("a..b", "..")));
+PRINT("D2 SPLIT(ab.c, ..) len: ", LEN(SPLIT("ab.c", "..")));
+PRINT("D3 SPLIT(.., ..) len: ", LEN(SPLIT("..", "..")));
+PRINT("D4 SPLIT(a..b..c, ..) len: ", LEN(SPLIT("a..b..c", "..")));
+PRINT("D5 SPLIT(../x, ..) len: ", LEN(SPLIT("../x", "..")));
+PRINT("D6 SPLIT(x/.., ..) len: ", LEN(SPLIT("x/..", "..")));
+PRINT("D7 SPLIT(a.b, ..) len: ", LEN(SPLIT("a.b", "..")));
+
+// E. CONTAINS(SPLIT(p,".."), "") 能否判出含 ".." ?
+PRINT("E1 a..b: ", CONTAINS(SPLIT("a..b", ".."), ""));
+PRINT("E2 ab.c: ", CONTAINS(SPLIT("ab.c", ".."), ""));
+PRINT("E3 ..:   ", CONTAINS(SPLIT("..", ".."), ""));
+PRINT("E4 ../x: ", CONTAINS(SPLIT("../x", ".."), ""));
+PRINT("E5 x/..: ", CONTAINS(SPLIT("x/..", ".."), ""));

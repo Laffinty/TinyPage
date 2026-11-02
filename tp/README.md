@@ -124,6 +124,13 @@ powershell -File tp\test\ci_local_check.ps1
 | 22 | **`PUSH` 是纯函数，不原地修改** | `PUSH(x, 4);` 之后 `LEN(x)` 还是原值 ⇒ 元素**静默丢失** | 必须 `SET(x, PUSH(x, v))` 或 `LET(x, PUSH(x, v))`（保留返回值时实测是线性摊还 O(1)） |
 | 23 | ⚠ **`READ_FILE`/`WRITE_FILE` 不转换行尾**，Python 的 `read_text()` 会把 CRLF 转 LF | 读同一个 CRLF 文件，WLWL 比 Python **多出 CRLF 个字符**（实测 theme.css：20322 vs 19517） | 要与 Python 逐字节对照时，**自己先做 CRLF→LF 归一化** |
 | 24 | **`WRITE_FILE_ATOMIC` 成功返回 `NULL`，失败返回 `ERR`** | 用 `==(x, TRUE)` 判成功会误判；不消费 ERR 会 `E0103` | 用 `IS_ERR(x)` 判成败；**父目录要先 `MKDIRS`**（不会自动建） |
+| 25 | ⚠⚠ **`LET(r, <ERR>)` 绑定不算消费 ERR** —— `E0103` 报在**绑定那一行**，后面再 `IS_ERR(r)` 也救不回来 | 期望「先取值再判」的写法直接编译失败 | 把会返回 ERR 的调用**直接**放进 `IS_ERR(...)`/`IF` 条件里：`IF(IS_ERR(WRITE_FILE_ATOMIC(p, c)), 失败分支, 成功分支)`。实测 `LET(r, WRITE_FILE_ATOMIC(坏路径, "x"))` + 下一行 `IS_ERR(r)` ⇒ E0103 |
+| 26 | **正则模式里 `\xNN` / `\.` 不是转义，是字面字符**（与「模式字符串怎么写」无关） | 源码写 `RE("^\\.$")`（引擎收到 `^\.$`）实测对 `"."` 匹配、但 `RE("^[.][.]$")` 才是「两个字面点」；而 `RE("^\\x41$")` 对 `"A"` 是 **FALSE**、对 `"x41"` 是 **TRUE** | 字面点用**字符类** `[.]`；控制字符**不要**指望 `\xNN` 字符类 —— 改用「逐字符 + 与 `UTF8_DECODE([n])` 造出的字符比对」 |
+| 27 | **零参函数写 `NAME` 得到的是函数值，不是调用** | `RESULT_REJECT`（少写括号）被当字典用 ⇒ `AT_K: expected DICT, got function` | 零参函数一律 `NAME()`。`fn()` 生成的 `FUN((), ...)` 也遵循这条 |
+| 28 | **`&`/`||` 都是二元的**，`&&(a, b, c, d)` ⇒ `E0022 expects 2 argument(s), got 4` | 想写四条件与，直接报元数错 | 嵌套成 `&&(a, &&(b, &&(c, d)))`；或先 `LET` 出中间布尔 |
+| 29 | **多行「语句字符串」会被逐行补 `;`** ⇒ 把一条 `IF(...)` 拆成几行字符串会变成 `IF(...,;` | `E0010: expected expression, got Semicolon` | 一条表达式的**参数**不能跨行拆；要么写成**单行**字符串，要么用 `C('IF', cond, [then语句], [else语句])`（分支是**语句列表**时才用 list） |
+| 30 | **`PATH_JOIN(base, 绝对路径)` 只拼接、不覆盖**（Python 的 `base / abs` 会覆盖） | 传绝对路径进去得到 `base/C:/x/y.html` 这种废路径 | 先判绝对（`SUB(p,0,1)=="/"` 或盘符 `C:`），绝对时**直接用自身**取代 base。⚠ `TEMP_DIR()` 返回**反斜杠**形式，盘符判定要同时认 `:/` 与 `:\` |
+| 31 | **`PATH_BASE` 不剥扩展名、`PATH_EXT` 不含前导点** | 照 Python `Path.suffix`（含点）写 ⇒ 少砍一个字符 | 有后缀时砍 `LEN(ext) + 1` 个码点；`PATH_DIR` 的无父目录返回 `""`（不是 `"."`） |
 
 ## 参考
 

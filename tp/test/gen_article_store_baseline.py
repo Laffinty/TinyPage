@@ -34,6 +34,11 @@
      WLWL 的 `\d` 只认 ASCII ⇒ WLWL 拒绝，Python 接受。
   D3 `safe_path_check` 拒绝含 `..` 的输入（卡片 S2-1 路径安全要求，WLWL 侧
      **故意更严**）⇒ Python 允许 `sub/../ok.html`，WLWL 拒绝。
+  D4 `validate_date_format` 的**年位置**：Python 的 `re` 的 `\d` 匹配 Unicode
+     数字，且 `strptime` 的 `%Y` 用 `int()` 解析 ⇒ Python 接受 `٢٠٢٦-01-01 10:00`；
+     WLWL 的 `TO_INT` 拒绝 Unicode 数字（返回 ERR）、`NFKC` 也不归一它
+     ⇒ WLWL 侧**无法复刻** ⇒ WLWL 拒绝、Python 接受。
+     （实测：WLWL `TO_INT("٢٠٢٦")` 返回 ERR；`NFKC("٢٠٢٦")` 原样不变。）
 
 用法：python gen_article_store_baseline.py
 """
@@ -315,7 +320,20 @@ def main():
     for s in DATE_CASES:
         py = validate_date_format(s)
         name = 'd%02d' % len(vd)
-        vd[name] = {'input': s, 'python': py, 'want': py, 'note': None}
+        case = {'input': s, 'python': py, 'want': py, 'note': None}
+        # D4：Python 的 `re` 的 `\d` 匹配 Unicode 数字，且 `strptime` 的 `%Y`
+        #     用 `int()` 解析 ⇒ **年位置接受 Unicode 数字**
+        #     （实测 '٢٠٢٦-01-01 10:00' 在 Python 侧为真）。
+        #     WLWL 的 `TO_INT` 拒绝 Unicode 数字（返回 ERR）、`NFKC` 也不归一它
+        #     ⇒ WLWL 侧**无法复刻** ⇒ 登记为差异（WLWL 拒绝、Python 接受）。
+        if py and s[:4] and not all(ch in '0123456789' for ch in s[:4]):
+            case['want'] = False
+            case['note'] = (
+                '已知差异 D4：Python 的 `re` 的 `\\d` 匹配 Unicode 数字，'
+                '且 `strptime` 的 `%Y` 用 `int()` 解析 ⇒ **年位置接受 Unicode 数字**；'
+                'WLWL 的 `TO_INT` 拒绝 Unicode 数字（返回 ERR）、`NFKC` 也不归一它 '
+                '⇒ WLWL 侧无法复刻 ⇒ WLWL 拒绝、Python 接受。')
+        vd[name] = case
     cases['validate_date_format'] = vd
 
     # ── safe_path_check（需要真实目录 ⇒ 用夹具建出来） ─────────────

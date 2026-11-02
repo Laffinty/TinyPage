@@ -1,0 +1,37 @@
+// 探针 3m：safe_path_check 的中间值（19 个失败的根因定位）。
+// 用法：wlwl run tp/probe/probe_s21m.wll
+
+IMPORT("wlwl:std.fs", ["PATH_CANONICAL", "PATH_CONTAINS", "PATH_JOIN", "PATH_EXT",
+                        "PATH_BASE", "PATH_DIR", "FILE_META", "MKDIRS", "WRITE_FILE"]);
+IMPORT("wlwl:std.regex", ["RE", "RE_FIND_ALL", "RE_SEARCH"]);
+IMPORT("wlwl:std.text", ["TO_LOWER"]);
+IMPORT("wlwl:std.test", ["TEMP_DIR"]);
+
+PRINT("--- 1. 绝对路径：PATH_JOIN 不会让绝对路径覆盖 base ---");
+LET(base, PATH_CANONICAL(PATH_JOIN(TEMP_DIR(), "pages")));
+PRINT("1a base: ", base);
+PRINT("1b JOIN(base, abs): ", PATH_JOIN(base, "C:/x/pages/ok.html"));
+PRINT("1c CONTAINS(base, base/ok.html): ", PATH_CONTAINS(base, PATH_JOIN(base, "ok.html")));
+PRINT("1d CONTAINS(base, C:/x/pages/ok.html): ", PATH_CONTAINS(base, "C:/x/pages/ok.html"));
+
+PRINT("--- 2. 字面 '..' 检测：[.][.] 是否命中 ---");
+LET(dotdot, RE("[.][.]"));
+PRINT("2a findall in ../etc/passwd: ", LEN(RE_FIND_ALL(dotdot, "../etc/passwd")));
+PRINT("2b findall in sub/../ok.html: ", LEN(RE_FIND_ALL(dotdot, "sub/../ok.html")));
+PRINT("2c findall in ok.html: ", LEN(RE_FIND_ALL(dotdot, "ok.html")));
+
+PRINT("--- 3. 扩展名白名单：bad.exe 的判定链 ---");
+MKDIRS(base);
+MKDIRS(PATH_JOIN(base, "sub"));
+WRITE_FILE(PATH_JOIN(base, "ok.html"), "x");
+WRITE_FILE(PATH_JOIN(base, "bad.exe"), "x");
+LET(t2, PATH_CANONICAL(PATH_JOIN(base, "bad.exe")));
+PRINT("3a target: ", t2);
+PRINT("3b EXT(target): [", PATH_EXT(t2), "]");
+PRINT("3c TO_LOWER: [", TO_LOWER(PATH_EXT(t2)), "]");
+LET(m2, FILE_META(t2));
+PRINT("3d exists: ", AT_K(m2, "exists", "?"), " is_dir: ", AT_K(m2, "is_dir", "?"));
+
+PRINT("--- 4. CONTAINS 对 base 之外的路径 ---");
+PRINT("4a CONTAINS(base, base/../evil): ", PATH_CONTAINS(base, PATH_CANONICAL(PATH_JOIN(base, "../evil"))));
+PRINT("4b CANONICAL(base/../evil): ", PATH_CANONICAL(PATH_JOIN(base, "../evil")));

@@ -1,0 +1,17 @@
+// 探针 3p：ERR 的消费语义（WRITE_FILE_ATOMIC 失败时怎么合法处理）。
+// 用法：wlwl run tp/probe/probe_s21p.wll
+
+IMPORT("wlwl:std.fs", ["WRITE_FILE_ATOMIC", "PATH_JOIN"]);
+IMPORT("wlwl:std.test", ["TEMP_DIR"]);
+
+LET(td, TEMP_DIR());
+LET(bad, PATH_JOIN(td, "no_such/deep/x.md"));
+
+PRINT("--- 1. LET 绑定 ERR，再 IS_ERR ---");
+LET(r1, WRITE_FILE_ATOMIC(bad, "x"));
+PRINT("1a IS_ERR(r1) = ", IS_ERR(r1));
+
+PRINT("--- 2. LET 绑定 ERR，再 IF(IS_ERR(...)) ---");
+LET(r2, WRITE_FILE_ATOMIC(bad, "y"));
+LET(s2, IF(IS_ERR(r2), "failed", "ok"));
+PRINT("2a s2 = ", s2);

@@ -12,7 +12,7 @@
 // ⚠ RUN_TESTS() 的失败**不影响退出码**（规范明载）⇒ 本文件自己把关。
 IMPORT("wlwl:std.test", ["TEST", "ASSERT", "ASSERT_EQ", "RUN_TESTS"]);
 IMPORT("wlwl:std.time", ["MONOTONIC"]);
-IMPORT("./../lib/sort_util.wll", ["SORT_BY_DATE", "SORT_STRINGS"]);
+IMPORT("./../lib/sort_util.wll", ["SORT_BY_DATE", "SORT_BY_NUM_DESC", "SORT_BY_TITLE_OR_FILE", "SORT_STRINGS"]);
 
 // ── 用例数据（逐字节来自基准）─────────────────────────────────
 // strings_empty —— 空数组
@@ -1233,6 +1233,114 @@ LET(want_dates_real_list_articles, [
         ["date": "2011-11-06 03:18", "tag": "2024-01-15-real-02.html"], ["date": "2006-07-13 16:23", "tag": "2024-01-15-real-01.html"], ["date": "2002-05-04 21:15", "tag": "2024-01-15-real-00.html"]
 ]);
 
+// titles_empty —— 空数组
+LET(in_titles_empty, [
+]);
+LET(want_titles_empty, [
+]);
+
+// titles_single —— 单元素 DICT
+LET(in_titles_single, [
+        ["title": "Only", "file": "only.html"]
+]);
+LET(want_titles_single, [
+        ["title": "Only", "file": "only.html"]
+]);
+
+// titles_basic —— 三个不同标题 ⇒ **升序**（码点序），对齐 content.py:698
+LET(in_titles_basic, [
+        ["title": "Zebra", "file": "z.html"], ["title": "Alpha", "file": "a.html"], ["title": "Mango", "file": "m.html"]
+]);
+LET(want_titles_basic, [
+        ["title": "Alpha", "file": "a.html"], ["title": "Mango", "file": "m.html"], ["title": "Zebra", "file": "z.html"]
+]);
+
+// titles_empty_falls_back_to_file —— ⚠ **空标题回落文件名**（Python 的 `or` 对空串也回落，不只是 None）⇒ 键分别是 "Alpha" / "a.html" / "b.html"
+LET(in_titles_empty_falls_back_to_file, [
+        ["title": "", "file": "b.html"], ["title": "Alpha", "file": "a.html"], ["title": "", "file": "a.html"]
+]);
+LET(want_titles_empty_falls_back_to_file, [
+        ["title": "Alpha", "file": "a.html"], ["title": "", "file": "a.html"], ["title": "", "file": "b.html"]
+]);
+
+// titles_stability —— **相等键** ⇒ 相对次序必须不变（Python sorted 稳定）
+LET(in_titles_stability, [
+        ["title": "Same", "file": "p1.html"], ["title": "Same", "file": "q1.html"], ["title": "Same", "file": "p2.html"]
+]);
+LET(want_titles_stability, [
+        ["title": "Same", "file": "p1.html"], ["title": "Same", "file": "q1.html"], ["title": "Same", "file": "p2.html"]
+]);
+
+// titles_unicode —— 非 ASCII 标题 ⇒ 码点序（"Apple" < "éclair" < "中文"）
+LET(in_titles_unicode, [
+        ["title": "中文", "file": "c.html"], ["title": "Apple", "file": "a.html"], ["title": "éclair", "file": "e.html"]
+]);
+LET(want_titles_unicode, [
+        ["title": "Apple", "file": "a.html"], ["title": "éclair", "file": "e.html"], ["title": "中文", "file": "c.html"]
+]);
+
+// titles_real_list_standalones —— **真项目函数** tinypage.content.list_standalones() 的返回顺序（它内部就是 content.py:698 那行 `pages.sort(key=lambda x: x.title or x.file)`）⇒ 与上面的内建 sorted 口径互相独立、必须一致
+LET(in_titles_real_list_standalones, [
+        ["title": "About", "file": "about.html"], ["title": "Zebra", "file": "zebra.html"], ["title": "", "file": "beta.html"], ["title": "Alpha", "file": "alpha.html"], ["title": "", "file": "gamma.html"]
+]);
+LET(want_titles_real_list_standalones, [
+        ["title": "About", "file": "about.html"], ["title": "Alpha", "file": "alpha.html"], ["title": "Zebra", "file": "zebra.html"], ["title": "", "file": "beta.html"], ["title": "", "file": "gamma.html"]
+]);
+
+// nums_empty —— 空数组
+LET(in_nums_empty, [
+]);
+LET(want_nums_empty, [
+]);
+
+// nums_single —— 单元素
+LET(in_nums_single, [
+        ["x", 1]
+]);
+LET(want_nums_single, [
+        ["x", 1]
+]);
+
+// nums_basic_desc —— 三个不同数值 ⇒ **倒序**（大→小），对齐 content.py:237
+LET(in_nums_basic_desc, [
+        ["a", 0.1], ["b", 0.9], ["c", 0.5]
+]);
+LET(want_nums_basic_desc, [
+        ["b", 0.9], ["c", 0.5], ["a", 0.1]
+]);
+
+// nums_int_keys —— INTEGER 键（对齐 core/ai_assistance.py:258 的词频形态）
+LET(in_nums_int_keys, [
+        ["word_a", 5], ["word_b", 9], ["word_c", 1]
+]);
+LET(want_nums_int_keys, [
+        ["word_b", 9], ["word_a", 5], ["word_c", 1]
+]);
+
+// nums_stability_equal_keys —— ⚠ **相等键** ⇒ 保持输入次序（Python 的 `reverse=True` **仍保持稳定**）
+LET(in_nums_stability_equal_keys, [
+        ["first", 0.5], ["second", 0.5], ["third", 0.5]
+]);
+LET(want_nums_stability_equal_keys, [
+        ["first", 0.5], ["second", 0.5], ["third", 0.5]
+]);
+
+// nums_zero_and_negative —— 含 0 与负数 ⇒ 倒序（0 在负数之上）
+LET(in_nums_zero_and_negative, [
+        ["zero", 0], ["neg", -1.5], ["pos", 2]
+]);
+LET(want_nums_zero_and_negative, [
+        ["pos", 2], ["zero", 0], ["neg", -1.5]
+]);
+
+// nums_real_find_related_articles —— **真项目函数** tinypage.content.find_related_articles() 算出的 Jaccard 排序（它内部就是 content.py:237 那行 `related.sort(key=lambda x: x[1], reverse=True)`）⇒ 与上面的内建 sorted 口径互相独立、必须一致
+LET(in_nums_real_find_related_articles, [
+        ["a.html", 0.6666666666666666], ["b.html", 0.6666666666666666], ["c.html", 0.3333333333333333], ["d.html", 1.0], ["f.html", 1.0]
+]);
+LET(want_nums_real_find_related_articles, [
+        ["d.html", 1.0], ["f.html", 1.0], ["a.html", 0.6666666666666666], ["b.html", 0.6666666666666666], ["c.html", 0.3333333333333333]
+]);
+
 // ── 规模用例：先算一次（计时），再用例断言结果与耗时 ──────────
 // 计时用 std.time::MONOTONIC（毫秒；不用 NOW —— NOW 是墙钟）。
 LET MUT(t0, MONOTONIC());
@@ -1306,6 +1414,48 @@ TEST("sort/dates_2000_strings", FUN(() ,
     TRUE));
 TEST("sort/dates_real_list_articles", FUN(() ,
     (ASSERT_EQ(SORT_BY_DATE(in_dates_real_list_articles), want_dates_real_list_articles));
+    TRUE));
+TEST("sort/titles_empty", FUN(() ,
+    (ASSERT_EQ(SORT_BY_TITLE_OR_FILE(in_titles_empty), want_titles_empty));
+    TRUE));
+TEST("sort/titles_single", FUN(() ,
+    (ASSERT_EQ(SORT_BY_TITLE_OR_FILE(in_titles_single), want_titles_single));
+    TRUE));
+TEST("sort/titles_basic", FUN(() ,
+    (ASSERT_EQ(SORT_BY_TITLE_OR_FILE(in_titles_basic), want_titles_basic));
+    TRUE));
+TEST("sort/titles_empty_falls_back_to_file", FUN(() ,
+    (ASSERT_EQ(SORT_BY_TITLE_OR_FILE(in_titles_empty_falls_back_to_file), want_titles_empty_falls_back_to_file));
+    TRUE));
+TEST("sort/titles_stability", FUN(() ,
+    (ASSERT_EQ(SORT_BY_TITLE_OR_FILE(in_titles_stability), want_titles_stability));
+    TRUE));
+TEST("sort/titles_unicode", FUN(() ,
+    (ASSERT_EQ(SORT_BY_TITLE_OR_FILE(in_titles_unicode), want_titles_unicode));
+    TRUE));
+TEST("sort/titles_real_list_standalones", FUN(() ,
+    (ASSERT_EQ(SORT_BY_TITLE_OR_FILE(in_titles_real_list_standalones), want_titles_real_list_standalones));
+    TRUE));
+TEST("sort/nums_empty", FUN(() ,
+    (ASSERT_EQ(SORT_BY_NUM_DESC(in_nums_empty), want_nums_empty));
+    TRUE));
+TEST("sort/nums_single", FUN(() ,
+    (ASSERT_EQ(SORT_BY_NUM_DESC(in_nums_single), want_nums_single));
+    TRUE));
+TEST("sort/nums_basic_desc", FUN(() ,
+    (ASSERT_EQ(SORT_BY_NUM_DESC(in_nums_basic_desc), want_nums_basic_desc));
+    TRUE));
+TEST("sort/nums_int_keys", FUN(() ,
+    (ASSERT_EQ(SORT_BY_NUM_DESC(in_nums_int_keys), want_nums_int_keys));
+    TRUE));
+TEST("sort/nums_stability_equal_keys", FUN(() ,
+    (ASSERT_EQ(SORT_BY_NUM_DESC(in_nums_stability_equal_keys), want_nums_stability_equal_keys));
+    TRUE));
+TEST("sort/nums_zero_and_negative", FUN(() ,
+    (ASSERT_EQ(SORT_BY_NUM_DESC(in_nums_zero_and_negative), want_nums_zero_and_negative));
+    TRUE));
+TEST("sort/nums_real_find_related_articles", FUN(() ,
+    (ASSERT_EQ(SORT_BY_NUM_DESC(in_nums_real_find_related_articles), want_nums_real_find_related_articles));
     TRUE));
 
 // ── 反向守卫 ──────────────────────────────────────────────────

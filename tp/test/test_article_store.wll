@@ -1,0 +1,1460 @@
+// tp/test/test_article_store.wll —— 文章存储的逐字节对照测试 + 反向守卫
+//
+// ⚠ 本文件由 tp/test/gen_test_article_store.py 生成 —— 请勿手改。
+//
+// 验收方式：每个用例都与**真 Python** 的结果逐字节对照。
+// 基准：tp/test/fixtures/article_store_baseline.json
+//   （由 tp/test/gen_article_store_baseline.py 用真 Python 生成）
+//
+// ⚠ RUN_TESTS() 的失败**不影响退出码**（规范明载）⇒ 本文件自己把关。
+IMPORT("wlwl:std.test", ["TEST", "ASSERT", "ASSERT_EQ", "RUN_TESTS", "TEMP_DIR"]);
+IMPORT("wlwl:std.fs", ["MKDIRS", "WRITE_FILE", "READ_FILE", "PATH_JOIN", "PATH_DIR", "PATH_BASE", "PATH_CANONICAL", "EXISTS"]);
+IMPORT("wlwl:std.encode", ["UTF8_DECODE"]);
+IMPORT("./../lib/article_store.wll", ["DECODE_CONTENT", "DECODE_LEGACY_BODY", "META_VALUE", "SAFE_PATH_CHECK", "SOURCE_PATH", "UNESCAPE_TO_FIXPOINT", "VALIDATE_CONTENT", "VALIDATE_DATE_FORMAT", "VALIDATE_FILENAME", "VALIDATE_TITLE", "WRITE_SOURCE"]);
+
+// ── 工具：重复构造字符串（基准里的大用例靠它展开）────────────────
+// // 把 unit 重复 n 次（WLWL 没有 REPEAT 内建）
+     LET(_REPEAT_, FUN((unit, n), (
+               LET MUT(out, "");
+               LET MUT(i, 0);
+               WHILE(<(i, n), (
+                    SET(out, +(out, unit));
+                    SET(i, +(i, 1))
+               ));
+               out
+     )));
+
+
+// ── safe_path_check 的夹具（与基准生成器的 SAFE_PATH_FIXTURE 同一份）──
+//   base 下有 ok.html / bad.exe / sub/a.txt 与 sub 目录；
+//   另有**兄弟目录** pages-evil（前缀绕过用例用）。
+LET(_TD_, TEMP_DIR());
+LET(_BASE_, PATH_JOIN(_TD_, "pages"));
+LET(_SIBLING_, PATH_JOIN(_TD_, "pages-evil"));
+MKDIRS(PATH_JOIN(_BASE_, "sub"));
+MKDIRS(_SIBLING_);
+WRITE_FILE(PATH_JOIN(_BASE_, "ok.html"), "x");
+WRITE_FILE(PATH_JOIN(_BASE_, "bad.exe"), "x");
+WRITE_FILE(PATH_JOIN(_BASE_, "sub/a.txt"), "x");
+
+// ── 用例数据（逐字节来自基准）─────────────────────────────────
+LET(in_validate_filename_f00, "2026-01-01-x.html");
+LET(want_validate_filename_f00, TRUE);
+LET(in_validate_filename_f01, "2026-01-01-中文.html");
+LET(want_validate_filename_f01, TRUE);
+LET(in_validate_filename_f02, "2026-01-01-x-y.html");
+LET(want_validate_filename_f02, TRUE);
+LET(in_validate_filename_f03, "2026-01-01--.html");
+LET(want_validate_filename_f03, TRUE);
+LET(in_validate_filename_f04, "2026-01-01-.html");
+LET(want_validate_filename_f04, FALSE);
+LET(in_validate_filename_f05, "2026-01-01-x.HTML");
+LET(want_validate_filename_f05, FALSE);
+LET(in_validate_filename_f06, "2026-01-01-x_y.html");
+LET(want_validate_filename_f06, FALSE);
+LET(in_validate_filename_f07, "2026-01-01-x h.html");
+LET(want_validate_filename_f07, FALSE);
+LET(in_validate_filename_f08, "2026-01-01-x.md");
+LET(want_validate_filename_f08, FALSE);
+LET(in_validate_filename_f09, "2026-01-01-x.html.md");
+LET(want_validate_filename_f09, FALSE);
+LET(in_validate_filename_f10, "2100-12-31-x.html");
+LET(want_validate_filename_f10, TRUE);
+LET(in_validate_filename_f11, "2000-01-01-x.html");
+LET(want_validate_filename_f11, TRUE);
+LET(in_validate_filename_f12, "2101-01-01-x.html");
+LET(want_validate_filename_f12, FALSE);
+LET(in_validate_filename_f13, "1999-12-31-x.html");
+LET(want_validate_filename_f13, FALSE);
+LET(in_validate_filename_f14, "2026-00-01-x.html");
+LET(want_validate_filename_f14, FALSE);
+LET(in_validate_filename_f15, "2026-13-01-x.html");
+LET(want_validate_filename_f15, FALSE);
+LET(in_validate_filename_f16, "2026-01-00-x.html");
+LET(want_validate_filename_f16, FALSE);
+LET(in_validate_filename_f17, "2026-01-32-x.html");
+LET(want_validate_filename_f17, FALSE);
+LET(in_validate_filename_f18, "2026-02-31-x.html");
+LET(want_validate_filename_f18, TRUE);
+LET(in_validate_filename_f19, "02026-01-01-x.html");
+LET(want_validate_filename_f19, FALSE);
+LET(in_validate_filename_f20, "2026-1-01-x.html");
+LET(want_validate_filename_f20, FALSE);
+LET(in_validate_filename_f21, "../etc/passwd");
+LET(want_validate_filename_f21, FALSE);
+LET(in_validate_filename_f22, "pages-evil/x.html");
+LET(want_validate_filename_f22, FALSE);
+LET(in_validate_filename_f23, "");
+LET(want_validate_filename_f23, FALSE);
+LET(in_validate_filename_f24, "2026-01-01-x.html\n");
+LET(want_validate_filename_f24, TRUE);
+LET(in_validate_filename_f25, "2026-01-01-中文-x.html");
+LET(want_validate_filename_f25, TRUE);
+LET(in_validate_filename_f26, "2026-01-01-x-龥.html");
+LET(want_validate_filename_f26, TRUE);
+LET(in_validate_filename_f27, "2026-01-01-x-龦.html");
+LET(want_validate_filename_f27, FALSE);
+LET(in_validate_filename_f28, "2026-01-01-x-一.html");
+LET(want_validate_filename_f28, TRUE);
+LET(in_validate_filename_f29, "2026-01-01-x-〇.html");
+LET(want_validate_filename_f29, FALSE);
+LET(in_validate_filename_f30, "٢٠٢٦-01-01-x.html");
+LET(want_validate_filename_f30, FALSE);
+LET(in_validate_content_c00, "");
+LET(want_validate_content_c00, TRUE);
+LET(in_validate_content_c01, "hello");
+LET(want_validate_content_c01, TRUE);
+LET(in_validate_content_c02, _REPEAT_("a", 50000));
+LET(want_validate_content_c02, TRUE);
+LET(in_validate_content_c03, _REPEAT_("a", 50001));
+LET(want_validate_content_c03, FALSE);
+LET(in_validate_content_c04, _REPEAT_("中", 16667));
+LET(want_validate_content_c04, TRUE);
+LET(in_validate_content_c05, _REPEAT_("中", 16668));
+LET(want_validate_content_c05, TRUE);
+LET(in_validate_content_c06, _REPEAT_("中", 50001));
+LET(want_validate_content_c06, FALSE);
+LET(in_validate_content_c07, UTF8_DECODE([97, 9, 98, 10, 99, 13]));
+LET(want_validate_content_c07, TRUE);
+LET(in_validate_content_c08, UTF8_DECODE([97, 97, 97, 97, 97, 97, 97, 97, 97, 1]));
+LET(want_validate_content_c08, TRUE);
+LET(in_validate_content_c09, UTF8_DECODE([97, 97, 97, 97, 97, 97, 97, 97, 97, 1, 2]));
+LET(want_validate_content_c09, FALSE);
+LET(in_validate_content_c10, UTF8_DECODE([1, 1, 1, 1, 1, 1, 1, 1, 1, 1]));
+LET(want_validate_content_c10, FALSE);
+LET(in_validate_content_c11, UTF8_DECODE([1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1]));
+LET(want_validate_content_c11, FALSE);
+LET(in_validate_content_c12, UTF8_DECODE([0, 0, 0, 0, 0, 97, 97, 97, 97, 97, 97, 97, 97, 97, 97, 97, 97, 97, 97, 97, 97, 97, 97, 97, 97, 97, 97, 97, 97, 97, 97, 97, 97, 97, 97, 97, 97, 97, 97, 97, 97, 97, 97, 97, 97, 97, 97, 97, 97, 97, 97, 97, 97, 97, 97, 97, 97, 97, 97, 97, 97, 97, 97, 97, 97, 97, 97, 97, 97, 97, 97, 97, 97, 97, 97, 97, 97, 97, 97, 97, 97, 97, 97, 97, 97, 97, 97, 97, 97, 97, 97, 97, 97, 97, 97, 97, 97, 97, 97, 97]));
+LET(want_validate_content_c12, TRUE);
+LET(in_validate_date_format_d00, "2026-01-01 10:00");
+LET(want_validate_date_format_d00, TRUE);
+LET(in_validate_date_format_d01, "2026-12-31 23:59");
+LET(want_validate_date_format_d01, TRUE);
+LET(in_validate_date_format_d02, "2000-01-01 00:00");
+LET(want_validate_date_format_d02, TRUE);
+LET(in_validate_date_format_d03, "2100-12-31 23:59");
+LET(want_validate_date_format_d03, TRUE);
+LET(in_validate_date_format_d04, "2101-01-01 00:00");
+LET(want_validate_date_format_d04, FALSE);
+LET(in_validate_date_format_d05, "1999-12-31 23:59");
+LET(want_validate_date_format_d05, FALSE);
+LET(in_validate_date_format_d06, "2026-02-30 10:00");
+LET(want_validate_date_format_d06, FALSE);
+LET(in_validate_date_format_d07, "2026-02-29 10:00");
+LET(want_validate_date_format_d07, FALSE);
+LET(in_validate_date_format_d08, "2024-02-29 10:00");
+LET(want_validate_date_format_d08, TRUE);
+LET(in_validate_date_format_d09, "2000-02-29 10:00");
+LET(want_validate_date_format_d09, TRUE);
+LET(in_validate_date_format_d10, "2100-02-29 10:00");
+LET(want_validate_date_format_d10, FALSE);
+LET(in_validate_date_format_d11, "2026-00-01 10:00");
+LET(want_validate_date_format_d11, FALSE);
+LET(in_validate_date_format_d12, "2026-13-01 10:00");
+LET(want_validate_date_format_d12, FALSE);
+LET(in_validate_date_format_d13, "2026-01-00 10:00");
+LET(want_validate_date_format_d13, FALSE);
+LET(in_validate_date_format_d14, "2026-01-32 10:00");
+LET(want_validate_date_format_d14, FALSE);
+LET(in_validate_date_format_d15, "2026-04-31 10:00");
+LET(want_validate_date_format_d15, FALSE);
+LET(in_validate_date_format_d16, "2026-01-01 24:00");
+LET(want_validate_date_format_d16, FALSE);
+LET(in_validate_date_format_d17, "2026-01-01 10:60");
+LET(want_validate_date_format_d17, FALSE);
+LET(in_validate_date_format_d18, "2026-01-01 10:00\n");
+LET(want_validate_date_format_d18, FALSE);
+LET(in_validate_date_format_d19, "2026-1-01 10:00");
+LET(want_validate_date_format_d19, FALSE);
+LET(in_validate_date_format_d20, "2026-01-01T10:00");
+LET(want_validate_date_format_d20, FALSE);
+LET(in_validate_date_format_d21, "0000-01-01 00:00");
+LET(want_validate_date_format_d21, FALSE);
+LET(in_validate_date_format_d22, "٢٠٢٦-01-01 10:00");
+LET(want_validate_date_format_d22, FALSE);
+LET(in_validate_title_t00, "");
+LET(want_validate_title_t00, TRUE);
+LET(in_validate_title_t01, "x");
+LET(want_validate_title_t01, TRUE);
+LET(in_validate_title_t02, _REPEAT_("x", 199));
+LET(want_validate_title_t02, TRUE);
+LET(in_validate_title_t03, _REPEAT_("x", 200));
+LET(want_validate_title_t03, TRUE);
+LET(in_validate_title_t04, _REPEAT_("x", 201));
+LET(want_validate_title_t04, FALSE);
+LET(in_validate_title_t05, _REPEAT_("中", 200));
+LET(want_validate_title_t05, TRUE);
+LET(in_validate_title_t06, _REPEAT_("中", 201));
+LET(want_validate_title_t06, FALSE);
+LET(in_source_path_s00, "pages/article/2026-01-01-x.html");
+LET(want_source_path_s00, "pages/article/2026-01-01-x.md");
+LET(in_source_path_s01, "x.html");
+LET(want_source_path_s01, "x.md");
+LET(in_source_path_s02, "a.b.html");
+LET(want_source_path_s02, "a.b.md");
+LET(in_source_path_s03, "foo.");
+LET(want_source_path_s03, "foo..md");
+LET(in_source_path_s04, "noext");
+LET(want_source_path_s04, "noext.md");
+LET(in_source_path_s05, "dir.with.dot/file.html");
+LET(want_source_path_s05, "dir.with.dot/file.md");
+LET(in_source_path_s06, ".bashrc");
+LET(want_source_path_s06, ".bashrc.md");
+LET(in_source_path_s07, "x.tar.gz");
+LET(want_source_path_s07, "x.tar.md");
+LET(in_source_path_s08, "2026-01-01-x.md");
+LET(want_source_path_s08, "2026-01-01-x.md");
+LET(in_decode_content_c00, "<!-- tinypage:markdown 5 -->\nhello");
+LET(want_decode_content_c00, "hello");
+LET(in_decode_content_c01, "<!-- tinypage:markdown 100 -->\nhello");
+LET(want_decode_content_c01, "hello");
+LET(in_decode_content_c02, "<!-- tinypage:markdown 5 -->\r\nhello");
+LET(want_decode_content_c02, "hello");
+LET(in_decode_content_c03, "<!-- tinypage:markdown 0 -->\n");
+LET(want_decode_content_c03, "");
+LET(in_decode_content_c04, "<!-- tinypage:markdown 3 -->\nabc");
+LET(want_decode_content_c04, "abc");
+LET(in_decode_content_c05, "<!-- tinypage:markdown 5 -->\nhello world");
+LET(want_decode_content_c05, "hello");
+LET(in_decode_content_c06, "no body");
+LET(want_decode_content_c06, NULL);
+LET(in_decode_content_c07, "");
+LET(want_decode_content_c07, NULL);
+LET(in_decode_content_c08, "<!-- markdown: hello -->");
+LET(want_decode_content_c08, "hello");
+LET(in_decode_content_c09, "<!--markdown:hello-->");
+LET(want_decode_content_c09, "hello");
+LET(in_decode_content_c10, "<!-- markdown: a --> tail <!-- markdown: b -->");
+LET(want_decode_content_c10, "a");
+LET(in_decode_content_c11, "<!-- markdown: a &amp; b -->");
+LET(want_decode_content_c11, "a & b");
+LET(in_decode_content_c12, "<!-- markdown: &amp;amp; -->");
+LET(want_decode_content_c12, "&");
+LET(in_decode_content_c13, "<!--  markdown :  spaced  -->");
+LET(want_decode_content_c13, NULL);
+LET(in_decode_content_c14, "<!-- markdown: multi\nline -->");
+LET(want_decode_content_c14, "multi\nline");
+LET(in_decode_content_c15, "<!-- markdown: no close");
+LET(want_decode_content_c15, NULL);
+LET(in_decode_content_c16, "x <!-- markdown: mid --> y");
+LET(want_decode_content_c16, "mid");
+LET(in_decode_content_c17, "<!-- markdown: -->");
+LET(want_decode_content_c17, "");
+LET(in_decode_content_c18, "<!-- markdown:&#x27;-->");
+LET(want_decode_content_c18, "'");
+LET(in_decode_content_c19, "<!--markdown:x--><!-- markdown: y -->");
+LET(want_decode_content_c19, "x--><!-- markdown: y");
+LET(in_decode_content_c20, "<!-- markdown: a--> b <!-- markdown: c -->");
+LET(want_decode_content_c20, "a--> b <!-- markdown: c");
+LET(in_decode_content_c21, "<!-- tinypage:markdown 12 -->\nhello world!");
+LET(want_decode_content_c21, "hello world!");
+LET(in_decode_legacy_body_l00, "<!-- tinypage:markdown 5 -->\nhello");
+LET(want_decode_legacy_body_l00, NULL);
+LET(in_decode_legacy_body_l01, "<!-- tinypage:markdown 100 -->\nhello");
+LET(want_decode_legacy_body_l01, NULL);
+LET(in_decode_legacy_body_l02, "<!-- tinypage:markdown 5 -->\r\nhello");
+LET(want_decode_legacy_body_l02, NULL);
+LET(in_decode_legacy_body_l03, "<!-- tinypage:markdown 0 -->\n");
+LET(want_decode_legacy_body_l03, NULL);
+LET(in_decode_legacy_body_l04, "<!-- tinypage:markdown 3 -->\nabc");
+LET(want_decode_legacy_body_l04, NULL);
+LET(in_decode_legacy_body_l05, "<!-- tinypage:markdown 5 -->\nhello world");
+LET(want_decode_legacy_body_l05, NULL);
+LET(in_decode_legacy_body_l06, "no body");
+LET(want_decode_legacy_body_l06, NULL);
+LET(in_decode_legacy_body_l07, "");
+LET(want_decode_legacy_body_l07, NULL);
+LET(in_decode_legacy_body_l08, "<!-- markdown: hello -->");
+LET(want_decode_legacy_body_l08, "hello");
+LET(in_decode_legacy_body_l09, "<!--markdown:hello-->");
+LET(want_decode_legacy_body_l09, "hello");
+LET(in_decode_legacy_body_l10, "<!-- markdown: a --> tail <!-- markdown: b -->");
+LET(want_decode_legacy_body_l10, "a");
+LET(in_decode_legacy_body_l11, "<!-- markdown: a &amp; b -->");
+LET(want_decode_legacy_body_l11, "a & b");
+LET(in_decode_legacy_body_l12, "<!-- markdown: &amp;amp; -->");
+LET(want_decode_legacy_body_l12, "&");
+LET(in_decode_legacy_body_l13, "<!--  markdown :  spaced  -->");
+LET(want_decode_legacy_body_l13, NULL);
+LET(in_decode_legacy_body_l14, "<!-- markdown: multi\nline -->");
+LET(want_decode_legacy_body_l14, "multi\nline");
+LET(in_decode_legacy_body_l15, "<!-- markdown: no close");
+LET(want_decode_legacy_body_l15, NULL);
+LET(in_decode_legacy_body_l16, "x <!-- markdown: mid --> y");
+LET(want_decode_legacy_body_l16, "mid");
+LET(in_decode_legacy_body_l17, "<!-- markdown: -->");
+LET(want_decode_legacy_body_l17, "");
+LET(in_decode_legacy_body_l18, "<!-- markdown:&#x27;-->");
+LET(want_decode_legacy_body_l18, "'");
+LET(in_decode_legacy_body_l19, "<!--markdown:x--><!-- markdown: y -->");
+LET(want_decode_legacy_body_l19, "x--><!-- markdown: y");
+LET(in_decode_legacy_body_l20, "<!-- markdown: a--> b <!-- markdown: c -->");
+LET(want_decode_legacy_body_l20, "a--> b <!-- markdown: c");
+LET(in_decode_legacy_body_l21, "<!-- tinypage:markdown 12 -->\nhello world!");
+LET(want_decode_legacy_body_l21, NULL);
+LET(in_unescape_to_fixpoint_u00, "&amp;");
+LET(want_unescape_to_fixpoint_u00, "&");
+LET(in_unescape_to_fixpoint_u01, "&amp;amp;");
+LET(want_unescape_to_fixpoint_u01, "&");
+LET(in_unescape_to_fixpoint_u02, "a &lt;b&gt;");
+LET(want_unescape_to_fixpoint_u02, "a <b>");
+LET(in_unescape_to_fixpoint_u03, "&quot;x&quot;");
+LET(want_unescape_to_fixpoint_u03, "\"x\"");
+LET(in_unescape_to_fixpoint_u04, "&#39;");
+LET(want_unescape_to_fixpoint_u04, "'");
+LET(in_unescape_to_fixpoint_u05, "&#x27;");
+LET(want_unescape_to_fixpoint_u05, "'");
+LET(in_unescape_to_fixpoint_u06, "&apos;");
+LET(want_unescape_to_fixpoint_u06, "'");
+LET(in_unescape_to_fixpoint_u07, "&nbsp;");
+LET(want_unescape_to_fixpoint_u07, " ");
+LET(in_unescape_to_fixpoint_u08, "&copy;");
+LET(want_unescape_to_fixpoint_u08, "©");
+LET(in_unescape_to_fixpoint_u09, "&hellip;");
+LET(want_unescape_to_fixpoint_u09, "…");
+LET(in_unescape_to_fixpoint_u10, "&mdash;");
+LET(want_unescape_to_fixpoint_u10, "—");
+LET(in_unescape_to_fixpoint_u11, "&ldquo;");
+LET(want_unescape_to_fixpoint_u11, "“");
+LET(in_unescape_to_fixpoint_u12, "&notit;");
+LET(want_unescape_to_fixpoint_u12, "¬it;");
+LET(in_unescape_to_fixpoint_u13, "&unknown;");
+LET(want_unescape_to_fixpoint_u13, "&unknown;");
+LET(in_unescape_to_fixpoint_u14, "&#65;&#x42;");
+LET(want_unescape_to_fixpoint_u14, "AB");
+LET(in_unescape_to_fixpoint_u15, "&#00065;");
+LET(want_unescape_to_fixpoint_u15, "A");
+LET(in_unescape_to_fixpoint_u16, "&#x1F600;");
+LET(want_unescape_to_fixpoint_u16, "😀");
+LET(in_unescape_to_fixpoint_u17, "&#1114112;");
+LET(want_unescape_to_fixpoint_u17, "�");
+LET(in_unescape_to_fixpoint_u18, "&#xZZ;");
+LET(want_unescape_to_fixpoint_u18, "&#xZZ;");
+LET(in_unescape_to_fixpoint_u19, "&euro;");
+LET(want_unescape_to_fixpoint_u19, "€");
+LET(in_unescape_to_fixpoint_u20, "&Chi;");
+LET(want_unescape_to_fixpoint_u20, "Χ");
+LET(in_unescape_to_fixpoint_u21, "&reg;");
+LET(want_unescape_to_fixpoint_u21, "®");
+LET(in_unescape_to_fixpoint_u22, "&trade;");
+LET(want_unescape_to_fixpoint_u22, "™");
+LET(in_unescape_to_fixpoint_u23, "&bull;");
+LET(want_unescape_to_fixpoint_u23, "•");
+LET(in_unescape_to_fixpoint_u24, "&deg;");
+LET(want_unescape_to_fixpoint_u24, "°");
+LET(in_unescape_to_fixpoint_u25, "&times;");
+LET(want_unescape_to_fixpoint_u25, "×");
+LET(in_unescape_to_fixpoint_u26, "&laquo;");
+LET(want_unescape_to_fixpoint_u26, "«");
+LET(in_unescape_to_fixpoint_u27, "&middot;");
+LET(want_unescape_to_fixpoint_u27, "·");
+LET(in_unescape_to_fixpoint_u28, "&dagger;");
+LET(want_unescape_to_fixpoint_u28, "†");
+LET(in_unescape_to_fixpoint_u29, "&prime;");
+LET(want_unescape_to_fixpoint_u29, "′");
+LET(in_unescape_to_fixpoint_u30, "&larr;");
+LET(want_unescape_to_fixpoint_u30, "←");
+LET(in_unescape_to_fixpoint_u31, "&infin;");
+LET(want_unescape_to_fixpoint_u31, "∞");
+LET(in_unescape_to_fixpoint_u32, "&ne;");
+LET(want_unescape_to_fixpoint_u32, "≠");
+LET(in_unescape_to_fixpoint_u33, "&le;");
+LET(want_unescape_to_fixpoint_u33, "≤");
+LET(in_unescape_to_fixpoint_u34, "&gt;");
+LET(want_unescape_to_fixpoint_u34, ">");
+LET(in_unescape_to_fixpoint_u35, "&frac12;");
+LET(want_unescape_to_fixpoint_u35, "½");
+LET(in_unescape_to_fixpoint_u36, "&hearts;");
+LET(want_unescape_to_fixpoint_u36, "♥");
+LET(in_unescape_to_fixpoint_u37, "&spades;");
+LET(want_unescape_to_fixpoint_u37, "♠");
+LET(in_unescape_to_fixpoint_u38, "&alpha;");
+LET(want_unescape_to_fixpoint_u38, "α");
+LET(in_unescape_to_fixpoint_u39, "&Omega;");
+LET(want_unescape_to_fixpoint_u39, "Ω");
+LET(in_unescape_to_fixpoint_u40, "&sigma;");
+LET(want_unescape_to_fixpoint_u40, "σ");
+LET(in_unescape_to_fixpoint_u41, "&pound;");
+LET(want_unescape_to_fixpoint_u41, "£");
+LET(in_unescape_to_fixpoint_u42, "&yen;");
+LET(want_unescape_to_fixpoint_u42, "¥");
+LET(in_unescape_to_fixpoint_u43, "&sect;");
+LET(want_unescape_to_fixpoint_u43, "§");
+LET(in_unescape_to_fixpoint_u44, "&para;");
+LET(want_unescape_to_fixpoint_u44, "¶");
+LET(in_unescape_to_fixpoint_u45, "&micro;");
+LET(want_unescape_to_fixpoint_u45, "µ");
+LET(in_unescape_to_fixpoint_u46, "&plusmn;");
+LET(want_unescape_to_fixpoint_u46, "±");
+LET(in_unescape_to_fixpoint_u47, "&divide;");
+LET(want_unescape_to_fixpoint_u47, "÷");
+LET(in_unescape_to_fixpoint_u48, "&not;");
+LET(want_unescape_to_fixpoint_u48, "¬");
+LET(in_unescape_to_fixpoint_u49, "&macr;");
+LET(want_unescape_to_fixpoint_u49, "¯");
+LET(in_unescape_to_fixpoint_u50, "&sup2;");
+LET(want_unescape_to_fixpoint_u50, "²");
+LET(in_unescape_to_fixpoint_u51, "&frac14;");
+LET(want_unescape_to_fixpoint_u51, "¼");
+LET(in_unescape_to_fixpoint_u52, "&frac34;");
+LET(want_unescape_to_fixpoint_u52, "¾");
+LET(in_unescape_to_fixpoint_u53, "&iexcl;");
+LET(want_unescape_to_fixpoint_u53, "¡");
+LET(in_unescape_to_fixpoint_u54, "&iquest;");
+LET(want_unescape_to_fixpoint_u54, "¿");
+LET(in_unescape_to_fixpoint_u55, "&brvbar;");
+LET(want_unescape_to_fixpoint_u55, "¦");
+LET(in_unescape_to_fixpoint_u56, "&curren;");
+LET(want_unescape_to_fixpoint_u56, "¤");
+LET(in_unescape_to_fixpoint_u57, "&uml;");
+LET(want_unescape_to_fixpoint_u57, "¨");
+LET(in_unescape_to_fixpoint_u58, "&ordf;");
+LET(want_unescape_to_fixpoint_u58, "ª");
+LET(in_unescape_to_fixpoint_u59, "&ordm;");
+LET(want_unescape_to_fixpoint_u59, "º");
+LET(in_unescape_to_fixpoint_u60, "&sbquo;");
+LET(want_unescape_to_fixpoint_u60, "‚");
+LET(in_unescape_to_fixpoint_u61, "&bdquo;");
+LET(want_unescape_to_fixpoint_u61, "„");
+LET(in_unescape_to_fixpoint_u62, "&Dagger;");
+LET(want_unescape_to_fixpoint_u62, "‡");
+LET(in_unescape_to_fixpoint_u63, "&permil;");
+LET(want_unescape_to_fixpoint_u63, "‰");
+LET(in_unescape_to_fixpoint_u64, "&lsaquo;");
+LET(want_unescape_to_fixpoint_u64, "‹");
+LET(in_unescape_to_fixpoint_u65, "&rsaquo;");
+LET(want_unescape_to_fixpoint_u65, "›");
+LET(in_unescape_to_fixpoint_u66, "&scaron;");
+LET(want_unescape_to_fixpoint_u66, "š");
+LET(in_unescape_to_fixpoint_u67, "&Scaron;");
+LET(want_unescape_to_fixpoint_u67, "Š");
+LET(in_unescape_to_fixpoint_u68, "&Yuml;");
+LET(want_unescape_to_fixpoint_u68, "Ÿ");
+LET(in_unescape_to_fixpoint_u69, "&fnof;");
+LET(want_unescape_to_fixpoint_u69, "ƒ");
+LET(in_unescape_to_fixpoint_u70, "&circ;");
+LET(want_unescape_to_fixpoint_u70, "ˆ");
+LET(in_unescape_to_fixpoint_u71, "&tilde;");
+LET(want_unescape_to_fixpoint_u71, "˜");
+LET(in_unescape_to_fixpoint_u72, "&Alpha;");
+LET(want_unescape_to_fixpoint_u72, "Α");
+LET(in_unescape_to_fixpoint_u73, "&beta;");
+LET(want_unescape_to_fixpoint_u73, "β");
+LET(in_unescape_to_fixpoint_u74, "&zeta;");
+LET(want_unescape_to_fixpoint_u74, "ζ");
+LET(in_unescape_to_fixpoint_u75, "&theta;");
+LET(want_unescape_to_fixpoint_u75, "θ");
+LET(in_unescape_to_fixpoint_u76, "&iota;");
+LET(want_unescape_to_fixpoint_u76, "ι");
+LET(in_unescape_to_fixpoint_u77, "&kappa;");
+LET(want_unescape_to_fixpoint_u77, "κ");
+LET(in_unescape_to_fixpoint_u78, "&lambda;");
+LET(want_unescape_to_fixpoint_u78, "λ");
+LET(in_unescape_to_fixpoint_u79, "&mu;");
+LET(want_unescape_to_fixpoint_u79, "μ");
+LET(in_unescape_to_fixpoint_u80, "&amp");
+LET(want_unescape_to_fixpoint_u80, "&");
+LET(in_unescape_to_fixpoint_u81, "&lt");
+LET(want_unescape_to_fixpoint_u81, "<");
+LET(in_unescape_to_fixpoint_u82, "&AMP;");
+LET(want_unescape_to_fixpoint_u82, "&");
+LET(in_unescape_to_fixpoint_u83, "&amp;x");
+LET(want_unescape_to_fixpoint_u83, "&x");
+LET(in_unescape_to_fixpoint_u84, "&#38;");
+LET(want_unescape_to_fixpoint_u84, "&");
+LET(in_unescape_to_fixpoint_u85, "&#x26;");
+LET(want_unescape_to_fixpoint_u85, "&");
+LET(in_unescape_to_fixpoint_u86, "plain");
+LET(want_unescape_to_fixpoint_u86, "plain");
+LET(in_unescape_to_fixpoint_u87, "");
+LET(want_unescape_to_fixpoint_u87, "");
+LET(in_unescape_to_fixpoint_u88, "a&amp;b&lt;c&quot;d&#39;e");
+LET(want_unescape_to_fixpoint_u88, "a&b<c\"d'e");
+LET(in_unescape_to_fixpoint_u89, "&amp;amp;amp;");
+LET(want_unescape_to_fixpoint_u89, "&");
+LET(in_meta_value_m00, "T & 'x'");
+LET(want_meta_value_m00, "T &amp; &#x27;x&#x27;");
+LET(in_meta_value_m01, "a\n\n\nb");
+LET(want_meta_value_m01, "a b");
+LET(in_meta_value_m02, "  pad  ");
+LET(want_meta_value_m02, "pad");
+LET(in_meta_value_m03, "");
+LET(want_meta_value_m03, "");
+LET(in_meta_value_m04, "中文");
+LET(want_meta_value_m04, "中文");
+LET(in_meta_value_m05, "line1\nline2");
+LET(want_meta_value_m05, "line1 line2");
+LET(in_meta_value_m06, "tab\there");
+LET(want_meta_value_m06, "tab\there");
+// safe_path_check 的 want 是 {ok, rel} ⇒ 分开断言
+// ⚠ 基准里的 `{BASE}` 是**占位符**（Python 侧 substitute 成真实临时目录）
+//   ⇒ 测试侧要替换成 `_BASE_` 表达式，否则绝对路径用例（p16/p17）对不上。
+LET(in_safe_path_check_p00, "ok.html");
+LET(want_safe_path_check_p00_ok, TRUE);
+LET(want_safe_path_check_p00_rel, "ok.html");
+LET(in_safe_path_check_p01, "sub/a.txt");
+LET(want_safe_path_check_p01_ok, TRUE);
+LET(want_safe_path_check_p01_rel, "sub/a.txt");
+LET(in_safe_path_check_p02, "bad.exe");
+LET(want_safe_path_check_p02_ok, FALSE);
+LET(want_safe_path_check_p02_rel, NULL);
+LET(in_safe_path_check_p03, "missing.exe");
+LET(want_safe_path_check_p03_ok, TRUE);
+LET(want_safe_path_check_p03_rel, "missing.exe");
+LET(in_safe_path_check_p04, "sub");
+LET(want_safe_path_check_p04_ok, TRUE);
+LET(want_safe_path_check_p04_rel, "sub");
+LET(in_safe_path_check_p05, "");
+LET(want_safe_path_check_p05_ok, TRUE);
+LET(want_safe_path_check_p05_rel, ".");
+LET(in_safe_path_check_p06, ".");
+LET(want_safe_path_check_p06_ok, TRUE);
+LET(want_safe_path_check_p06_rel, ".");
+LET(in_safe_path_check_p07, "ok.txt");
+LET(want_safe_path_check_p07_ok, TRUE);
+LET(want_safe_path_check_p07_rel, "ok.txt");
+LET(in_safe_path_check_p08, "X.HTML");
+LET(want_safe_path_check_p08_ok, TRUE);
+LET(want_safe_path_check_p08_rel, "X.HTML");
+LET(in_safe_path_check_p09, "dir/");
+LET(want_safe_path_check_p09_ok, TRUE);
+LET(want_safe_path_check_p09_rel, "dir");
+LET(in_safe_path_check_p10, "a//b");
+LET(want_safe_path_check_p10_ok, TRUE);
+LET(want_safe_path_check_p10_rel, "a/b");
+LET(in_safe_path_check_p11, "../etc/passwd");
+LET(want_safe_path_check_p11_ok, FALSE);
+LET(want_safe_path_check_p11_rel, NULL);
+LET(in_safe_path_check_p12, "/../etc/passwd");
+LET(want_safe_path_check_p12_ok, FALSE);
+LET(want_safe_path_check_p12_rel, NULL);
+LET(in_safe_path_check_p13, "../pages-evil/x.html");
+LET(want_safe_path_check_p13_ok, FALSE);
+LET(want_safe_path_check_p13_rel, NULL);
+LET(in_safe_path_check_p14, "/../pages-evil/secret.txt");
+LET(want_safe_path_check_p14_ok, FALSE);
+LET(want_safe_path_check_p14_rel, NULL);
+LET(in_safe_path_check_p15, "sub/../ok.html");
+LET(want_safe_path_check_p15_ok, FALSE);
+LET(want_safe_path_check_p15_rel, NULL);
+LET(in_safe_path_check_p16, +(_BASE_, "/ok.html"));
+LET(want_safe_path_check_p16_ok, TRUE);
+LET(want_safe_path_check_p16_rel, "ok.html");
+LET(in_safe_path_check_p17, +(_BASE_, "/../pages-evil/x.html"));
+LET(want_safe_path_check_p17_ok, FALSE);
+LET(want_safe_path_check_p17_rel, NULL);
+// write_source 真写文件 ⇒ 每个用例用独立目录，避免互相覆盖
+LET(dir_write_source_w00, PATH_JOIN(_TD_, "ws_w00"));
+MKDIRS(dir_write_source_w00);
+LET(html_write_source_w00, PATH_JOIN(dir_write_source_w00, "2026-01-01-x.html"));
+LET(content_write_source_w00, "body\r\nline2\n");
+LET(want_write_source_w00_md, "2026-01-01-x.md");
+LET(want_write_source_w00_content, "body\r\nline2\n");
+LET(dir_write_source_w01, PATH_JOIN(_TD_, "ws_w01"));
+MKDIRS(dir_write_source_w01);
+LET(html_write_source_w01, PATH_JOIN(dir_write_source_w01, "2026-01-01-y.html"));
+LET(content_write_source_w01, "");
+LET(want_write_source_w01_md, "2026-01-01-y.md");
+LET(want_write_source_w01_content, "");
+LET(dir_write_source_w02, PATH_JOIN(_TD_, "ws_w02"));
+MKDIRS(dir_write_source_w02);
+LET(html_write_source_w02, PATH_JOIN(dir_write_source_w02, "2026-01-01-z.html"));
+LET(content_write_source_w02, "中文\n中文");
+LET(want_write_source_w02_md, "2026-01-01-z.md");
+LET(want_write_source_w02_content, "中文\n中文");
+LET(dir_write_source_w03, PATH_JOIN(_TD_, "ws_w03"));
+MKDIRS(dir_write_source_w03);
+LET(html_write_source_w03, PATH_JOIN(dir_write_source_w03, "2026-01-01-w.html"));
+LET(content_write_source_w03, "no trailing newline");
+LET(want_write_source_w03_md, "2026-01-01-w.md");
+LET(want_write_source_w03_content, "no trailing newline");
+
+// ── 用例 ──────────────────────────────────────────────────────
+TEST("validate_filename_f00", FUN(() ,
+    (ASSERT_EQ(VALIDATE_FILENAME(in_validate_filename_f00), want_validate_filename_f00));
+    TRUE));
+TEST("validate_filename_f01", FUN(() ,
+    (ASSERT_EQ(VALIDATE_FILENAME(in_validate_filename_f01), want_validate_filename_f01));
+    TRUE));
+TEST("validate_filename_f02", FUN(() ,
+    (ASSERT_EQ(VALIDATE_FILENAME(in_validate_filename_f02), want_validate_filename_f02));
+    TRUE));
+TEST("validate_filename_f03", FUN(() ,
+    (ASSERT_EQ(VALIDATE_FILENAME(in_validate_filename_f03), want_validate_filename_f03));
+    TRUE));
+TEST("validate_filename_f04", FUN(() ,
+    (ASSERT_EQ(VALIDATE_FILENAME(in_validate_filename_f04), want_validate_filename_f04));
+    TRUE));
+TEST("validate_filename_f05", FUN(() ,
+    (ASSERT_EQ(VALIDATE_FILENAME(in_validate_filename_f05), want_validate_filename_f05));
+    TRUE));
+TEST("validate_filename_f06", FUN(() ,
+    (ASSERT_EQ(VALIDATE_FILENAME(in_validate_filename_f06), want_validate_filename_f06));
+    TRUE));
+TEST("validate_filename_f07", FUN(() ,
+    (ASSERT_EQ(VALIDATE_FILENAME(in_validate_filename_f07), want_validate_filename_f07));
+    TRUE));
+TEST("validate_filename_f08", FUN(() ,
+    (ASSERT_EQ(VALIDATE_FILENAME(in_validate_filename_f08), want_validate_filename_f08));
+    TRUE));
+TEST("validate_filename_f09", FUN(() ,
+    (ASSERT_EQ(VALIDATE_FILENAME(in_validate_filename_f09), want_validate_filename_f09));
+    TRUE));
+TEST("validate_filename_f10", FUN(() ,
+    (ASSERT_EQ(VALIDATE_FILENAME(in_validate_filename_f10), want_validate_filename_f10));
+    TRUE));
+TEST("validate_filename_f11", FUN(() ,
+    (ASSERT_EQ(VALIDATE_FILENAME(in_validate_filename_f11), want_validate_filename_f11));
+    TRUE));
+TEST("validate_filename_f12", FUN(() ,
+    (ASSERT_EQ(VALIDATE_FILENAME(in_validate_filename_f12), want_validate_filename_f12));
+    TRUE));
+TEST("validate_filename_f13", FUN(() ,
+    (ASSERT_EQ(VALIDATE_FILENAME(in_validate_filename_f13), want_validate_filename_f13));
+    TRUE));
+TEST("validate_filename_f14", FUN(() ,
+    (ASSERT_EQ(VALIDATE_FILENAME(in_validate_filename_f14), want_validate_filename_f14));
+    TRUE));
+TEST("validate_filename_f15", FUN(() ,
+    (ASSERT_EQ(VALIDATE_FILENAME(in_validate_filename_f15), want_validate_filename_f15));
+    TRUE));
+TEST("validate_filename_f16", FUN(() ,
+    (ASSERT_EQ(VALIDATE_FILENAME(in_validate_filename_f16), want_validate_filename_f16));
+    TRUE));
+TEST("validate_filename_f17", FUN(() ,
+    (ASSERT_EQ(VALIDATE_FILENAME(in_validate_filename_f17), want_validate_filename_f17));
+    TRUE));
+TEST("validate_filename_f18", FUN(() ,
+    (ASSERT_EQ(VALIDATE_FILENAME(in_validate_filename_f18), want_validate_filename_f18));
+    TRUE));
+TEST("validate_filename_f19", FUN(() ,
+    (ASSERT_EQ(VALIDATE_FILENAME(in_validate_filename_f19), want_validate_filename_f19));
+    TRUE));
+TEST("validate_filename_f20", FUN(() ,
+    (ASSERT_EQ(VALIDATE_FILENAME(in_validate_filename_f20), want_validate_filename_f20));
+    TRUE));
+TEST("validate_filename_f21", FUN(() ,
+    (ASSERT_EQ(VALIDATE_FILENAME(in_validate_filename_f21), want_validate_filename_f21));
+    TRUE));
+TEST("validate_filename_f22", FUN(() ,
+    (ASSERT_EQ(VALIDATE_FILENAME(in_validate_filename_f22), want_validate_filename_f22));
+    TRUE));
+TEST("validate_filename_f23", FUN(() ,
+    (ASSERT_EQ(VALIDATE_FILENAME(in_validate_filename_f23), want_validate_filename_f23));
+    TRUE));
+TEST("validate_filename_f24", FUN(() ,
+    (ASSERT_EQ(VALIDATE_FILENAME(in_validate_filename_f24), want_validate_filename_f24));
+    TRUE));
+TEST("validate_filename_f25", FUN(() ,
+    (ASSERT_EQ(VALIDATE_FILENAME(in_validate_filename_f25), want_validate_filename_f25));
+    TRUE));
+TEST("validate_filename_f26", FUN(() ,
+    (ASSERT_EQ(VALIDATE_FILENAME(in_validate_filename_f26), want_validate_filename_f26));
+    TRUE));
+TEST("validate_filename_f27", FUN(() ,
+    (ASSERT_EQ(VALIDATE_FILENAME(in_validate_filename_f27), want_validate_filename_f27));
+    TRUE));
+TEST("validate_filename_f28", FUN(() ,
+    (ASSERT_EQ(VALIDATE_FILENAME(in_validate_filename_f28), want_validate_filename_f28));
+    TRUE));
+TEST("validate_filename_f29", FUN(() ,
+    (ASSERT_EQ(VALIDATE_FILENAME(in_validate_filename_f29), want_validate_filename_f29));
+    TRUE));
+// ⚠ validate_filename_f30：已知差异 D2：Python `re` 的 `\d` 匹配 Unicode 数字（`int()` 也能解析），WLWL 的 `\d` 只认 ASCII ⇒ WLWL 拒绝、Python 接受。
+TEST("validate_filename_f30", FUN(() ,
+    (ASSERT_EQ(VALIDATE_FILENAME(in_validate_filename_f30), want_validate_filename_f30));
+    TRUE));
+TEST("validate_content_c00", FUN(() ,
+    (ASSERT_EQ(VALIDATE_CONTENT(in_validate_content_c00), want_validate_content_c00));
+    TRUE));
+TEST("validate_content_c01", FUN(() ,
+    (ASSERT_EQ(VALIDATE_CONTENT(in_validate_content_c01), want_validate_content_c01));
+    TRUE));
+TEST("validate_content_c02", FUN(() ,
+    (ASSERT_EQ(VALIDATE_CONTENT(in_validate_content_c02), want_validate_content_c02));
+    TRUE));
+TEST("validate_content_c03", FUN(() ,
+    (ASSERT_EQ(VALIDATE_CONTENT(in_validate_content_c03), want_validate_content_c03));
+    TRUE));
+TEST("validate_content_c04", FUN(() ,
+    (ASSERT_EQ(VALIDATE_CONTENT(in_validate_content_c04), want_validate_content_c04));
+    TRUE));
+TEST("validate_content_c05", FUN(() ,
+    (ASSERT_EQ(VALIDATE_CONTENT(in_validate_content_c05), want_validate_content_c05));
+    TRUE));
+TEST("validate_content_c06", FUN(() ,
+    (ASSERT_EQ(VALIDATE_CONTENT(in_validate_content_c06), want_validate_content_c06));
+    TRUE));
+TEST("validate_content_c07", FUN(() ,
+    (ASSERT_EQ(VALIDATE_CONTENT(in_validate_content_c07), want_validate_content_c07));
+    TRUE));
+TEST("validate_content_c08", FUN(() ,
+    (ASSERT_EQ(VALIDATE_CONTENT(in_validate_content_c08), want_validate_content_c08));
+    TRUE));
+TEST("validate_content_c09", FUN(() ,
+    (ASSERT_EQ(VALIDATE_CONTENT(in_validate_content_c09), want_validate_content_c09));
+    TRUE));
+TEST("validate_content_c10", FUN(() ,
+    (ASSERT_EQ(VALIDATE_CONTENT(in_validate_content_c10), want_validate_content_c10));
+    TRUE));
+TEST("validate_content_c11", FUN(() ,
+    (ASSERT_EQ(VALIDATE_CONTENT(in_validate_content_c11), want_validate_content_c11));
+    TRUE));
+TEST("validate_content_c12", FUN(() ,
+    (ASSERT_EQ(VALIDATE_CONTENT(in_validate_content_c12), want_validate_content_c12));
+    TRUE));
+TEST("validate_date_format_d00", FUN(() ,
+    (ASSERT_EQ(VALIDATE_DATE_FORMAT(in_validate_date_format_d00), want_validate_date_format_d00));
+    TRUE));
+TEST("validate_date_format_d01", FUN(() ,
+    (ASSERT_EQ(VALIDATE_DATE_FORMAT(in_validate_date_format_d01), want_validate_date_format_d01));
+    TRUE));
+TEST("validate_date_format_d02", FUN(() ,
+    (ASSERT_EQ(VALIDATE_DATE_FORMAT(in_validate_date_format_d02), want_validate_date_format_d02));
+    TRUE));
+TEST("validate_date_format_d03", FUN(() ,
+    (ASSERT_EQ(VALIDATE_DATE_FORMAT(in_validate_date_format_d03), want_validate_date_format_d03));
+    TRUE));
+TEST("validate_date_format_d04", FUN(() ,
+    (ASSERT_EQ(VALIDATE_DATE_FORMAT(in_validate_date_format_d04), want_validate_date_format_d04));
+    TRUE));
+TEST("validate_date_format_d05", FUN(() ,
+    (ASSERT_EQ(VALIDATE_DATE_FORMAT(in_validate_date_format_d05), want_validate_date_format_d05));
+    TRUE));
+TEST("validate_date_format_d06", FUN(() ,
+    (ASSERT_EQ(VALIDATE_DATE_FORMAT(in_validate_date_format_d06), want_validate_date_format_d06));
+    TRUE));
+TEST("validate_date_format_d07", FUN(() ,
+    (ASSERT_EQ(VALIDATE_DATE_FORMAT(in_validate_date_format_d07), want_validate_date_format_d07));
+    TRUE));
+TEST("validate_date_format_d08", FUN(() ,
+    (ASSERT_EQ(VALIDATE_DATE_FORMAT(in_validate_date_format_d08), want_validate_date_format_d08));
+    TRUE));
+TEST("validate_date_format_d09", FUN(() ,
+    (ASSERT_EQ(VALIDATE_DATE_FORMAT(in_validate_date_format_d09), want_validate_date_format_d09));
+    TRUE));
+TEST("validate_date_format_d10", FUN(() ,
+    (ASSERT_EQ(VALIDATE_DATE_FORMAT(in_validate_date_format_d10), want_validate_date_format_d10));
+    TRUE));
+TEST("validate_date_format_d11", FUN(() ,
+    (ASSERT_EQ(VALIDATE_DATE_FORMAT(in_validate_date_format_d11), want_validate_date_format_d11));
+    TRUE));
+TEST("validate_date_format_d12", FUN(() ,
+    (ASSERT_EQ(VALIDATE_DATE_FORMAT(in_validate_date_format_d12), want_validate_date_format_d12));
+    TRUE));
+TEST("validate_date_format_d13", FUN(() ,
+    (ASSERT_EQ(VALIDATE_DATE_FORMAT(in_validate_date_format_d13), want_validate_date_format_d13));
+    TRUE));
+TEST("validate_date_format_d14", FUN(() ,
+    (ASSERT_EQ(VALIDATE_DATE_FORMAT(in_validate_date_format_d14), want_validate_date_format_d14));
+    TRUE));
+TEST("validate_date_format_d15", FUN(() ,
+    (ASSERT_EQ(VALIDATE_DATE_FORMAT(in_validate_date_format_d15), want_validate_date_format_d15));
+    TRUE));
+TEST("validate_date_format_d16", FUN(() ,
+    (ASSERT_EQ(VALIDATE_DATE_FORMAT(in_validate_date_format_d16), want_validate_date_format_d16));
+    TRUE));
+TEST("validate_date_format_d17", FUN(() ,
+    (ASSERT_EQ(VALIDATE_DATE_FORMAT(in_validate_date_format_d17), want_validate_date_format_d17));
+    TRUE));
+TEST("validate_date_format_d18", FUN(() ,
+    (ASSERT_EQ(VALIDATE_DATE_FORMAT(in_validate_date_format_d18), want_validate_date_format_d18));
+    TRUE));
+TEST("validate_date_format_d19", FUN(() ,
+    (ASSERT_EQ(VALIDATE_DATE_FORMAT(in_validate_date_format_d19), want_validate_date_format_d19));
+    TRUE));
+TEST("validate_date_format_d20", FUN(() ,
+    (ASSERT_EQ(VALIDATE_DATE_FORMAT(in_validate_date_format_d20), want_validate_date_format_d20));
+    TRUE));
+TEST("validate_date_format_d21", FUN(() ,
+    (ASSERT_EQ(VALIDATE_DATE_FORMAT(in_validate_date_format_d21), want_validate_date_format_d21));
+    TRUE));
+// ⚠ validate_date_format_d22：已知差异 D4：Python 的 `re` 的 `\d` 匹配 Unicode 数字，且 `strptime` 的 `%Y` 用 `int()` 解析 ⇒ **年位置接受 Unicode 数字**；WLWL 的 `TO_INT` 拒绝 Unicode 数字（返回 ERR）、`NFKC` 也不归一它 ⇒ WLWL 侧无法复刻 ⇒ WLWL 拒绝、Python 接受。
+TEST("validate_date_format_d22", FUN(() ,
+    (ASSERT_EQ(VALIDATE_DATE_FORMAT(in_validate_date_format_d22), want_validate_date_format_d22));
+    TRUE));
+TEST("validate_title_t00", FUN(() ,
+    (ASSERT_EQ(VALIDATE_TITLE(in_validate_title_t00), want_validate_title_t00));
+    TRUE));
+TEST("validate_title_t01", FUN(() ,
+    (ASSERT_EQ(VALIDATE_TITLE(in_validate_title_t01), want_validate_title_t01));
+    TRUE));
+TEST("validate_title_t02", FUN(() ,
+    (ASSERT_EQ(VALIDATE_TITLE(in_validate_title_t02), want_validate_title_t02));
+    TRUE));
+TEST("validate_title_t03", FUN(() ,
+    (ASSERT_EQ(VALIDATE_TITLE(in_validate_title_t03), want_validate_title_t03));
+    TRUE));
+TEST("validate_title_t04", FUN(() ,
+    (ASSERT_EQ(VALIDATE_TITLE(in_validate_title_t04), want_validate_title_t04));
+    TRUE));
+TEST("validate_title_t05", FUN(() ,
+    (ASSERT_EQ(VALIDATE_TITLE(in_validate_title_t05), want_validate_title_t05));
+    TRUE));
+TEST("validate_title_t06", FUN(() ,
+    (ASSERT_EQ(VALIDATE_TITLE(in_validate_title_t06), want_validate_title_t06));
+    TRUE));
+TEST("source_path_s00", FUN(() ,
+    (ASSERT_EQ(SOURCE_PATH(in_source_path_s00), want_source_path_s00));
+    TRUE));
+TEST("source_path_s01", FUN(() ,
+    (ASSERT_EQ(SOURCE_PATH(in_source_path_s01), want_source_path_s01));
+    TRUE));
+TEST("source_path_s02", FUN(() ,
+    (ASSERT_EQ(SOURCE_PATH(in_source_path_s02), want_source_path_s02));
+    TRUE));
+TEST("source_path_s03", FUN(() ,
+    (ASSERT_EQ(SOURCE_PATH(in_source_path_s03), want_source_path_s03));
+    TRUE));
+TEST("source_path_s04", FUN(() ,
+    (ASSERT_EQ(SOURCE_PATH(in_source_path_s04), want_source_path_s04));
+    TRUE));
+TEST("source_path_s05", FUN(() ,
+    (ASSERT_EQ(SOURCE_PATH(in_source_path_s05), want_source_path_s05));
+    TRUE));
+TEST("source_path_s06", FUN(() ,
+    (ASSERT_EQ(SOURCE_PATH(in_source_path_s06), want_source_path_s06));
+    TRUE));
+TEST("source_path_s07", FUN(() ,
+    (ASSERT_EQ(SOURCE_PATH(in_source_path_s07), want_source_path_s07));
+    TRUE));
+TEST("source_path_s08", FUN(() ,
+    (ASSERT_EQ(SOURCE_PATH(in_source_path_s08), want_source_path_s08));
+    TRUE));
+TEST("decode_content_c00", FUN(() ,
+    (ASSERT_EQ(DECODE_CONTENT(in_decode_content_c00), want_decode_content_c00));
+    TRUE));
+TEST("decode_content_c01", FUN(() ,
+    (ASSERT_EQ(DECODE_CONTENT(in_decode_content_c01), want_decode_content_c01));
+    TRUE));
+TEST("decode_content_c02", FUN(() ,
+    (ASSERT_EQ(DECODE_CONTENT(in_decode_content_c02), want_decode_content_c02));
+    TRUE));
+TEST("decode_content_c03", FUN(() ,
+    (ASSERT_EQ(DECODE_CONTENT(in_decode_content_c03), want_decode_content_c03));
+    TRUE));
+TEST("decode_content_c04", FUN(() ,
+    (ASSERT_EQ(DECODE_CONTENT(in_decode_content_c04), want_decode_content_c04));
+    TRUE));
+TEST("decode_content_c05", FUN(() ,
+    (ASSERT_EQ(DECODE_CONTENT(in_decode_content_c05), want_decode_content_c05));
+    TRUE));
+TEST("decode_content_c06", FUN(() ,
+    (ASSERT_EQ(DECODE_CONTENT(in_decode_content_c06), want_decode_content_c06));
+    TRUE));
+TEST("decode_content_c07", FUN(() ,
+    (ASSERT_EQ(DECODE_CONTENT(in_decode_content_c07), want_decode_content_c07));
+    TRUE));
+TEST("decode_content_c08", FUN(() ,
+    (ASSERT_EQ(DECODE_CONTENT(in_decode_content_c08), want_decode_content_c08));
+    TRUE));
+TEST("decode_content_c09", FUN(() ,
+    (ASSERT_EQ(DECODE_CONTENT(in_decode_content_c09), want_decode_content_c09));
+    TRUE));
+TEST("decode_content_c10", FUN(() ,
+    (ASSERT_EQ(DECODE_CONTENT(in_decode_content_c10), want_decode_content_c10));
+    TRUE));
+TEST("decode_content_c11", FUN(() ,
+    (ASSERT_EQ(DECODE_CONTENT(in_decode_content_c11), want_decode_content_c11));
+    TRUE));
+TEST("decode_content_c12", FUN(() ,
+    (ASSERT_EQ(DECODE_CONTENT(in_decode_content_c12), want_decode_content_c12));
+    TRUE));
+TEST("decode_content_c13", FUN(() ,
+    (ASSERT_EQ(DECODE_CONTENT(in_decode_content_c13), want_decode_content_c13));
+    TRUE));
+TEST("decode_content_c14", FUN(() ,
+    (ASSERT_EQ(DECODE_CONTENT(in_decode_content_c14), want_decode_content_c14));
+    TRUE));
+TEST("decode_content_c15", FUN(() ,
+    (ASSERT_EQ(DECODE_CONTENT(in_decode_content_c15), want_decode_content_c15));
+    TRUE));
+TEST("decode_content_c16", FUN(() ,
+    (ASSERT_EQ(DECODE_CONTENT(in_decode_content_c16), want_decode_content_c16));
+    TRUE));
+TEST("decode_content_c17", FUN(() ,
+    (ASSERT_EQ(DECODE_CONTENT(in_decode_content_c17), want_decode_content_c17));
+    TRUE));
+TEST("decode_content_c18", FUN(() ,
+    (ASSERT_EQ(DECODE_CONTENT(in_decode_content_c18), want_decode_content_c18));
+    TRUE));
+TEST("decode_content_c19", FUN(() ,
+    (ASSERT_EQ(DECODE_CONTENT(in_decode_content_c19), want_decode_content_c19));
+    TRUE));
+TEST("decode_content_c20", FUN(() ,
+    (ASSERT_EQ(DECODE_CONTENT(in_decode_content_c20), want_decode_content_c20));
+    TRUE));
+TEST("decode_content_c21", FUN(() ,
+    (ASSERT_EQ(DECODE_CONTENT(in_decode_content_c21), want_decode_content_c21));
+    TRUE));
+TEST("decode_legacy_body_l00", FUN(() ,
+    (ASSERT_EQ(DECODE_LEGACY_BODY(in_decode_legacy_body_l00), want_decode_legacy_body_l00));
+    TRUE));
+TEST("decode_legacy_body_l01", FUN(() ,
+    (ASSERT_EQ(DECODE_LEGACY_BODY(in_decode_legacy_body_l01), want_decode_legacy_body_l01));
+    TRUE));
+TEST("decode_legacy_body_l02", FUN(() ,
+    (ASSERT_EQ(DECODE_LEGACY_BODY(in_decode_legacy_body_l02), want_decode_legacy_body_l02));
+    TRUE));
+TEST("decode_legacy_body_l03", FUN(() ,
+    (ASSERT_EQ(DECODE_LEGACY_BODY(in_decode_legacy_body_l03), want_decode_legacy_body_l03));
+    TRUE));
+TEST("decode_legacy_body_l04", FUN(() ,
+    (ASSERT_EQ(DECODE_LEGACY_BODY(in_decode_legacy_body_l04), want_decode_legacy_body_l04));
+    TRUE));
+TEST("decode_legacy_body_l05", FUN(() ,
+    (ASSERT_EQ(DECODE_LEGACY_BODY(in_decode_legacy_body_l05), want_decode_legacy_body_l05));
+    TRUE));
+TEST("decode_legacy_body_l06", FUN(() ,
+    (ASSERT_EQ(DECODE_LEGACY_BODY(in_decode_legacy_body_l06), want_decode_legacy_body_l06));
+    TRUE));
+TEST("decode_legacy_body_l07", FUN(() ,
+    (ASSERT_EQ(DECODE_LEGACY_BODY(in_decode_legacy_body_l07), want_decode_legacy_body_l07));
+    TRUE));
+TEST("decode_legacy_body_l08", FUN(() ,
+    (ASSERT_EQ(DECODE_LEGACY_BODY(in_decode_legacy_body_l08), want_decode_legacy_body_l08));
+    TRUE));
+TEST("decode_legacy_body_l09", FUN(() ,
+    (ASSERT_EQ(DECODE_LEGACY_BODY(in_decode_legacy_body_l09), want_decode_legacy_body_l09));
+    TRUE));
+TEST("decode_legacy_body_l10", FUN(() ,
+    (ASSERT_EQ(DECODE_LEGACY_BODY(in_decode_legacy_body_l10), want_decode_legacy_body_l10));
+    TRUE));
+TEST("decode_legacy_body_l11", FUN(() ,
+    (ASSERT_EQ(DECODE_LEGACY_BODY(in_decode_legacy_body_l11), want_decode_legacy_body_l11));
+    TRUE));
+TEST("decode_legacy_body_l12", FUN(() ,
+    (ASSERT_EQ(DECODE_LEGACY_BODY(in_decode_legacy_body_l12), want_decode_legacy_body_l12));
+    TRUE));
+TEST("decode_legacy_body_l13", FUN(() ,
+    (ASSERT_EQ(DECODE_LEGACY_BODY(in_decode_legacy_body_l13), want_decode_legacy_body_l13));
+    TRUE));
+TEST("decode_legacy_body_l14", FUN(() ,
+    (ASSERT_EQ(DECODE_LEGACY_BODY(in_decode_legacy_body_l14), want_decode_legacy_body_l14));
+    TRUE));
+TEST("decode_legacy_body_l15", FUN(() ,
+    (ASSERT_EQ(DECODE_LEGACY_BODY(in_decode_legacy_body_l15), want_decode_legacy_body_l15));
+    TRUE));
+TEST("decode_legacy_body_l16", FUN(() ,
+    (ASSERT_EQ(DECODE_LEGACY_BODY(in_decode_legacy_body_l16), want_decode_legacy_body_l16));
+    TRUE));
+TEST("decode_legacy_body_l17", FUN(() ,
+    (ASSERT_EQ(DECODE_LEGACY_BODY(in_decode_legacy_body_l17), want_decode_legacy_body_l17));
+    TRUE));
+TEST("decode_legacy_body_l18", FUN(() ,
+    (ASSERT_EQ(DECODE_LEGACY_BODY(in_decode_legacy_body_l18), want_decode_legacy_body_l18));
+    TRUE));
+TEST("decode_legacy_body_l19", FUN(() ,
+    (ASSERT_EQ(DECODE_LEGACY_BODY(in_decode_legacy_body_l19), want_decode_legacy_body_l19));
+    TRUE));
+TEST("decode_legacy_body_l20", FUN(() ,
+    (ASSERT_EQ(DECODE_LEGACY_BODY(in_decode_legacy_body_l20), want_decode_legacy_body_l20));
+    TRUE));
+TEST("decode_legacy_body_l21", FUN(() ,
+    (ASSERT_EQ(DECODE_LEGACY_BODY(in_decode_legacy_body_l21), want_decode_legacy_body_l21));
+    TRUE));
+TEST("unescape_to_fixpoint_u00", FUN(() ,
+    (ASSERT_EQ(UNESCAPE_TO_FIXPOINT(in_unescape_to_fixpoint_u00), want_unescape_to_fixpoint_u00));
+    TRUE));
+TEST("unescape_to_fixpoint_u01", FUN(() ,
+    (ASSERT_EQ(UNESCAPE_TO_FIXPOINT(in_unescape_to_fixpoint_u01), want_unescape_to_fixpoint_u01));
+    TRUE));
+TEST("unescape_to_fixpoint_u02", FUN(() ,
+    (ASSERT_EQ(UNESCAPE_TO_FIXPOINT(in_unescape_to_fixpoint_u02), want_unescape_to_fixpoint_u02));
+    TRUE));
+TEST("unescape_to_fixpoint_u03", FUN(() ,
+    (ASSERT_EQ(UNESCAPE_TO_FIXPOINT(in_unescape_to_fixpoint_u03), want_unescape_to_fixpoint_u03));
+    TRUE));
+TEST("unescape_to_fixpoint_u04", FUN(() ,
+    (ASSERT_EQ(UNESCAPE_TO_FIXPOINT(in_unescape_to_fixpoint_u04), want_unescape_to_fixpoint_u04));
+    TRUE));
+TEST("unescape_to_fixpoint_u05", FUN(() ,
+    (ASSERT_EQ(UNESCAPE_TO_FIXPOINT(in_unescape_to_fixpoint_u05), want_unescape_to_fixpoint_u05));
+    TRUE));
+TEST("unescape_to_fixpoint_u06", FUN(() ,
+    (ASSERT_EQ(UNESCAPE_TO_FIXPOINT(in_unescape_to_fixpoint_u06), want_unescape_to_fixpoint_u06));
+    TRUE));
+TEST("unescape_to_fixpoint_u07", FUN(() ,
+    (ASSERT_EQ(UNESCAPE_TO_FIXPOINT(in_unescape_to_fixpoint_u07), want_unescape_to_fixpoint_u07));
+    TRUE));
+TEST("unescape_to_fixpoint_u08", FUN(() ,
+    (ASSERT_EQ(UNESCAPE_TO_FIXPOINT(in_unescape_to_fixpoint_u08), want_unescape_to_fixpoint_u08));
+    TRUE));
+TEST("unescape_to_fixpoint_u09", FUN(() ,
+    (ASSERT_EQ(UNESCAPE_TO_FIXPOINT(in_unescape_to_fixpoint_u09), want_unescape_to_fixpoint_u09));
+    TRUE));
+TEST("unescape_to_fixpoint_u10", FUN(() ,
+    (ASSERT_EQ(UNESCAPE_TO_FIXPOINT(in_unescape_to_fixpoint_u10), want_unescape_to_fixpoint_u10));
+    TRUE));
+TEST("unescape_to_fixpoint_u11", FUN(() ,
+    (ASSERT_EQ(UNESCAPE_TO_FIXPOINT(in_unescape_to_fixpoint_u11), want_unescape_to_fixpoint_u11));
+    TRUE));
+TEST("unescape_to_fixpoint_u12", FUN(() ,
+    (ASSERT_EQ(UNESCAPE_TO_FIXPOINT(in_unescape_to_fixpoint_u12), want_unescape_to_fixpoint_u12));
+    TRUE));
+TEST("unescape_to_fixpoint_u13", FUN(() ,
+    (ASSERT_EQ(UNESCAPE_TO_FIXPOINT(in_unescape_to_fixpoint_u13), want_unescape_to_fixpoint_u13));
+    TRUE));
+TEST("unescape_to_fixpoint_u14", FUN(() ,
+    (ASSERT_EQ(UNESCAPE_TO_FIXPOINT(in_unescape_to_fixpoint_u14), want_unescape_to_fixpoint_u14));
+    TRUE));
+TEST("unescape_to_fixpoint_u15", FUN(() ,
+    (ASSERT_EQ(UNESCAPE_TO_FIXPOINT(in_unescape_to_fixpoint_u15), want_unescape_to_fixpoint_u15));
+    TRUE));
+TEST("unescape_to_fixpoint_u16", FUN(() ,
+    (ASSERT_EQ(UNESCAPE_TO_FIXPOINT(in_unescape_to_fixpoint_u16), want_unescape_to_fixpoint_u16));
+    TRUE));
+TEST("unescape_to_fixpoint_u17", FUN(() ,
+    (ASSERT_EQ(UNESCAPE_TO_FIXPOINT(in_unescape_to_fixpoint_u17), want_unescape_to_fixpoint_u17));
+    TRUE));
+TEST("unescape_to_fixpoint_u18", FUN(() ,
+    (ASSERT_EQ(UNESCAPE_TO_FIXPOINT(in_unescape_to_fixpoint_u18), want_unescape_to_fixpoint_u18));
+    TRUE));
+TEST("unescape_to_fixpoint_u19", FUN(() ,
+    (ASSERT_EQ(UNESCAPE_TO_FIXPOINT(in_unescape_to_fixpoint_u19), want_unescape_to_fixpoint_u19));
+    TRUE));
+TEST("unescape_to_fixpoint_u20", FUN(() ,
+    (ASSERT_EQ(UNESCAPE_TO_FIXPOINT(in_unescape_to_fixpoint_u20), want_unescape_to_fixpoint_u20));
+    TRUE));
+TEST("unescape_to_fixpoint_u21", FUN(() ,
+    (ASSERT_EQ(UNESCAPE_TO_FIXPOINT(in_unescape_to_fixpoint_u21), want_unescape_to_fixpoint_u21));
+    TRUE));
+TEST("unescape_to_fixpoint_u22", FUN(() ,
+    (ASSERT_EQ(UNESCAPE_TO_FIXPOINT(in_unescape_to_fixpoint_u22), want_unescape_to_fixpoint_u22));
+    TRUE));
+TEST("unescape_to_fixpoint_u23", FUN(() ,
+    (ASSERT_EQ(UNESCAPE_TO_FIXPOINT(in_unescape_to_fixpoint_u23), want_unescape_to_fixpoint_u23));
+    TRUE));
+TEST("unescape_to_fixpoint_u24", FUN(() ,
+    (ASSERT_EQ(UNESCAPE_TO_FIXPOINT(in_unescape_to_fixpoint_u24), want_unescape_to_fixpoint_u24));
+    TRUE));
+TEST("unescape_to_fixpoint_u25", FUN(() ,
+    (ASSERT_EQ(UNESCAPE_TO_FIXPOINT(in_unescape_to_fixpoint_u25), want_unescape_to_fixpoint_u25));
+    TRUE));
+TEST("unescape_to_fixpoint_u26", FUN(() ,
+    (ASSERT_EQ(UNESCAPE_TO_FIXPOINT(in_unescape_to_fixpoint_u26), want_unescape_to_fixpoint_u26));
+    TRUE));
+TEST("unescape_to_fixpoint_u27", FUN(() ,
+    (ASSERT_EQ(UNESCAPE_TO_FIXPOINT(in_unescape_to_fixpoint_u27), want_unescape_to_fixpoint_u27));
+    TRUE));
+TEST("unescape_to_fixpoint_u28", FUN(() ,
+    (ASSERT_EQ(UNESCAPE_TO_FIXPOINT(in_unescape_to_fixpoint_u28), want_unescape_to_fixpoint_u28));
+    TRUE));
+TEST("unescape_to_fixpoint_u29", FUN(() ,
+    (ASSERT_EQ(UNESCAPE_TO_FIXPOINT(in_unescape_to_fixpoint_u29), want_unescape_to_fixpoint_u29));
+    TRUE));
+TEST("unescape_to_fixpoint_u30", FUN(() ,
+    (ASSERT_EQ(UNESCAPE_TO_FIXPOINT(in_unescape_to_fixpoint_u30), want_unescape_to_fixpoint_u30));
+    TRUE));
+TEST("unescape_to_fixpoint_u31", FUN(() ,
+    (ASSERT_EQ(UNESCAPE_TO_FIXPOINT(in_unescape_to_fixpoint_u31), want_unescape_to_fixpoint_u31));
+    TRUE));
+TEST("unescape_to_fixpoint_u32", FUN(() ,
+    (ASSERT_EQ(UNESCAPE_TO_FIXPOINT(in_unescape_to_fixpoint_u32), want_unescape_to_fixpoint_u32));
+    TRUE));
+TEST("unescape_to_fixpoint_u33", FUN(() ,
+    (ASSERT_EQ(UNESCAPE_TO_FIXPOINT(in_unescape_to_fixpoint_u33), want_unescape_to_fixpoint_u33));
+    TRUE));
+TEST("unescape_to_fixpoint_u34", FUN(() ,
+    (ASSERT_EQ(UNESCAPE_TO_FIXPOINT(in_unescape_to_fixpoint_u34), want_unescape_to_fixpoint_u34));
+    TRUE));
+TEST("unescape_to_fixpoint_u35", FUN(() ,
+    (ASSERT_EQ(UNESCAPE_TO_FIXPOINT(in_unescape_to_fixpoint_u35), want_unescape_to_fixpoint_u35));
+    TRUE));
+TEST("unescape_to_fixpoint_u36", FUN(() ,
+    (ASSERT_EQ(UNESCAPE_TO_FIXPOINT(in_unescape_to_fixpoint_u36), want_unescape_to_fixpoint_u36));
+    TRUE));
+TEST("unescape_to_fixpoint_u37", FUN(() ,
+    (ASSERT_EQ(UNESCAPE_TO_FIXPOINT(in_unescape_to_fixpoint_u37), want_unescape_to_fixpoint_u37));
+    TRUE));
+TEST("unescape_to_fixpoint_u38", FUN(() ,
+    (ASSERT_EQ(UNESCAPE_TO_FIXPOINT(in_unescape_to_fixpoint_u38), want_unescape_to_fixpoint_u38));
+    TRUE));
+TEST("unescape_to_fixpoint_u39", FUN(() ,
+    (ASSERT_EQ(UNESCAPE_TO_FIXPOINT(in_unescape_to_fixpoint_u39), want_unescape_to_fixpoint_u39));
+    TRUE));
+TEST("unescape_to_fixpoint_u40", FUN(() ,
+    (ASSERT_EQ(UNESCAPE_TO_FIXPOINT(in_unescape_to_fixpoint_u40), want_unescape_to_fixpoint_u40));
+    TRUE));
+TEST("unescape_to_fixpoint_u41", FUN(() ,
+    (ASSERT_EQ(UNESCAPE_TO_FIXPOINT(in_unescape_to_fixpoint_u41), want_unescape_to_fixpoint_u41));
+    TRUE));
+TEST("unescape_to_fixpoint_u42", FUN(() ,
+    (ASSERT_EQ(UNESCAPE_TO_FIXPOINT(in_unescape_to_fixpoint_u42), want_unescape_to_fixpoint_u42));
+    TRUE));
+TEST("unescape_to_fixpoint_u43", FUN(() ,
+    (ASSERT_EQ(UNESCAPE_TO_FIXPOINT(in_unescape_to_fixpoint_u43), want_unescape_to_fixpoint_u43));
+    TRUE));
+TEST("unescape_to_fixpoint_u44", FUN(() ,
+    (ASSERT_EQ(UNESCAPE_TO_FIXPOINT(in_unescape_to_fixpoint_u44), want_unescape_to_fixpoint_u44));
+    TRUE));
+TEST("unescape_to_fixpoint_u45", FUN(() ,
+    (ASSERT_EQ(UNESCAPE_TO_FIXPOINT(in_unescape_to_fixpoint_u45), want_unescape_to_fixpoint_u45));
+    TRUE));
+TEST("unescape_to_fixpoint_u46", FUN(() ,
+    (ASSERT_EQ(UNESCAPE_TO_FIXPOINT(in_unescape_to_fixpoint_u46), want_unescape_to_fixpoint_u46));
+    TRUE));
+TEST("unescape_to_fixpoint_u47", FUN(() ,
+    (ASSERT_EQ(UNESCAPE_TO_FIXPOINT(in_unescape_to_fixpoint_u47), want_unescape_to_fixpoint_u47));
+    TRUE));
+TEST("unescape_to_fixpoint_u48", FUN(() ,
+    (ASSERT_EQ(UNESCAPE_TO_FIXPOINT(in_unescape_to_fixpoint_u48), want_unescape_to_fixpoint_u48));
+    TRUE));
+TEST("unescape_to_fixpoint_u49", FUN(() ,
+    (ASSERT_EQ(UNESCAPE_TO_FIXPOINT(in_unescape_to_fixpoint_u49), want_unescape_to_fixpoint_u49));
+    TRUE));
+TEST("unescape_to_fixpoint_u50", FUN(() ,
+    (ASSERT_EQ(UNESCAPE_TO_FIXPOINT(in_unescape_to_fixpoint_u50), want_unescape_to_fixpoint_u50));
+    TRUE));
+TEST("unescape_to_fixpoint_u51", FUN(() ,
+    (ASSERT_EQ(UNESCAPE_TO_FIXPOINT(in_unescape_to_fixpoint_u51), want_unescape_to_fixpoint_u51));
+    TRUE));
+TEST("unescape_to_fixpoint_u52", FUN(() ,
+    (ASSERT_EQ(UNESCAPE_TO_FIXPOINT(in_unescape_to_fixpoint_u52), want_unescape_to_fixpoint_u52));
+    TRUE));
+TEST("unescape_to_fixpoint_u53", FUN(() ,
+    (ASSERT_EQ(UNESCAPE_TO_FIXPOINT(in_unescape_to_fixpoint_u53), want_unescape_to_fixpoint_u53));
+    TRUE));
+TEST("unescape_to_fixpoint_u54", FUN(() ,
+    (ASSERT_EQ(UNESCAPE_TO_FIXPOINT(in_unescape_to_fixpoint_u54), want_unescape_to_fixpoint_u54));
+    TRUE));
+TEST("unescape_to_fixpoint_u55", FUN(() ,
+    (ASSERT_EQ(UNESCAPE_TO_FIXPOINT(in_unescape_to_fixpoint_u55), want_unescape_to_fixpoint_u55));
+    TRUE));
+TEST("unescape_to_fixpoint_u56", FUN(() ,
+    (ASSERT_EQ(UNESCAPE_TO_FIXPOINT(in_unescape_to_fixpoint_u56), want_unescape_to_fixpoint_u56));
+    TRUE));
+TEST("unescape_to_fixpoint_u57", FUN(() ,
+    (ASSERT_EQ(UNESCAPE_TO_FIXPOINT(in_unescape_to_fixpoint_u57), want_unescape_to_fixpoint_u57));
+    TRUE));
+TEST("unescape_to_fixpoint_u58", FUN(() ,
+    (ASSERT_EQ(UNESCAPE_TO_FIXPOINT(in_unescape_to_fixpoint_u58), want_unescape_to_fixpoint_u58));
+    TRUE));
+TEST("unescape_to_fixpoint_u59", FUN(() ,
+    (ASSERT_EQ(UNESCAPE_TO_FIXPOINT(in_unescape_to_fixpoint_u59), want_unescape_to_fixpoint_u59));
+    TRUE));
+TEST("unescape_to_fixpoint_u60", FUN(() ,
+    (ASSERT_EQ(UNESCAPE_TO_FIXPOINT(in_unescape_to_fixpoint_u60), want_unescape_to_fixpoint_u60));
+    TRUE));
+TEST("unescape_to_fixpoint_u61", FUN(() ,
+    (ASSERT_EQ(UNESCAPE_TO_FIXPOINT(in_unescape_to_fixpoint_u61), want_unescape_to_fixpoint_u61));
+    TRUE));
+TEST("unescape_to_fixpoint_u62", FUN(() ,
+    (ASSERT_EQ(UNESCAPE_TO_FIXPOINT(in_unescape_to_fixpoint_u62), want_unescape_to_fixpoint_u62));
+    TRUE));
+TEST("unescape_to_fixpoint_u63", FUN(() ,
+    (ASSERT_EQ(UNESCAPE_TO_FIXPOINT(in_unescape_to_fixpoint_u63), want_unescape_to_fixpoint_u63));
+    TRUE));
+TEST("unescape_to_fixpoint_u64", FUN(() ,
+    (ASSERT_EQ(UNESCAPE_TO_FIXPOINT(in_unescape_to_fixpoint_u64), want_unescape_to_fixpoint_u64));
+    TRUE));
+TEST("unescape_to_fixpoint_u65", FUN(() ,
+    (ASSERT_EQ(UNESCAPE_TO_FIXPOINT(in_unescape_to_fixpoint_u65), want_unescape_to_fixpoint_u65));
+    TRUE));
+TEST("unescape_to_fixpoint_u66", FUN(() ,
+    (ASSERT_EQ(UNESCAPE_TO_FIXPOINT(in_unescape_to_fixpoint_u66), want_unescape_to_fixpoint_u66));
+    TRUE));
+TEST("unescape_to_fixpoint_u67", FUN(() ,
+    (ASSERT_EQ(UNESCAPE_TO_FIXPOINT(in_unescape_to_fixpoint_u67), want_unescape_to_fixpoint_u67));
+    TRUE));
+TEST("unescape_to_fixpoint_u68", FUN(() ,
+    (ASSERT_EQ(UNESCAPE_TO_FIXPOINT(in_unescape_to_fixpoint_u68), want_unescape_to_fixpoint_u68));
+    TRUE));
+TEST("unescape_to_fixpoint_u69", FUN(() ,
+    (ASSERT_EQ(UNESCAPE_TO_FIXPOINT(in_unescape_to_fixpoint_u69), want_unescape_to_fixpoint_u69));
+    TRUE));
+TEST("unescape_to_fixpoint_u70", FUN(() ,
+    (ASSERT_EQ(UNESCAPE_TO_FIXPOINT(in_unescape_to_fixpoint_u70), want_unescape_to_fixpoint_u70));
+    TRUE));
+TEST("unescape_to_fixpoint_u71", FUN(() ,
+    (ASSERT_EQ(UNESCAPE_TO_FIXPOINT(in_unescape_to_fixpoint_u71), want_unescape_to_fixpoint_u71));
+    TRUE));
+TEST("unescape_to_fixpoint_u72", FUN(() ,
+    (ASSERT_EQ(UNESCAPE_TO_FIXPOINT(in_unescape_to_fixpoint_u72), want_unescape_to_fixpoint_u72));
+    TRUE));
+TEST("unescape_to_fixpoint_u73", FUN(() ,
+    (ASSERT_EQ(UNESCAPE_TO_FIXPOINT(in_unescape_to_fixpoint_u73), want_unescape_to_fixpoint_u73));
+    TRUE));
+TEST("unescape_to_fixpoint_u74", FUN(() ,
+    (ASSERT_EQ(UNESCAPE_TO_FIXPOINT(in_unescape_to_fixpoint_u74), want_unescape_to_fixpoint_u74));
+    TRUE));
+TEST("unescape_to_fixpoint_u75", FUN(() ,
+    (ASSERT_EQ(UNESCAPE_TO_FIXPOINT(in_unescape_to_fixpoint_u75), want_unescape_to_fixpoint_u75));
+    TRUE));
+TEST("unescape_to_fixpoint_u76", FUN(() ,
+    (ASSERT_EQ(UNESCAPE_TO_FIXPOINT(in_unescape_to_fixpoint_u76), want_unescape_to_fixpoint_u76));
+    TRUE));
+TEST("unescape_to_fixpoint_u77", FUN(() ,
+    (ASSERT_EQ(UNESCAPE_TO_FIXPOINT(in_unescape_to_fixpoint_u77), want_unescape_to_fixpoint_u77));
+    TRUE));
+TEST("unescape_to_fixpoint_u78", FUN(() ,
+    (ASSERT_EQ(UNESCAPE_TO_FIXPOINT(in_unescape_to_fixpoint_u78), want_unescape_to_fixpoint_u78));
+    TRUE));
+TEST("unescape_to_fixpoint_u79", FUN(() ,
+    (ASSERT_EQ(UNESCAPE_TO_FIXPOINT(in_unescape_to_fixpoint_u79), want_unescape_to_fixpoint_u79));
+    TRUE));
+TEST("unescape_to_fixpoint_u80", FUN(() ,
+    (ASSERT_EQ(UNESCAPE_TO_FIXPOINT(in_unescape_to_fixpoint_u80), want_unescape_to_fixpoint_u80));
+    TRUE));
+TEST("unescape_to_fixpoint_u81", FUN(() ,
+    (ASSERT_EQ(UNESCAPE_TO_FIXPOINT(in_unescape_to_fixpoint_u81), want_unescape_to_fixpoint_u81));
+    TRUE));
+TEST("unescape_to_fixpoint_u82", FUN(() ,
+    (ASSERT_EQ(UNESCAPE_TO_FIXPOINT(in_unescape_to_fixpoint_u82), want_unescape_to_fixpoint_u82));
+    TRUE));
+TEST("unescape_to_fixpoint_u83", FUN(() ,
+    (ASSERT_EQ(UNESCAPE_TO_FIXPOINT(in_unescape_to_fixpoint_u83), want_unescape_to_fixpoint_u83));
+    TRUE));
+TEST("unescape_to_fixpoint_u84", FUN(() ,
+    (ASSERT_EQ(UNESCAPE_TO_FIXPOINT(in_unescape_to_fixpoint_u84), want_unescape_to_fixpoint_u84));
+    TRUE));
+TEST("unescape_to_fixpoint_u85", FUN(() ,
+    (ASSERT_EQ(UNESCAPE_TO_FIXPOINT(in_unescape_to_fixpoint_u85), want_unescape_to_fixpoint_u85));
+    TRUE));
+TEST("unescape_to_fixpoint_u86", FUN(() ,
+    (ASSERT_EQ(UNESCAPE_TO_FIXPOINT(in_unescape_to_fixpoint_u86), want_unescape_to_fixpoint_u86));
+    TRUE));
+TEST("unescape_to_fixpoint_u87", FUN(() ,
+    (ASSERT_EQ(UNESCAPE_TO_FIXPOINT(in_unescape_to_fixpoint_u87), want_unescape_to_fixpoint_u87));
+    TRUE));
+TEST("unescape_to_fixpoint_u88", FUN(() ,
+    (ASSERT_EQ(UNESCAPE_TO_FIXPOINT(in_unescape_to_fixpoint_u88), want_unescape_to_fixpoint_u88));
+    TRUE));
+TEST("unescape_to_fixpoint_u89", FUN(() ,
+    (ASSERT_EQ(UNESCAPE_TO_FIXPOINT(in_unescape_to_fixpoint_u89), want_unescape_to_fixpoint_u89));
+    TRUE));
+TEST("meta_value_m00", FUN(() ,
+    (ASSERT_EQ(META_VALUE(in_meta_value_m00), want_meta_value_m00));
+    TRUE));
+TEST("meta_value_m01", FUN(() ,
+    (ASSERT_EQ(META_VALUE(in_meta_value_m01), want_meta_value_m01));
+    TRUE));
+TEST("meta_value_m02", FUN(() ,
+    (ASSERT_EQ(META_VALUE(in_meta_value_m02), want_meta_value_m02));
+    TRUE));
+TEST("meta_value_m03", FUN(() ,
+    (ASSERT_EQ(META_VALUE(in_meta_value_m03), want_meta_value_m03));
+    TRUE));
+TEST("meta_value_m04", FUN(() ,
+    (ASSERT_EQ(META_VALUE(in_meta_value_m04), want_meta_value_m04));
+    TRUE));
+TEST("meta_value_m05", FUN(() ,
+    (ASSERT_EQ(META_VALUE(in_meta_value_m05), want_meta_value_m05));
+    TRUE));
+TEST("meta_value_m06", FUN(() ,
+    (ASSERT_EQ(META_VALUE(in_meta_value_m06), want_meta_value_m06));
+    TRUE));
+LET(res_safe_path_check_p00, SAFE_PATH_CHECK(in_safe_path_check_p00, _BASE_));
+TEST("safe_path_check_p00_ok", FUN(() ,
+    (ASSERT_EQ(AT_K(res_safe_path_check_p00, "ok", FALSE), want_safe_path_check_p00_ok));
+    TRUE));
+TEST("safe_path_check_p00_rel", FUN(() ,
+    (ASSERT_EQ(AT_K(res_safe_path_check_p00, "rel", NULL), want_safe_path_check_p00_rel));
+    TRUE));
+LET(res_safe_path_check_p01, SAFE_PATH_CHECK(in_safe_path_check_p01, _BASE_));
+TEST("safe_path_check_p01_ok", FUN(() ,
+    (ASSERT_EQ(AT_K(res_safe_path_check_p01, "ok", FALSE), want_safe_path_check_p01_ok));
+    TRUE));
+TEST("safe_path_check_p01_rel", FUN(() ,
+    (ASSERT_EQ(AT_K(res_safe_path_check_p01, "rel", NULL), want_safe_path_check_p01_rel));
+    TRUE));
+LET(res_safe_path_check_p02, SAFE_PATH_CHECK(in_safe_path_check_p02, _BASE_));
+TEST("safe_path_check_p02_ok", FUN(() ,
+    (ASSERT_EQ(AT_K(res_safe_path_check_p02, "ok", FALSE), want_safe_path_check_p02_ok));
+    TRUE));
+TEST("safe_path_check_p02_rel", FUN(() ,
+    (ASSERT_EQ(AT_K(res_safe_path_check_p02, "rel", NULL), want_safe_path_check_p02_rel));
+    TRUE));
+LET(res_safe_path_check_p03, SAFE_PATH_CHECK(in_safe_path_check_p03, _BASE_));
+TEST("safe_path_check_p03_ok", FUN(() ,
+    (ASSERT_EQ(AT_K(res_safe_path_check_p03, "ok", FALSE), want_safe_path_check_p03_ok));
+    TRUE));
+TEST("safe_path_check_p03_rel", FUN(() ,
+    (ASSERT_EQ(AT_K(res_safe_path_check_p03, "rel", NULL), want_safe_path_check_p03_rel));
+    TRUE));
+LET(res_safe_path_check_p04, SAFE_PATH_CHECK(in_safe_path_check_p04, _BASE_));
+TEST("safe_path_check_p04_ok", FUN(() ,
+    (ASSERT_EQ(AT_K(res_safe_path_check_p04, "ok", FALSE), want_safe_path_check_p04_ok));
+    TRUE));
+TEST("safe_path_check_p04_rel", FUN(() ,
+    (ASSERT_EQ(AT_K(res_safe_path_check_p04, "rel", NULL), want_safe_path_check_p04_rel));
+    TRUE));
+LET(res_safe_path_check_p05, SAFE_PATH_CHECK(in_safe_path_check_p05, _BASE_));
+TEST("safe_path_check_p05_ok", FUN(() ,
+    (ASSERT_EQ(AT_K(res_safe_path_check_p05, "ok", FALSE), want_safe_path_check_p05_ok));
+    TRUE));
+TEST("safe_path_check_p05_rel", FUN(() ,
+    (ASSERT_EQ(AT_K(res_safe_path_check_p05, "rel", NULL), want_safe_path_check_p05_rel));
+    TRUE));
+LET(res_safe_path_check_p06, SAFE_PATH_CHECK(in_safe_path_check_p06, _BASE_));
+TEST("safe_path_check_p06_ok", FUN(() ,
+    (ASSERT_EQ(AT_K(res_safe_path_check_p06, "ok", FALSE), want_safe_path_check_p06_ok));
+    TRUE));
+TEST("safe_path_check_p06_rel", FUN(() ,
+    (ASSERT_EQ(AT_K(res_safe_path_check_p06, "rel", NULL), want_safe_path_check_p06_rel));
+    TRUE));
+LET(res_safe_path_check_p07, SAFE_PATH_CHECK(in_safe_path_check_p07, _BASE_));
+TEST("safe_path_check_p07_ok", FUN(() ,
+    (ASSERT_EQ(AT_K(res_safe_path_check_p07, "ok", FALSE), want_safe_path_check_p07_ok));
+    TRUE));
+TEST("safe_path_check_p07_rel", FUN(() ,
+    (ASSERT_EQ(AT_K(res_safe_path_check_p07, "rel", NULL), want_safe_path_check_p07_rel));
+    TRUE));
+LET(res_safe_path_check_p08, SAFE_PATH_CHECK(in_safe_path_check_p08, _BASE_));
+TEST("safe_path_check_p08_ok", FUN(() ,
+    (ASSERT_EQ(AT_K(res_safe_path_check_p08, "ok", FALSE), want_safe_path_check_p08_ok));
+    TRUE));
+TEST("safe_path_check_p08_rel", FUN(() ,
+    (ASSERT_EQ(AT_K(res_safe_path_check_p08, "rel", NULL), want_safe_path_check_p08_rel));
+    TRUE));
+LET(res_safe_path_check_p09, SAFE_PATH_CHECK(in_safe_path_check_p09, _BASE_));
+TEST("safe_path_check_p09_ok", FUN(() ,
+    (ASSERT_EQ(AT_K(res_safe_path_check_p09, "ok", FALSE), want_safe_path_check_p09_ok));
+    TRUE));
+TEST("safe_path_check_p09_rel", FUN(() ,
+    (ASSERT_EQ(AT_K(res_safe_path_check_p09, "rel", NULL), want_safe_path_check_p09_rel));
+    TRUE));
+LET(res_safe_path_check_p10, SAFE_PATH_CHECK(in_safe_path_check_p10, _BASE_));
+TEST("safe_path_check_p10_ok", FUN(() ,
+    (ASSERT_EQ(AT_K(res_safe_path_check_p10, "ok", FALSE), want_safe_path_check_p10_ok));
+    TRUE));
+TEST("safe_path_check_p10_rel", FUN(() ,
+    (ASSERT_EQ(AT_K(res_safe_path_check_p10, "rel", NULL), want_safe_path_check_p10_rel));
+    TRUE));
+LET(res_safe_path_check_p11, SAFE_PATH_CHECK(in_safe_path_check_p11, _BASE_));
+TEST("safe_path_check_p11_ok", FUN(() ,
+    (ASSERT_EQ(AT_K(res_safe_path_check_p11, "ok", FALSE), want_safe_path_check_p11_ok));
+    TRUE));
+TEST("safe_path_check_p11_rel", FUN(() ,
+    (ASSERT_EQ(AT_K(res_safe_path_check_p11, "rel", NULL), want_safe_path_check_p11_rel));
+    TRUE));
+LET(res_safe_path_check_p12, SAFE_PATH_CHECK(in_safe_path_check_p12, _BASE_));
+TEST("safe_path_check_p12_ok", FUN(() ,
+    (ASSERT_EQ(AT_K(res_safe_path_check_p12, "ok", FALSE), want_safe_path_check_p12_ok));
+    TRUE));
+TEST("safe_path_check_p12_rel", FUN(() ,
+    (ASSERT_EQ(AT_K(res_safe_path_check_p12, "rel", NULL), want_safe_path_check_p12_rel));
+    TRUE));
+LET(res_safe_path_check_p13, SAFE_PATH_CHECK(in_safe_path_check_p13, _BASE_));
+TEST("safe_path_check_p13_ok", FUN(() ,
+    (ASSERT_EQ(AT_K(res_safe_path_check_p13, "ok", FALSE), want_safe_path_check_p13_ok));
+    TRUE));
+TEST("safe_path_check_p13_rel", FUN(() ,
+    (ASSERT_EQ(AT_K(res_safe_path_check_p13, "rel", NULL), want_safe_path_check_p13_rel));
+    TRUE));
+LET(res_safe_path_check_p14, SAFE_PATH_CHECK(in_safe_path_check_p14, _BASE_));
+TEST("safe_path_check_p14_ok", FUN(() ,
+    (ASSERT_EQ(AT_K(res_safe_path_check_p14, "ok", FALSE), want_safe_path_check_p14_ok));
+    TRUE));
+TEST("safe_path_check_p14_rel", FUN(() ,
+    (ASSERT_EQ(AT_K(res_safe_path_check_p14, "rel", NULL), want_safe_path_check_p14_rel));
+    TRUE));
+// ⚠ safe_path_check_p15：已知差异 D3：卡片 S2-1 要求「拒绝路径中含 `..` 的输入」（WLWL 的 PATH_CANONICAL 是词法判定、不解析符号链接）⇒ WLWL 拒绝、Python 允许（Python 的 resolve() 会消解 `..`）。
+LET(res_safe_path_check_p15, SAFE_PATH_CHECK(in_safe_path_check_p15, _BASE_));
+TEST("safe_path_check_p15_ok", FUN(() ,
+    (ASSERT_EQ(AT_K(res_safe_path_check_p15, "ok", FALSE), want_safe_path_check_p15_ok));
+    TRUE));
+TEST("safe_path_check_p15_rel", FUN(() ,
+    (ASSERT_EQ(AT_K(res_safe_path_check_p15, "rel", NULL), want_safe_path_check_p15_rel));
+    TRUE));
+LET(res_safe_path_check_p16, SAFE_PATH_CHECK(in_safe_path_check_p16, _BASE_));
+TEST("safe_path_check_p16_ok", FUN(() ,
+    (ASSERT_EQ(AT_K(res_safe_path_check_p16, "ok", FALSE), want_safe_path_check_p16_ok));
+    TRUE));
+TEST("safe_path_check_p16_rel", FUN(() ,
+    (ASSERT_EQ(AT_K(res_safe_path_check_p16, "rel", NULL), want_safe_path_check_p16_rel));
+    TRUE));
+LET(res_safe_path_check_p17, SAFE_PATH_CHECK(in_safe_path_check_p17, _BASE_));
+TEST("safe_path_check_p17_ok", FUN(() ,
+    (ASSERT_EQ(AT_K(res_safe_path_check_p17, "ok", FALSE), want_safe_path_check_p17_ok));
+    TRUE));
+TEST("safe_path_check_p17_rel", FUN(() ,
+    (ASSERT_EQ(AT_K(res_safe_path_check_p17, "rel", NULL), want_safe_path_check_p17_rel));
+    TRUE));
+LET(res_write_source_w00, WRITE_SOURCE(html_write_source_w00, content_write_source_w00));
+TEST("write_source_w00_ok", FUN(() ,
+    (ASSERT(AT_K(res_write_source_w00, "ok", FALSE)));
+    TRUE));
+TEST("write_source_w00_md_name", FUN(() ,
+    (ASSERT_EQ(PATH_BASE(AT_K(res_write_source_w00, "path", "")), want_write_source_w00_md));
+    TRUE));
+TEST("write_source_w00_content", FUN(() ,
+    (ASSERT_EQ(READ_FILE(AT_K(res_write_source_w00, "path", "")), want_write_source_w00_content));
+    TRUE));
+LET(res_write_source_w01, WRITE_SOURCE(html_write_source_w01, content_write_source_w01));
+TEST("write_source_w01_ok", FUN(() ,
+    (ASSERT(AT_K(res_write_source_w01, "ok", FALSE)));
+    TRUE));
+TEST("write_source_w01_md_name", FUN(() ,
+    (ASSERT_EQ(PATH_BASE(AT_K(res_write_source_w01, "path", "")), want_write_source_w01_md));
+    TRUE));
+TEST("write_source_w01_content", FUN(() ,
+    (ASSERT_EQ(READ_FILE(AT_K(res_write_source_w01, "path", "")), want_write_source_w01_content));
+    TRUE));
+LET(res_write_source_w02, WRITE_SOURCE(html_write_source_w02, content_write_source_w02));
+TEST("write_source_w02_ok", FUN(() ,
+    (ASSERT(AT_K(res_write_source_w02, "ok", FALSE)));
+    TRUE));
+TEST("write_source_w02_md_name", FUN(() ,
+    (ASSERT_EQ(PATH_BASE(AT_K(res_write_source_w02, "path", "")), want_write_source_w02_md));
+    TRUE));
+TEST("write_source_w02_content", FUN(() ,
+    (ASSERT_EQ(READ_FILE(AT_K(res_write_source_w02, "path", "")), want_write_source_w02_content));
+    TRUE));
+LET(res_write_source_w03, WRITE_SOURCE(html_write_source_w03, content_write_source_w03));
+TEST("write_source_w03_ok", FUN(() ,
+    (ASSERT(AT_K(res_write_source_w03, "ok", FALSE)));
+    TRUE));
+TEST("write_source_w03_md_name", FUN(() ,
+    (ASSERT_EQ(PATH_BASE(AT_K(res_write_source_w03, "path", "")), want_write_source_w03_md));
+    TRUE));
+TEST("write_source_w03_content", FUN(() ,
+    (ASSERT_EQ(READ_FILE(AT_K(res_write_source_w03, "path", "")), want_write_source_w03_content));
+    TRUE));
+
+// ── 反向守卫（卡 S2-1 的要求）─────────────────────────────────
+// ① 路径穿越形态必须被拒
+TEST("guard/traversal_rejected", FUN(() ,
+    (ASSERT_EQ(AT_K(SAFE_PATH_CHECK("../etc/passwd", _BASE_), "ok", TRUE), FALSE));
+    TRUE));
+// ② 同前缀兄弟目录（pages-evil）必须被拒
+//    ⚠ 基准 p13 的输入是 `../pages-evil/x.html`（含 `..` ⇒ D3 拒）。
+//    单独的 `pages-evil/x.html` 不含 `..`，Python 视为 base 内的子目录 ⇒ 允许，
+//    所以这里用**与基准相同的形态**，而不是裸的 pages-evil/x.html。
+TEST("guard/sibling_prefix_rejected", FUN(() ,
+    (ASSERT_EQ(AT_K(SAFE_PATH_CHECK("../pages-evil/x.html", _BASE_), "ok", TRUE), FALSE));
+    TRUE));
+// ③ 含 `..` 的输入即使落在 base 内也必须被拒（D3：词法判定不解析符号链接）
+TEST("guard/dotdot_inside_base_rejected", FUN(() ,
+    (ASSERT_EQ(AT_K(SAFE_PATH_CHECK("sub/../ok.html", _BASE_), "ok", TRUE), FALSE));
+    TRUE));
+// ④ 写入失败 ⇒ 不得留下半截文件（父目录不存在 ⇒ 原子写失败）
+//    ⚠ 实现**不** MKDIRS（Python 的 write_source 也不建目录）
+//    ⇒ 父目录不存在时 WRITE_FILE_ATOMIC 返回 ERR ⇒ ok=FALSE 且无残留。
+LET(_BADPATH_, PATH_JOIN(_TD_, "no_such_dir/deep/x.html"));
+LET(_BADR_, WRITE_SOURCE(_BADPATH_, "partial"));
+TEST("guard/atomic_write_no_partial", FUN(() ,
+    (ASSERT_EQ(AT_K(_BADR_, "ok", TRUE), FALSE));
+    (ASSERT(!EXISTS(PATH_JOIN(_TD_, "no_such_dir/deep/x.md"))));
+    TRUE));
+// ⑤ 原子写成功后不留 .tmp 残留
+MKDIRS(PATH_JOIN(_TD_, "tmpx"));
+LET(_TMPR_, WRITE_SOURCE(PATH_JOIN(_TD_, "tmpx/x.html"), "body"));
+TEST("guard/atomic_write_no_tmp_left", FUN(() ,
+    (ASSERT(AT_K(_TMPR_, "ok", FALSE)));
+    (ASSERT(!EXISTS(PATH_JOIN(_TD_, "tmpx/x.md.tmp"))));
+    TRUE));
+
+// ── 跑测试 ────────────────────────────────────────────────────
+LET(records, RUN_TESTS());
+PRINT("test_article_store: ", LEN(records), " test(s) run");
+
+LET MUT(failed, 0);
+FOR(rec, records,
+    (IF(AT_K(rec, "passed", FALSE),
+        PRINT("  PASS ", AT_K(rec, "name", "?")),
+        (SET(failed, +(failed, 1));
+         PRINT("  FAIL ", AT_K(rec, "name", "?"))))));
+PRINT("test_article_store: failed=", failed);
+IF(>(failed, 0), (PRINT_ERR("test_article_store: FAILED"); PANIC("article_store tests failed")), NULL);
+PRINT("test_article_store: OK");
