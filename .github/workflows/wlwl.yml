@@ -27,6 +27,14 @@ jobs:
     runs-on: windows-latest
     timeout-minutes: 15
 
+    # The generators print paths that contain CJK (e.g. category/生活.html).
+    # On a Windows runner Python's stdout defaults to the ANSI code page
+    # (cp1252), so such a print dies with UnicodeEncodeError and the whole
+    # "regenerate + no drift" step fails - locally this never shows up
+    # because tp\test\ci_local_check.ps1 sets PYTHONIOENCODING itself.
+    env:
+      PYTHONIOENCODING: utf-8
+
     steps:
       - uses: actions/checkout@v4
 

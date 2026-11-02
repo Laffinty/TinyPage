@@ -156,6 +156,7 @@ powershell -File tp\test\ci_local_check.ps1
 | 54 | **`WALK_DIR` 的结果含目录条目** | 40 个文件 + 4 个目录 ⇒ 得 44 条，按文件数遍历会崩/多算 | 用 `FILE_META(...).is_dir` 过滤（同样要走 `IS_ERR` 消费那一路） |
 | 55 | **Python 的 `write_text()` 在 Windows 上写 CRLF**（坑 23 只讲**读入**侧） | 产物磁盘字节与 WLWL 的 LF 不同 ⇒ 「逐字节比文件」必红 | 比**归一化后的内容**；或明确登记为差异（本仓库记为 D-NL） |
 | 56 | **`IS_ERR(...)` 兜不住类型错** | `E0030`（元数/类型错）是**硬诊断**，不是 ERR 值 ⇒ `IS_ERR(ARTICLE_PAGE(…))` 对类型错照样中止 | 类型问题靠 `TYPE(...)` 前置判断，别指望 `IS_ERR` 接住 |
+| 57 | ⚠ **GitHub Windows runner 上 Python 的 stdout 是 cp1252**，不是 UTF-8 | 生成器 `print()` 一个带中文的路径（`category/生活.html`）⇒ `UnicodeEncodeError: 'charmap' codec can't encode` ⇒ 「重生成 + 无漂移」整步失败。**本地永远复现不出来**，因为 `tp\test\ci_local_check.ps1` 自己设了 `PYTHONIOENCODING=utf-8` | workflow 的 **job 级** `env: PYTHONIOENCODING: utf-8`（本仓库已加）。⚠ 教训更普适：**本地 CI 脚本与远端 workflow 的环境必须对齐**，否则「本地绿、远端红」会反复发生 |
 
 ## 参考
 
