@@ -120,6 +120,10 @@ powershell -File tp\test\ci_local_check.ps1
 | 18 | **`\w` 不含非 ASCII 字母**（与 Python 不同） | `café` 的 `é` 被判非法 | 别拿 Python 的 `\w` 语义照抄；CJK 用**字面** `一-龥`（⚠ 不是 `\u4e00-\u9fa5`，那个写法在 WLWL 里不生效，见 #20） |
 | 19 | **内建 `HTML_ESCAPE` 出 `&#39;`，Python 出 `&#x27;`** | 逐字节对照红 | `tp/lib/esc.wll` 的 `ESCAPE_HTML` 已做后处理，**统一用它** |
 | 20 | **正则不认 `\uXXXX`**：未知转义 `\u` 退化成**字面 `u`** | `RE("\\u4e00-\\u9fa5")` 匹配的是文本 `u4e00-u9fa5`，对 `"中"` 返回 **FALSE**（Python `re` 同式返回 True） | 字符类一律写字面 `一-龥`。实测：`RE_TEST(RE("^[一-龥]+$"), "中文")` → TRUE |
+| 21 | ⚠ **求值数组绑定会克隆整个数组** ⇒ `AT`/`arr[i]`/**`LEN`** 实测都是 **O(n)**（规范 §18.3 写的是 O(1)） | 2000 元素的数组，`LEN()` 一次要 ~110µs；**字符串只要 3µs** | 数组密集算法在 WLWL 上是 **O(n²)**。热循环里**把下标和长度缓存到局部变量**，别反复读数组绑定（别名/字典取值都绕不过） |
+| 22 | **`PUSH` 是纯函数，不原地修改** | `PUSH(x, 4);` 之后 `LEN(x)` 还是原值 ⇒ 元素**静默丢失** | 必须 `SET(x, PUSH(x, v))` 或 `LET(x, PUSH(x, v))`（保留返回值时实测是线性摊还 O(1)） |
+| 23 | ⚠ **`READ_FILE`/`WRITE_FILE` 不转换行尾**，Python 的 `read_text()` 会把 CRLF 转 LF | 读同一个 CRLF 文件，WLWL 比 Python **多出 CRLF 个字符**（实测 theme.css：20322 vs 19517） | 要与 Python 逐字节对照时，**自己先做 CRLF→LF 归一化** |
+| 24 | **`WRITE_FILE_ATOMIC` 成功返回 `NULL`，失败返回 `ERR`** | 用 `==(x, TRUE)` 判成功会误判；不消费 ERR 会 `E0103` | 用 `IS_ERR(x)` 判成败；**父目录要先 `MKDIRS`**（不会自动建） |
 
 ## 参考
 

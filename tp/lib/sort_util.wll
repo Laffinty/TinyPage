@@ -1,0 +1,269 @@
+// tp/lib/sort_util.wll —— 手写排序（归并排序）
+//
+// ⚠ 本文件由 tp/test/gen_sort_util.py 生成 —— 请勿手改。
+//   改实现请改生成器（WLWL 的括号诊断不告诉你缺了几层）。
+//
+// 为什么不用内建 SORT：它是**二次复杂度**（实测 200 元素 850ms、
+//   500 元素 6.1s、1000 元素 28.2s）⇒ 500 篇以上文章一次构建卡到分钟级。
+//   ⇒ 本模块用**归并排序**：O(n log n) 次比较，稳定，可自定义键。
+//
+// 对齐的 Python 行为：
+//   SORT_STRINGS(items) == Python sorted(list_of_str)（升序、码点序、稳定）
+//   SORT_BY_DATE(items) == Python tinypage/content.py:196
+//       arts.sort(key=lambda x: x.date_obj or datetime.min, reverse=True)
+//     （**按日期倒序**、稳定；键口径同 content.py:185 的 meta.date[:16]）
+//   SORT_BY_TITLE_OR_FILE(items) == Python tinypage/content.py:698
+//       pages.sort(key=lambda x: x.title or x.file)
+//     （**按「标题优先、空标题回落文件名」升序**、稳定；
+//      ⚠ Python 的 or 对**空串**也回落，不只是 None）
+//   SORT_BY_NUM_DESC(items) == Python tinypage/content.py:237
+//       related.sort(key=lambda x: x[1], reverse=True)
+//     （**按数值键倒序**、稳定；⚠ reverse=True **仍保持稳定**）
+//
+// 数据形态：
+//   SORT_BY_DATE(items)  items = ARRAY[DICT{"date": STRING}] 或 ARRAY[STRING]
+//   SORT_STRINGS(items)  items = ARRAY[STRING]
+//   SORT_BY_TITLE_OR_FILE(items)  items = ARRAY[DICT{"title":…, "file":…}]
+//   SORT_BY_NUM_DESC(items)       items = ARRAY[ARRAY[payload, number]]
+//     （payload 是任意值；number 是 INTEGER 或 FLOAT —— 键取元素[1]）
+//
+// 稳定性：相等键时**取左半**（升序 <= / 降序 >= 都取左边）
+//   ⇒ 与 Python sorted（含 reverse=True）一致。
+//
+// 逐字节对照基准：tp/test/fixtures/sort_util_baseline.json
+//   （由 tp/test/gen_sort_util_baseline.py 用真 Python 生成）
+
+// // 内部：合并两个已排序的**字符串**序列（相等时取左 ⇒ 稳定）
+     LET(MERGE_RUNS_STR, FUN((a, b, desc), (
+               LET MUT(out, []);
+               LET MUT(i, 0);
+               LET MUT(j, 0);
+               LET MUT(la, LEN(a));
+               LET MUT(lb, LEN(b));
+               // ⚠ 缓存左右两半的当前 front：热循环里每输出一个元素只做**一次**;
+               //   下标访问（本解释器读数组会深拷贝整个数组 ⇒ 每次访问都是 O(n)）。;
+               LET MUT(va, AT(a, 0, NULL));
+               LET MUT(vb, AT(b, 0, NULL));
+               LET MUT(ka, va);
+               LET MUT(kb, vb);
+               WHILE(&&(<(i, la), <(j, lb)), (
+                    IF(IF(desc, >=(ka, kb), <=(ka, kb)), (
+                         SET(out, PUSH(out, va));
+                         SET(i, +(i, 1));
+                         SET(va, AT(a, i, NULL));
+                         SET(ka, va)
+                    ), (
+                         SET(out, PUSH(out, vb));
+                         SET(j, +(j, 1));
+                         SET(vb, AT(b, j, NULL));
+                         SET(kb, vb)
+                    ))
+               ));
+               WHILE(<(i, la), (
+                    SET(out, PUSH(out, AT(a, i, NULL)));
+                    SET(i, +(i, 1))
+               ));
+               WHILE(<(j, lb), (
+                    SET(out, PUSH(out, AT(b, j, NULL)));
+                    SET(j, +(j, 1))
+               ));
+               out
+     )));
+
+// // 内部：合并两个已排序的**日期**序列（键 = [:16]，相等时取左 ⇒ 稳定）
+     LET(MERGE_RUNS_DATE, FUN((a, b, desc), (
+               LET MUT(out, []);
+               LET MUT(i, 0);
+               LET MUT(j, 0);
+               LET MUT(la, LEN(a));
+               LET MUT(lb, LEN(b));
+               // ⚠ 缓存左右两半的当前 front：热循环里每输出一个元素只做**一次**;
+               //   下标访问（本解释器读数组会深拷贝整个数组 ⇒ 每次访问都是 O(n)）。;
+               LET MUT(va, AT(a, 0, NULL));
+               LET MUT(vb, AT(b, 0, NULL));
+               LET MUT(ka, IF(==(TYPE(va), "STRING"), SUB(va, 0, 16), IF(==(TYPE(va), "DICT"), (LET(dv, AT_K(va, "date", "")); IF(==(TYPE(dv), "STRING"), SUB(dv, 0, 16), "")), "")));
+               LET MUT(kb, IF(==(TYPE(vb), "STRING"), SUB(vb, 0, 16), IF(==(TYPE(vb), "DICT"), (LET(dv, AT_K(vb, "date", "")); IF(==(TYPE(dv), "STRING"), SUB(dv, 0, 16), "")), "")));
+               WHILE(&&(<(i, la), <(j, lb)), (
+                    IF(IF(desc, >=(ka, kb), <=(ka, kb)), (
+                         SET(out, PUSH(out, va));
+                         SET(i, +(i, 1));
+                         SET(va, AT(a, i, NULL));
+                         SET(ka, IF(==(TYPE(va), "STRING"), SUB(va, 0, 16), IF(==(TYPE(va), "DICT"), (LET(dv, AT_K(va, "date", "")); IF(==(TYPE(dv), "STRING"), SUB(dv, 0, 16), "")), "")))
+                    ), (
+                         SET(out, PUSH(out, vb));
+                         SET(j, +(j, 1));
+                         SET(vb, AT(b, j, NULL));
+                         SET(kb, IF(==(TYPE(vb), "STRING"), SUB(vb, 0, 16), IF(==(TYPE(vb), "DICT"), (LET(dv, AT_K(vb, "date", "")); IF(==(TYPE(dv), "STRING"), SUB(dv, 0, 16), "")), "")))
+                    ))
+               ));
+               WHILE(<(i, la), (
+                    SET(out, PUSH(out, AT(a, i, NULL)));
+                    SET(i, +(i, 1))
+               ));
+               WHILE(<(j, lb), (
+                    SET(out, PUSH(out, AT(b, j, NULL)));
+                    SET(j, +(j, 1))
+               ));
+               out
+     )));
+
+// // 内部：合并两个已排序的**标题**序列（键 = title or file，相等时取左）
+     LET(MERGE_RUNS_TITLE, FUN((a, b, desc), (
+               LET MUT(out, []);
+               LET MUT(i, 0);
+               LET MUT(j, 0);
+               LET MUT(la, LEN(a));
+               LET MUT(lb, LEN(b));
+               // ⚠ 缓存左右两半的当前 front：热循环里每输出一个元素只做**一次**;
+               //   下标访问（本解释器读数组会深拷贝整个数组 ⇒ 每次访问都是 O(n)）。;
+               LET MUT(va, AT(a, 0, NULL));
+               LET MUT(vb, AT(b, 0, NULL));
+               LET MUT(ka, IF(==(TYPE(va), "DICT"), (LET(t, AT_K(va, "title", "")); IF(&&(==(TYPE(t), "STRING"), !=(t, "")), t, (LET(f, AT_K(va, "file", "")); IF(==(TYPE(f), "STRING"), f, "")))), ""));
+               LET MUT(kb, IF(==(TYPE(vb), "DICT"), (LET(t, AT_K(vb, "title", "")); IF(&&(==(TYPE(t), "STRING"), !=(t, "")), t, (LET(f, AT_K(vb, "file", "")); IF(==(TYPE(f), "STRING"), f, "")))), ""));
+               WHILE(&&(<(i, la), <(j, lb)), (
+                    IF(IF(desc, >=(ka, kb), <=(ka, kb)), (
+                         SET(out, PUSH(out, va));
+                         SET(i, +(i, 1));
+                         SET(va, AT(a, i, NULL));
+                         SET(ka, IF(==(TYPE(va), "DICT"), (LET(t, AT_K(va, "title", "")); IF(&&(==(TYPE(t), "STRING"), !=(t, "")), t, (LET(f, AT_K(va, "file", "")); IF(==(TYPE(f), "STRING"), f, "")))), ""))
+                    ), (
+                         SET(out, PUSH(out, vb));
+                         SET(j, +(j, 1));
+                         SET(vb, AT(b, j, NULL));
+                         SET(kb, IF(==(TYPE(vb), "DICT"), (LET(t, AT_K(vb, "title", "")); IF(&&(==(TYPE(t), "STRING"), !=(t, "")), t, (LET(f, AT_K(vb, "file", "")); IF(==(TYPE(f), "STRING"), f, "")))), ""))
+                    ))
+               ));
+               WHILE(<(i, la), (
+                    SET(out, PUSH(out, AT(a, i, NULL)));
+                    SET(i, +(i, 1))
+               ));
+               WHILE(<(j, lb), (
+                    SET(out, PUSH(out, AT(b, j, NULL)));
+                    SET(j, +(j, 1))
+               ));
+               out
+     )));
+
+// // 内部：合并两个已排序的**数值键**序列（键 = 元素[1]，相等时取左）
+     LET(MERGE_RUNS_NUM, FUN((a, b, desc), (
+               LET MUT(out, []);
+               LET MUT(i, 0);
+               LET MUT(j, 0);
+               LET MUT(la, LEN(a));
+               LET MUT(lb, LEN(b));
+               // ⚠ 缓存左右两半的当前 front：热循环里每输出一个元素只做**一次**;
+               //   下标访问（本解释器读数组会深拷贝整个数组 ⇒ 每次访问都是 O(n)）。;
+               LET MUT(va, AT(a, 0, NULL));
+               LET MUT(vb, AT(b, 0, NULL));
+               LET MUT(ka, IF(==(TYPE(va), "ARRAY"), (LET(s, AT(va, 1, 0)); IF(||(==(TYPE(s), "INTEGER"), ==(TYPE(s), "FLOAT")), s, 0)), 0));
+               LET MUT(kb, IF(==(TYPE(vb), "ARRAY"), (LET(s, AT(vb, 1, 0)); IF(||(==(TYPE(s), "INTEGER"), ==(TYPE(s), "FLOAT")), s, 0)), 0));
+               WHILE(&&(<(i, la), <(j, lb)), (
+                    IF(IF(desc, >=(ka, kb), <=(ka, kb)), (
+                         SET(out, PUSH(out, va));
+                         SET(i, +(i, 1));
+                         SET(va, AT(a, i, NULL));
+                         SET(ka, IF(==(TYPE(va), "ARRAY"), (LET(s, AT(va, 1, 0)); IF(||(==(TYPE(s), "INTEGER"), ==(TYPE(s), "FLOAT")), s, 0)), 0))
+                    ), (
+                         SET(out, PUSH(out, vb));
+                         SET(j, +(j, 1));
+                         SET(vb, AT(b, j, NULL));
+                         SET(kb, IF(==(TYPE(vb), "ARRAY"), (LET(s, AT(vb, 1, 0)); IF(||(==(TYPE(s), "INTEGER"), ==(TYPE(s), "FLOAT")), s, 0)), 0))
+                    ))
+               ));
+               WHILE(<(i, la), (
+                    SET(out, PUSH(out, AT(a, i, NULL)));
+                    SET(i, +(i, 1))
+               ));
+               WHILE(<(j, lb), (
+                    SET(out, PUSH(out, AT(b, j, NULL)));
+                    SET(j, +(j, 1))
+               ));
+               out
+     )));
+
+// // 内部：字符串序列的归并排序（稳定；desc = TRUE ⇒ 降序）
+     LET(SORT_RUNS_STR, FUN((arr, desc), (
+               LET(n, LEN(arr));
+               IF(<=(n, 1), (
+                    arr
+               ), (
+                    LET(mid, /(n, 2));
+                    LET(left, SORT_RUNS_STR(SLICE(arr, 0, mid), desc));
+                    LET(right, SORT_RUNS_STR(SLICE(arr, mid, n), desc));
+                    MERGE_RUNS_STR(left, right, desc)
+               ))
+     )));
+
+// // 内部：日期序列的归并排序（稳定；desc = TRUE ⇒ 降序）
+     LET(SORT_RUNS_DATE, FUN((arr, desc), (
+               LET(n, LEN(arr));
+               IF(<=(n, 1), (
+                    arr
+               ), (
+                    LET(mid, /(n, 2));
+                    LET(left, SORT_RUNS_DATE(SLICE(arr, 0, mid), desc));
+                    LET(right, SORT_RUNS_DATE(SLICE(arr, mid, n), desc));
+                    MERGE_RUNS_DATE(left, right, desc)
+               ))
+     )));
+
+// // 内部：标题序列的归并排序（稳定；desc = TRUE ⇒ 降序）
+     LET(SORT_RUNS_TITLE, FUN((arr, desc), (
+               LET(n, LEN(arr));
+               IF(<=(n, 1), (
+                    arr
+               ), (
+                    LET(mid, /(n, 2));
+                    LET(left, SORT_RUNS_TITLE(SLICE(arr, 0, mid), desc));
+                    LET(right, SORT_RUNS_TITLE(SLICE(arr, mid, n), desc));
+                    MERGE_RUNS_TITLE(left, right, desc)
+               ))
+     )));
+
+// // 内部：数值键序列的归并排序（稳定；desc = TRUE ⇒ 降序）
+     LET(SORT_RUNS_NUM, FUN((arr, desc), (
+               LET(n, LEN(arr));
+               IF(<=(n, 1), (
+                    arr
+               ), (
+                    LET(mid, /(n, 2));
+                    LET(left, SORT_RUNS_NUM(SLICE(arr, 0, mid), desc));
+                    LET(right, SORT_RUNS_NUM(SLICE(arr, mid, n), desc));
+                    MERGE_RUNS_NUM(left, right, desc)
+               ))
+     )));
+
+// // 升序稳定排序（== Python sorted(list_of_str)）
+     LET(SORT_STRINGS, FUN((items), (
+               // 升序、稳定、码点序（== Python sorted(list_of_str)）。;
+               SORT_RUNS_STR(items, FALSE)
+     )));
+
+// // 按日期倒序稳定排序（== Python content.py:196）
+     LET(SORT_BY_DATE, FUN((items), (
+               // 按日期**倒序**（新→旧）、稳定。;
+               // == Python tinypage/content.py:196 的 arts.sort(key=date_obj, reverse=True);
+               // items 的元素可以是 DICT{"date": ...} 或 STRING（日期串本身）。;
+               SORT_RUNS_DATE(items, TRUE)
+     )));
+
+// // 按标题（空则回落 file）升序稳定排序（== Python content.py:698）
+     LET(SORT_BY_TITLE_OR_FILE, FUN((items), (
+               // 按「标题优先、空标题回落文件名」**升序**、稳定。;
+               // == Python tinypage/content.py:698 的 pages.sort(key=lambda x: x.title or x.file);
+               // ⚠ Python 的 or：""（空串）也是 falsy ⇒ 回落 file（不只是 None）。;
+               // items 的元素是 DICT{"title": …, "file": …}。;
+               SORT_RUNS_TITLE(items, FALSE)
+     )));
+
+// // 按数值键倒序稳定排序（== Python content.py:237）
+     LET(SORT_BY_NUM_DESC, FUN((items), (
+               // 按数值键**倒序**、稳定。;
+               // == Python tinypage/content.py:237 的 related.sort(key=lambda x: x[1], reverse=True);
+               // items 的元素是**两元素数组** [payload, number]：键取元素[1]。;
+               // number 必须是 INTEGER 或 FLOAT（其它一律按 0 处理）。;
+               // ⚠ Python 的 reverse=True **保持稳定** ⇒ 相等键的元素保持输入次序。;
+               SORT_RUNS_NUM(items, TRUE)
+     )));
+
+EXPORT(["SORT_BY_DATE", "SORT_BY_NUM_DESC", "SORT_BY_TITLE_OR_FILE", "SORT_STRINGS"]);

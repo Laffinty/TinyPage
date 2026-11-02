@@ -18,3 +18,6 @@
 *.wll text eol=lf
 *.py text eol=lf
 *.ps1 text eol=crlf
+# 基准夹具同样是生成器产物（json.dump 写 LF）——若 checkout 时被转成 CRLF，
+# no-drift 门禁会在「重新生成 ⇒ 内容变了」上误报。固定 LF。
+tp/test/fixtures/*.json text eol=lf

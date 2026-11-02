@@ -1,0 +1,1898 @@
+{
+  "_meta": {
+    "generated_by": "tp/test/gen_article_store_baseline.py",
+    "known_difference_count": 2,
+    "python_functions": {
+      "decode_content": "tinypage.core.article_store.decode_content (article_store.py:104)",
+      "decode_legacy_body": "tinypage.core.article_store.decode_legacy_body (article_store.py:121)",
+      "meta_value": "tinypage.core.article_store.meta_value (article_store.py:90)",
+      "safe_path_check": "tinypage.security.safe_path_check (security.py:269)",
+      "source_path": "tinypage.core.article_store.source_path (article_store.py:67)",
+      "unescape_to_fixpoint": "tinypage.core.article_store._unescape_to_fixpoint (article_store.py:132)",
+      "validate_content": "tinypage.security.validate_content (security.py:256)",
+      "validate_date_format": "tinypage.security.validate_date_format (security.py:243)",
+      "validate_filename": "tinypage.security.validate_filename (security.py:228)",
+      "validate_title": "复刻自 tinypage/content.py:270 —— `if not isinstance(title, str) or len(title) > 200: raise ValueError(...)`（Python 侧无独立函数）",
+      "write_source": "tinypage.core.article_store.write_source (article_store.py:72)"
+    },
+    "safe_path_fixture": {
+      "dirs": [
+        "sub"
+      ],
+      "files": [
+        "ok.html",
+        "bad.exe",
+        "sub/a.txt"
+      ],
+      "note": "safe_path_check 的扩展名白名单分支依赖目标是否**真实存在**；故基准与测试用同一份相对布局。"
+    }
+  },
+  "cases": {
+    "decode_content": {
+      "c00": {
+        "input": "<!-- tinypage:markdown 5 -->\nhello",
+        "note": null,
+        "python": "hello",
+        "want": "hello"
+      },
+      "c01": {
+        "input": "<!-- tinypage:markdown 100 -->\nhello",
+        "note": null,
+        "python": "hello",
+        "want": "hello"
+      },
+      "c02": {
+        "input": "<!-- tinypage:markdown 5 -->\r\nhello",
+        "note": null,
+        "python": "hello",
+        "want": "hello"
+      },
+      "c03": {
+        "input": "<!-- tinypage:markdown 0 -->\n",
+        "note": null,
+        "python": "",
+        "want": ""
+      },
+      "c04": {
+        "input": "<!-- tinypage:markdown 3 -->\nabc",
+        "note": null,
+        "python": "abc",
+        "want": "abc"
+      },
+      "c05": {
+        "input": "<!-- tinypage:markdown 5 -->\nhello world",
+        "note": null,
+        "python": "hello",
+        "want": "hello"
+      },
+      "c06": {
+        "input": "no body",
+        "note": null,
+        "python": null,
+        "want": null
+      },
+      "c07": {
+        "input": "",
+        "note": null,
+        "python": null,
+        "want": null
+      },
+      "c08": {
+        "input": "<!-- markdown: hello -->",
+        "note": null,
+        "python": "hello",
+        "want": "hello"
+      },
+      "c09": {
+        "input": "<!--markdown:hello-->",
+        "note": null,
+        "python": "hello",
+        "want": "hello"
+      },
+      "c10": {
+        "input": "<!-- markdown: a --> tail <!-- markdown: b -->",
+        "note": null,
+        "python": "a",
+        "want": "a"
+      },
+      "c11": {
+        "input": "<!-- markdown: a &amp; b -->",
+        "note": null,
+        "python": "a & b",
+        "want": "a & b"
+      },
+      "c12": {
+        "input": "<!-- markdown: &amp;amp; -->",
+        "note": null,
+        "python": "&",
+        "want": "&"
+      },
+      "c13": {
+        "input": "<!--  markdown :  spaced  -->",
+        "note": null,
+        "python": null,
+        "want": null
+      },
+      "c14": {
+        "input": "<!-- markdown: multi\nline -->",
+        "note": null,
+        "python": "multi\nline",
+        "want": "multi\nline"
+      },
+      "c15": {
+        "input": "<!-- markdown: no close",
+        "note": null,
+        "python": null,
+        "want": null
+      },
+      "c16": {
+        "input": "x <!-- markdown: mid --> y",
+        "note": null,
+        "python": "mid",
+        "want": "mid"
+      },
+      "c17": {
+        "input": "<!-- markdown: -->",
+        "note": null,
+        "python": "",
+        "want": ""
+      },
+      "c18": {
+        "input": "<!-- markdown:&#x27;-->",
+        "note": null,
+        "python": "'",
+        "want": "'"
+      },
+      "c19": {
+        "input": "<!--markdown:x--><!-- markdown: y -->",
+        "note": null,
+        "python": "x--><!-- markdown: y",
+        "want": "x--><!-- markdown: y"
+      },
+      "c20": {
+        "input": "<!-- markdown: a--> b <!-- markdown: c -->",
+        "note": null,
+        "python": "a--> b <!-- markdown: c",
+        "want": "a--> b <!-- markdown: c"
+      },
+      "c21": {
+        "input": "<!-- tinypage:markdown 12 -->\nhello world!",
+        "note": null,
+        "python": "hello world!",
+        "want": "hello world!"
+      }
+    },
+    "decode_legacy_body": {
+      "l00": {
+        "input": "<!-- tinypage:markdown 5 -->\nhello",
+        "note": null,
+        "python": null,
+        "want": null
+      },
+      "l01": {
+        "input": "<!-- tinypage:markdown 100 -->\nhello",
+        "note": null,
+        "python": null,
+        "want": null
+      },
+      "l02": {
+        "input": "<!-- tinypage:markdown 5 -->\r\nhello",
+        "note": null,
+        "python": null,
+        "want": null
+      },
+      "l03": {
+        "input": "<!-- tinypage:markdown 0 -->\n",
+        "note": null,
+        "python": null,
+        "want": null
+      },
+      "l04": {
+        "input": "<!-- tinypage:markdown 3 -->\nabc",
+        "note": null,
+        "python": null,
+        "want": null
+      },
+      "l05": {
+        "input": "<!-- tinypage:markdown 5 -->\nhello world",
+        "note": null,
+        "python": null,
+        "want": null
+      },
+      "l06": {
+        "input": "no body",
+        "note": null,
+        "python": null,
+        "want": null
+      },
+      "l07": {
+        "input": "",
+        "note": null,
+        "python": null,
+        "want": null
+      },
+      "l08": {
+        "input": "<!-- markdown: hello -->",
+        "note": null,
+        "python": "hello",
+        "want": "hello"
+      },
+      "l09": {
+        "input": "<!--markdown:hello-->",
+        "note": null,
+        "python": "hello",
+        "want": "hello"
+      },
+      "l10": {
+        "input": "<!-- markdown: a --> tail <!-- markdown: b -->",
+        "note": null,
+        "python": "a",
+        "want": "a"
+      },
+      "l11": {
+        "input": "<!-- markdown: a &amp; b -->",
+        "note": null,
+        "python": "a & b",
+        "want": "a & b"
+      },
+      "l12": {
+        "input": "<!-- markdown: &amp;amp; -->",
+        "note": null,
+        "python": "&",
+        "want": "&"
+      },
+      "l13": {
+        "input": "<!--  markdown :  spaced  -->",
+        "note": null,
+        "python": null,
+        "want": null
+      },
+      "l14": {
+        "input": "<!-- markdown: multi\nline -->",
+        "note": null,
+        "python": "multi\nline",
+        "want": "multi\nline"
+      },
+      "l15": {
+        "input": "<!-- markdown: no close",
+        "note": null,
+        "python": null,
+        "want": null
+      },
+      "l16": {
+        "input": "x <!-- markdown: mid --> y",
+        "note": null,
+        "python": "mid",
+        "want": "mid"
+      },
+      "l17": {
+        "input": "<!-- markdown: -->",
+        "note": null,
+        "python": "",
+        "want": ""
+      },
+      "l18": {
+        "input": "<!-- markdown:&#x27;-->",
+        "note": null,
+        "python": "'",
+        "want": "'"
+      },
+      "l19": {
+        "input": "<!--markdown:x--><!-- markdown: y -->",
+        "note": null,
+        "python": "x--><!-- markdown: y",
+        "want": "x--><!-- markdown: y"
+      },
+      "l20": {
+        "input": "<!-- markdown: a--> b <!-- markdown: c -->",
+        "note": null,
+        "python": "a--> b <!-- markdown: c",
+        "want": "a--> b <!-- markdown: c"
+      },
+      "l21": {
+        "input": "<!-- tinypage:markdown 12 -->\nhello world!",
+        "note": null,
+        "python": null,
+        "want": null
+      }
+    },
+    "meta_value": {
+      "m00": {
+        "input": "T & 'x'",
+        "note": null,
+        "python": "T &amp; &#x27;x&#x27;",
+        "want": "T &amp; &#x27;x&#x27;"
+      },
+      "m01": {
+        "input": "a\n\n\nb",
+        "note": null,
+        "python": "a b",
+        "want": "a b"
+      },
+      "m02": {
+        "input": "  pad  ",
+        "note": null,
+        "python": "pad",
+        "want": "pad"
+      },
+      "m03": {
+        "input": "",
+        "note": null,
+        "python": "",
+        "want": ""
+      },
+      "m04": {
+        "input": "中文",
+        "note": null,
+        "python": "中文",
+        "want": "中文"
+      },
+      "m05": {
+        "input": "line1\nline2",
+        "note": null,
+        "python": "line1 line2",
+        "want": "line1 line2"
+      },
+      "m06": {
+        "input": "tab\there",
+        "note": null,
+        "python": "tab\there",
+        "want": "tab\there"
+      }
+    },
+    "safe_path_check": {
+      "p00": {
+        "input": "ok.html",
+        "note": null,
+        "python": {
+          "ok": true,
+          "rel": "ok.html"
+        },
+        "want": {
+          "ok": true,
+          "rel": "ok.html"
+        }
+      },
+      "p01": {
+        "input": "sub/a.txt",
+        "note": null,
+        "python": {
+          "ok": true,
+          "rel": "sub/a.txt"
+        },
+        "want": {
+          "ok": true,
+          "rel": "sub/a.txt"
+        }
+      },
+      "p02": {
+        "input": "bad.exe",
+        "note": null,
+        "python": {
+          "ok": false,
+          "rel": null
+        },
+        "want": {
+          "ok": false,
+          "rel": null
+        }
+      },
+      "p03": {
+        "input": "missing.exe",
+        "note": null,
+        "python": {
+          "ok": true,
+          "rel": "missing.exe"
+        },
+        "want": {
+          "ok": true,
+          "rel": "missing.exe"
+        }
+      },
+      "p04": {
+        "input": "sub",
+        "note": null,
+        "python": {
+          "ok": true,
+          "rel": "sub"
+        },
+        "want": {
+          "ok": true,
+          "rel": "sub"
+        }
+      },
+      "p05": {
+        "input": "",
+        "note": null,
+        "python": {
+          "ok": true,
+          "rel": "."
+        },
+        "want": {
+          "ok": true,
+          "rel": "."
+        }
+      },
+      "p06": {
+        "input": ".",
+        "note": null,
+        "python": {
+          "ok": true,
+          "rel": "."
+        },
+        "want": {
+          "ok": true,
+          "rel": "."
+        }
+      },
+      "p07": {
+        "input": "ok.txt",
+        "note": null,
+        "python": {
+          "ok": true,
+          "rel": "ok.txt"
+        },
+        "want": {
+          "ok": true,
+          "rel": "ok.txt"
+        }
+      },
+      "p08": {
+        "input": "X.HTML",
+        "note": null,
+        "python": {
+          "ok": true,
+          "rel": "X.HTML"
+        },
+        "want": {
+          "ok": true,
+          "rel": "X.HTML"
+        }
+      },
+      "p09": {
+        "input": "dir/",
+        "note": null,
+        "python": {
+          "ok": true,
+          "rel": "dir"
+        },
+        "want": {
+          "ok": true,
+          "rel": "dir"
+        }
+      },
+      "p10": {
+        "input": "a//b",
+        "note": null,
+        "python": {
+          "ok": true,
+          "rel": "a/b"
+        },
+        "want": {
+          "ok": true,
+          "rel": "a/b"
+        }
+      },
+      "p11": {
+        "input": "../etc/passwd",
+        "note": null,
+        "python": {
+          "ok": false,
+          "rel": null
+        },
+        "want": {
+          "ok": false,
+          "rel": null
+        }
+      },
+      "p12": {
+        "input": "/../etc/passwd",
+        "note": null,
+        "python": {
+          "ok": false,
+          "rel": null
+        },
+        "want": {
+          "ok": false,
+          "rel": null
+        }
+      },
+      "p13": {
+        "input": "../pages-evil/x.html",
+        "note": null,
+        "python": {
+          "ok": false,
+          "rel": null
+        },
+        "want": {
+          "ok": false,
+          "rel": null
+        }
+      },
+      "p14": {
+        "input": "/../pages-evil/secret.txt",
+        "note": null,
+        "python": {
+          "ok": false,
+          "rel": null
+        },
+        "want": {
+          "ok": false,
+          "rel": null
+        }
+      },
+      "p15": {
+        "input": "sub/../ok.html",
+        "note": "已知差异 D3：卡片 S2-1 要求「拒绝路径中含 `..` 的输入」（WLWL 的 PATH_CANONICAL 是词法判定、不解析符号链接）⇒ WLWL 拒绝、Python 允许（Python 的 resolve() 会消解 `..`）。",
+        "python": {
+          "ok": true,
+          "rel": "ok.html"
+        },
+        "want": {
+          "ok": false,
+          "rel": null
+        }
+      },
+      "p16": {
+        "input": "{BASE}/ok.html",
+        "note": null,
+        "python": {
+          "ok": true,
+          "rel": "ok.html"
+        },
+        "want": {
+          "ok": true,
+          "rel": "ok.html"
+        }
+      },
+      "p17": {
+        "input": "{BASE}/../pages-evil/x.html",
+        "note": null,
+        "python": {
+          "ok": false,
+          "rel": null
+        },
+        "want": {
+          "ok": false,
+          "rel": null
+        }
+      }
+    },
+    "source_path": {
+      "s00": {
+        "input": "pages/article/2026-01-01-x.html",
+        "note": null,
+        "python": "pages/article/2026-01-01-x.md",
+        "want": "pages/article/2026-01-01-x.md"
+      },
+      "s01": {
+        "input": "x.html",
+        "note": null,
+        "python": "x.md",
+        "want": "x.md"
+      },
+      "s02": {
+        "input": "a.b.html",
+        "note": null,
+        "python": "a.b.md",
+        "want": "a.b.md"
+      },
+      "s03": {
+        "input": "foo.",
+        "note": null,
+        "python": "foo..md",
+        "want": "foo..md"
+      },
+      "s04": {
+        "input": "noext",
+        "note": null,
+        "python": "noext.md",
+        "want": "noext.md"
+      },
+      "s05": {
+        "input": "dir.with.dot/file.html",
+        "note": null,
+        "python": "dir.with.dot/file.md",
+        "want": "dir.with.dot/file.md"
+      },
+      "s06": {
+        "input": ".bashrc",
+        "note": null,
+        "python": ".bashrc.md",
+        "want": ".bashrc.md"
+      },
+      "s07": {
+        "input": "x.tar.gz",
+        "note": null,
+        "python": "x.tar.md",
+        "want": "x.tar.md"
+      },
+      "s08": {
+        "input": "2026-01-01-x.md",
+        "note": null,
+        "python": "2026-01-01-x.md",
+        "want": "2026-01-01-x.md"
+      }
+    },
+    "unescape_to_fixpoint": {
+      "u00": {
+        "input": "&amp;",
+        "note": null,
+        "python": "&",
+        "want": "&"
+      },
+      "u01": {
+        "input": "&amp;amp;",
+        "note": null,
+        "python": "&",
+        "want": "&"
+      },
+      "u02": {
+        "input": "a &lt;b&gt;",
+        "note": null,
+        "python": "a <b>",
+        "want": "a <b>"
+      },
+      "u03": {
+        "input": "&quot;x&quot;",
+        "note": null,
+        "python": "\"x\"",
+        "want": "\"x\""
+      },
+      "u04": {
+        "input": "&#39;",
+        "note": null,
+        "python": "'",
+        "want": "'"
+      },
+      "u05": {
+        "input": "&#x27;",
+        "note": null,
+        "python": "'",
+        "want": "'"
+      },
+      "u06": {
+        "input": "&apos;",
+        "note": null,
+        "python": "'",
+        "want": "'"
+      },
+      "u07": {
+        "input": "&nbsp;",
+        "note": null,
+        "python": " ",
+        "want": " "
+      },
+      "u08": {
+        "input": "&copy;",
+        "note": null,
+        "python": "©",
+        "want": "©"
+      },
+      "u09": {
+        "input": "&hellip;",
+        "note": null,
+        "python": "…",
+        "want": "…"
+      },
+      "u10": {
+        "input": "&mdash;",
+        "note": null,
+        "python": "—",
+        "want": "—"
+      },
+      "u11": {
+        "input": "&ldquo;",
+        "note": null,
+        "python": "“",
+        "want": "“"
+      },
+      "u12": {
+        "input": "&notit;",
+        "note": null,
+        "python": "¬it;",
+        "want": "¬it;"
+      },
+      "u13": {
+        "input": "&unknown;",
+        "note": null,
+        "python": "&unknown;",
+        "want": "&unknown;"
+      },
+      "u14": {
+        "input": "&#65;&#x42;",
+        "note": null,
+        "python": "AB",
+        "want": "AB"
+      },
+      "u15": {
+        "input": "&#00065;",
+        "note": null,
+        "python": "A",
+        "want": "A"
+      },
+      "u16": {
+        "input": "&#x1F600;",
+        "note": null,
+        "python": "😀",
+        "want": "😀"
+      },
+      "u17": {
+        "input": "&#1114112;",
+        "note": null,
+        "python": "�",
+        "want": "�"
+      },
+      "u18": {
+        "input": "&#xZZ;",
+        "note": null,
+        "python": "&#xZZ;",
+        "want": "&#xZZ;"
+      },
+      "u19": {
+        "input": "&euro;",
+        "note": null,
+        "python": "€",
+        "want": "€"
+      },
+      "u20": {
+        "input": "&Chi;",
+        "note": null,
+        "python": "Χ",
+        "want": "Χ"
+      },
+      "u21": {
+        "input": "&reg;",
+        "note": null,
+        "python": "®",
+        "want": "®"
+      },
+      "u22": {
+        "input": "&trade;",
+        "note": null,
+        "python": "™",
+        "want": "™"
+      },
+      "u23": {
+        "input": "&bull;",
+        "note": null,
+        "python": "•",
+        "want": "•"
+      },
+      "u24": {
+        "input": "&deg;",
+        "note": null,
+        "python": "°",
+        "want": "°"
+      },
+      "u25": {
+        "input": "&times;",
+        "note": null,
+        "python": "×",
+        "want": "×"
+      },
+      "u26": {
+        "input": "&laquo;",
+        "note": null,
+        "python": "«",
+        "want": "«"
+      },
+      "u27": {
+        "input": "&middot;",
+        "note": null,
+        "python": "·",
+        "want": "·"
+      },
+      "u28": {
+        "input": "&dagger;",
+        "note": null,
+        "python": "†",
+        "want": "†"
+      },
+      "u29": {
+        "input": "&prime;",
+        "note": null,
+        "python": "′",
+        "want": "′"
+      },
+      "u30": {
+        "input": "&larr;",
+        "note": null,
+        "python": "←",
+        "want": "←"
+      },
+      "u31": {
+        "input": "&infin;",
+        "note": null,
+        "python": "∞",
+        "want": "∞"
+      },
+      "u32": {
+        "input": "&ne;",
+        "note": null,
+        "python": "≠",
+        "want": "≠"
+      },
+      "u33": {
+        "input": "&le;",
+        "note": null,
+        "python": "≤",
+        "want": "≤"
+      },
+      "u34": {
+        "input": "&gt;",
+        "note": null,
+        "python": ">",
+        "want": ">"
+      },
+      "u35": {
+        "input": "&frac12;",
+        "note": null,
+        "python": "½",
+        "want": "½"
+      },
+      "u36": {
+        "input": "&hearts;",
+        "note": null,
+        "python": "♥",
+        "want": "♥"
+      },
+      "u37": {
+        "input": "&spades;",
+        "note": null,
+        "python": "♠",
+        "want": "♠"
+      },
+      "u38": {
+        "input": "&alpha;",
+        "note": null,
+        "python": "α",
+        "want": "α"
+      },
+      "u39": {
+        "input": "&Omega;",
+        "note": null,
+        "python": "Ω",
+        "want": "Ω"
+      },
+      "u40": {
+        "input": "&sigma;",
+        "note": null,
+        "python": "σ",
+        "want": "σ"
+      },
+      "u41": {
+        "input": "&pound;",
+        "note": null,
+        "python": "£",
+        "want": "£"
+      },
+      "u42": {
+        "input": "&yen;",
+        "note": null,
+        "python": "¥",
+        "want": "¥"
+      },
+      "u43": {
+        "input": "&sect;",
+        "note": null,
+        "python": "§",
+        "want": "§"
+      },
+      "u44": {
+        "input": "&para;",
+        "note": null,
+        "python": "¶",
+        "want": "¶"
+      },
+      "u45": {
+        "input": "&micro;",
+        "note": null,
+        "python": "µ",
+        "want": "µ"
+      },
+      "u46": {
+        "input": "&plusmn;",
+        "note": null,
+        "python": "±",
+        "want": "±"
+      },
+      "u47": {
+        "input": "&divide;",
+        "note": null,
+        "python": "÷",
+        "want": "÷"
+      },
+      "u48": {
+        "input": "&not;",
+        "note": null,
+        "python": "¬",
+        "want": "¬"
+      },
+      "u49": {
+        "input": "&macr;",
+        "note": null,
+        "python": "¯",
+        "want": "¯"
+      },
+      "u50": {
+        "input": "&sup2;",
+        "note": null,
+        "python": "²",
+        "want": "²"
+      },
+      "u51": {
+        "input": "&frac14;",
+        "note": null,
+        "python": "¼",
+        "want": "¼"
+      },
+      "u52": {
+        "input": "&frac34;",
+        "note": null,
+        "python": "¾",
+        "want": "¾"
+      },
+      "u53": {
+        "input": "&iexcl;",
+        "note": null,
+        "python": "¡",
+        "want": "¡"
+      },
+      "u54": {
+        "input": "&iquest;",
+        "note": null,
+        "python": "¿",
+        "want": "¿"
+      },
+      "u55": {
+        "input": "&brvbar;",
+        "note": null,
+        "python": "¦",
+        "want": "¦"
+      },
+      "u56": {
+        "input": "&curren;",
+        "note": null,
+        "python": "¤",
+        "want": "¤"
+      },
+      "u57": {
+        "input": "&uml;",
+        "note": null,
+        "python": "¨",
+        "want": "¨"
+      },
+      "u58": {
+        "input": "&ordf;",
+        "note": null,
+        "python": "ª",
+        "want": "ª"
+      },
+      "u59": {
+        "input": "&ordm;",
+        "note": null,
+        "python": "º",
+        "want": "º"
+      },
+      "u60": {
+        "input": "&sbquo;",
+        "note": null,
+        "python": "‚",
+        "want": "‚"
+      },
+      "u61": {
+        "input": "&bdquo;",
+        "note": null,
+        "python": "„",
+        "want": "„"
+      },
+      "u62": {
+        "input": "&Dagger;",
+        "note": null,
+        "python": "‡",
+        "want": "‡"
+      },
+      "u63": {
+        "input": "&permil;",
+        "note": null,
+        "python": "‰",
+        "want": "‰"
+      },
+      "u64": {
+        "input": "&lsaquo;",
+        "note": null,
+        "python": "‹",
+        "want": "‹"
+      },
+      "u65": {
+        "input": "&rsaquo;",
+        "note": null,
+        "python": "›",
+        "want": "›"
+      },
+      "u66": {
+        "input": "&scaron;",
+        "note": null,
+        "python": "š",
+        "want": "š"
+      },
+      "u67": {
+        "input": "&Scaron;",
+        "note": null,
+        "python": "Š",
+        "want": "Š"
+      },
+      "u68": {
+        "input": "&Yuml;",
+        "note": null,
+        "python": "Ÿ",
+        "want": "Ÿ"
+      },
+      "u69": {
+        "input": "&fnof;",
+        "note": null,
+        "python": "ƒ",
+        "want": "ƒ"
+      },
+      "u70": {
+        "input": "&circ;",
+        "note": null,
+        "python": "ˆ",
+        "want": "ˆ"
+      },
+      "u71": {
+        "input": "&tilde;",
+        "note": null,
+        "python": "˜",
+        "want": "˜"
+      },
+      "u72": {
+        "input": "&Alpha;",
+        "note": null,
+        "python": "Α",
+        "want": "Α"
+      },
+      "u73": {
+        "input": "&beta;",
+        "note": null,
+        "python": "β",
+        "want": "β"
+      },
+      "u74": {
+        "input": "&zeta;",
+        "note": null,
+        "python": "ζ",
+        "want": "ζ"
+      },
+      "u75": {
+        "input": "&theta;",
+        "note": null,
+        "python": "θ",
+        "want": "θ"
+      },
+      "u76": {
+        "input": "&iota;",
+        "note": null,
+        "python": "ι",
+        "want": "ι"
+      },
+      "u77": {
+        "input": "&kappa;",
+        "note": null,
+        "python": "κ",
+        "want": "κ"
+      },
+      "u78": {
+        "input": "&lambda;",
+        "note": null,
+        "python": "λ",
+        "want": "λ"
+      },
+      "u79": {
+        "input": "&mu;",
+        "note": null,
+        "python": "μ",
+        "want": "μ"
+      },
+      "u80": {
+        "input": "&amp",
+        "note": null,
+        "python": "&",
+        "want": "&"
+      },
+      "u81": {
+        "input": "&lt",
+        "note": null,
+        "python": "<",
+        "want": "<"
+      },
+      "u82": {
+        "input": "&AMP;",
+        "note": null,
+        "python": "&",
+        "want": "&"
+      },
+      "u83": {
+        "input": "&amp;x",
+        "note": null,
+        "python": "&x",
+        "want": "&x"
+      },
+      "u84": {
+        "input": "&#38;",
+        "note": null,
+        "python": "&",
+        "want": "&"
+      },
+      "u85": {
+        "input": "&#x26;",
+        "note": null,
+        "python": "&",
+        "want": "&"
+      },
+      "u86": {
+        "input": "plain",
+        "note": null,
+        "python": "plain",
+        "want": "plain"
+      },
+      "u87": {
+        "input": "",
+        "note": null,
+        "python": "",
+        "want": ""
+      },
+      "u88": {
+        "input": "a&amp;b&lt;c&quot;d&#39;e",
+        "note": null,
+        "python": "a&b<c\"d'e",
+        "want": "a&b<c\"d'e"
+      },
+      "u89": {
+        "input": "&amp;amp;amp;",
+        "note": null,
+        "python": "&",
+        "want": "&"
+      }
+    },
+    "validate_content": {
+      "c00": {
+        "input": {
+          "input": ""
+        },
+        "note": null,
+        "python": true,
+        "want": true
+      },
+      "c01": {
+        "input": {
+          "input": "hello"
+        },
+        "note": null,
+        "python": true,
+        "want": true
+      },
+      "c02": {
+        "input": {
+          "repeat": {
+            "count": 50000,
+            "unit": "a"
+          }
+        },
+        "note": null,
+        "python": true,
+        "want": true
+      },
+      "c03": {
+        "input": {
+          "repeat": {
+            "count": 50001,
+            "unit": "a"
+          }
+        },
+        "note": null,
+        "python": false,
+        "want": false
+      },
+      "c04": {
+        "input": {
+          "repeat": {
+            "count": 16667,
+            "unit": "中"
+          }
+        },
+        "note": null,
+        "python": true,
+        "want": true
+      },
+      "c05": {
+        "input": {
+          "repeat": {
+            "count": 16668,
+            "unit": "中"
+          }
+        },
+        "note": null,
+        "python": true,
+        "want": true
+      },
+      "c06": {
+        "input": {
+          "repeat": {
+            "count": 50001,
+            "unit": "中"
+          }
+        },
+        "note": null,
+        "python": false,
+        "want": false
+      },
+      "c07": {
+        "input": {
+          "codepoints": [
+            97,
+            9,
+            98,
+            10,
+            99,
+            13
+          ]
+        },
+        "note": null,
+        "python": true,
+        "want": true
+      },
+      "c08": {
+        "input": {
+          "codepoints": [
+            97,
+            97,
+            97,
+            97,
+            97,
+            97,
+            97,
+            97,
+            97,
+            1
+          ]
+        },
+        "note": null,
+        "python": true,
+        "want": true
+      },
+      "c09": {
+        "input": {
+          "codepoints": [
+            97,
+            97,
+            97,
+            97,
+            97,
+            97,
+            97,
+            97,
+            97,
+            1,
+            2
+          ]
+        },
+        "note": null,
+        "python": false,
+        "want": false
+      },
+      "c10": {
+        "input": {
+          "codepoints": [
+            1,
+            1,
+            1,
+            1,
+            1,
+            1,
+            1,
+            1,
+            1,
+            1
+          ]
+        },
+        "note": null,
+        "python": false,
+        "want": false
+      },
+      "c11": {
+        "input": {
+          "codepoints": [
+            1,
+            1,
+            1,
+            1,
+            1,
+            1,
+            1,
+            1,
+            1,
+            1,
+            1
+          ]
+        },
+        "note": null,
+        "python": false,
+        "want": false
+      },
+      "c12": {
+        "input": {
+          "codepoints": [
+            0,
+            0,
+            0,
+            0,
+            0,
+            97,
+            97,
+            97,
+            97,
+            97,
+            97,
+            97,
+            97,
+            97,
+            97,
+            97,
+            97,
+            97,
+            97,
+            97,
+            97,
+            97,
+            97,
+            97,
+            97,
+            97,
+            97,
+            97,
+            97,
+            97,
+            97,
+            97,
+            97,
+            97,
+            97,
+            97,
+            97,
+            97,
+            97,
+            97,
+            97,
+            97,
+            97,
+            97,
+            97,
+            97,
+            97,
+            97,
+            97,
+            97,
+            97,
+            97,
+            97,
+            97,
+            97,
+            97,
+            97,
+            97,
+            97,
+            97,
+            97,
+            97,
+            97,
+            97,
+            97,
+            97,
+            97,
+            97,
+            97,
+            97,
+            97,
+            97,
+            97,
+            97,
+            97,
+            97,
+            97,
+            97,
+            97,
+            97,
+            97,
+            97,
+            97,
+            97,
+            97,
+            97,
+            97,
+            97,
+            97,
+            97,
+            97,
+            97,
+            97,
+            97,
+            97,
+            97,
+            97,
+            97,
+            97,
+            97
+          ]
+        },
+        "note": null,
+        "python": true,
+        "want": true
+      }
+    },
+    "validate_date_format": {
+      "d00": {
+        "input": "2026-01-01 10:00",
+        "note": null,
+        "python": true,
+        "want": true
+      },
+      "d01": {
+        "input": "2026-12-31 23:59",
+        "note": null,
+        "python": true,
+        "want": true
+      },
+      "d02": {
+        "input": "2000-01-01 00:00",
+        "note": null,
+        "python": true,
+        "want": true
+      },
+      "d03": {
+        "input": "2100-12-31 23:59",
+        "note": null,
+        "python": true,
+        "want": true
+      },
+      "d04": {
+        "input": "2101-01-01 00:00",
+        "note": null,
+        "python": false,
+        "want": false
+      },
+      "d05": {
+        "input": "1999-12-31 23:59",
+        "note": null,
+        "python": false,
+        "want": false
+      },
+      "d06": {
+        "input": "2026-02-30 10:00",
+        "note": null,
+        "python": false,
+        "want": false
+      },
+      "d07": {
+        "input": "2026-02-29 10:00",
+        "note": null,
+        "python": false,
+        "want": false
+      },
+      "d08": {
+        "input": "2024-02-29 10:00",
+        "note": null,
+        "python": true,
+        "want": true
+      },
+      "d09": {
+        "input": "2000-02-29 10:00",
+        "note": null,
+        "python": true,
+        "want": true
+      },
+      "d10": {
+        "input": "2100-02-29 10:00",
+        "note": null,
+        "python": false,
+        "want": false
+      },
+      "d11": {
+        "input": "2026-00-01 10:00",
+        "note": null,
+        "python": false,
+        "want": false
+      },
+      "d12": {
+        "input": "2026-13-01 10:00",
+        "note": null,
+        "python": false,
+        "want": false
+      },
+      "d13": {
+        "input": "2026-01-00 10:00",
+        "note": null,
+        "python": false,
+        "want": false
+      },
+      "d14": {
+        "input": "2026-01-32 10:00",
+        "note": null,
+        "python": false,
+        "want": false
+      },
+      "d15": {
+        "input": "2026-04-31 10:00",
+        "note": null,
+        "python": false,
+        "want": false
+      },
+      "d16": {
+        "input": "2026-01-01 24:00",
+        "note": null,
+        "python": false,
+        "want": false
+      },
+      "d17": {
+        "input": "2026-01-01 10:60",
+        "note": null,
+        "python": false,
+        "want": false
+      },
+      "d18": {
+        "input": "2026-01-01 10:00\n",
+        "note": null,
+        "python": false,
+        "want": false
+      },
+      "d19": {
+        "input": "2026-1-01 10:00",
+        "note": null,
+        "python": false,
+        "want": false
+      },
+      "d20": {
+        "input": "2026-01-01T10:00",
+        "note": null,
+        "python": false,
+        "want": false
+      },
+      "d21": {
+        "input": "0000-01-01 00:00",
+        "note": null,
+        "python": false,
+        "want": false
+      },
+      "d22": {
+        "input": "٢٠٢٦-01-01 10:00",
+        "note": null,
+        "python": true,
+        "want": true
+      }
+    },
+    "validate_filename": {
+      "f00": {
+        "input": "2026-01-01-x.html",
+        "note": null,
+        "python": true,
+        "want": true
+      },
+      "f01": {
+        "input": "2026-01-01-中文.html",
+        "note": null,
+        "python": true,
+        "want": true
+      },
+      "f02": {
+        "input": "2026-01-01-x-y.html",
+        "note": null,
+        "python": true,
+        "want": true
+      },
+      "f03": {
+        "input": "2026-01-01--.html",
+        "note": null,
+        "python": true,
+        "want": true
+      },
+      "f04": {
+        "input": "2026-01-01-.html",
+        "note": null,
+        "python": false,
+        "want": false
+      },
+      "f05": {
+        "input": "2026-01-01-x.HTML",
+        "note": null,
+        "python": false,
+        "want": false
+      },
+      "f06": {
+        "input": "2026-01-01-x_y.html",
+        "note": null,
+        "python": false,
+        "want": false
+      },
+      "f07": {
+        "input": "2026-01-01-x h.html",
+        "note": null,
+        "python": false,
+        "want": false
+      },
+      "f08": {
+        "input": "2026-01-01-x.md",
+        "note": null,
+        "python": false,
+        "want": false
+      },
+      "f09": {
+        "input": "2026-01-01-x.html.md",
+        "note": null,
+        "python": false,
+        "want": false
+      },
+      "f10": {
+        "input": "2100-12-31-x.html",
+        "note": null,
+        "python": true,
+        "want": true
+      },
+      "f11": {
+        "input": "2000-01-01-x.html",
+        "note": null,
+        "python": true,
+        "want": true
+      },
+      "f12": {
+        "input": "2101-01-01-x.html",
+        "note": null,
+        "python": false,
+        "want": false
+      },
+      "f13": {
+        "input": "1999-12-31-x.html",
+        "note": null,
+        "python": false,
+        "want": false
+      },
+      "f14": {
+        "input": "2026-00-01-x.html",
+        "note": null,
+        "python": false,
+        "want": false
+      },
+      "f15": {
+        "input": "2026-13-01-x.html",
+        "note": null,
+        "python": false,
+        "want": false
+      },
+      "f16": {
+        "input": "2026-01-00-x.html",
+        "note": null,
+        "python": false,
+        "want": false
+      },
+      "f17": {
+        "input": "2026-01-32-x.html",
+        "note": null,
+        "python": false,
+        "want": false
+      },
+      "f18": {
+        "input": "2026-02-31-x.html",
+        "note": null,
+        "python": true,
+        "want": true
+      },
+      "f19": {
+        "input": "02026-01-01-x.html",
+        "note": null,
+        "python": false,
+        "want": false
+      },
+      "f20": {
+        "input": "2026-1-01-x.html",
+        "note": null,
+        "python": false,
+        "want": false
+      },
+      "f21": {
+        "input": "../etc/passwd",
+        "note": null,
+        "python": false,
+        "want": false
+      },
+      "f22": {
+        "input": "pages-evil/x.html",
+        "note": null,
+        "python": false,
+        "want": false
+      },
+      "f23": {
+        "input": "",
+        "note": null,
+        "python": false,
+        "want": false
+      },
+      "f24": {
+        "input": "2026-01-01-x.html\n",
+        "note": null,
+        "python": true,
+        "want": true
+      },
+      "f25": {
+        "input": "2026-01-01-中文-x.html",
+        "note": null,
+        "python": true,
+        "want": true
+      },
+      "f26": {
+        "input": "2026-01-01-x-龥.html",
+        "note": null,
+        "python": true,
+        "want": true
+      },
+      "f27": {
+        "input": "2026-01-01-x-龦.html",
+        "note": null,
+        "python": false,
+        "want": false
+      },
+      "f28": {
+        "input": "2026-01-01-x-一.html",
+        "note": null,
+        "python": true,
+        "want": true
+      },
+      "f29": {
+        "input": "2026-01-01-x-〇.html",
+        "note": null,
+        "python": false,
+        "want": false
+      },
+      "f30": {
+        "input": "٢٠٢٦-01-01-x.html",
+        "note": "已知差异 D2：Python `re` 的 `\\d` 匹配 Unicode 数字（`int()` 也能解析），WLWL 的 `\\d` 只认 ASCII ⇒ WLWL 拒绝、Python 接受。",
+        "python": true,
+        "want": false
+      }
+    },
+    "validate_title": {
+      "t00": {
+        "input": {
+          "input": ""
+        },
+        "note": null,
+        "python": true,
+        "want": true
+      },
+      "t01": {
+        "input": {
+          "input": "x"
+        },
+        "note": null,
+        "python": true,
+        "want": true
+      },
+      "t02": {
+        "input": {
+          "repeat": {
+            "count": 199,
+            "unit": "x"
+          }
+        },
+        "note": null,
+        "python": true,
+        "want": true
+      },
+      "t03": {
+        "input": {
+          "repeat": {
+            "count": 200,
+            "unit": "x"
+          }
+        },
+        "note": null,
+        "python": true,
+        "want": true
+      },
+      "t04": {
+        "input": {
+          "repeat": {
+            "count": 201,
+            "unit": "x"
+          }
+        },
+        "note": null,
+        "python": false,
+        "want": false
+      },
+      "t05": {
+        "input": {
+          "repeat": {
+            "count": 200,
+            "unit": "中"
+          }
+        },
+        "note": null,
+        "python": true,
+        "want": true
+      },
+      "t06": {
+        "input": {
+          "repeat": {
+            "count": 201,
+            "unit": "中"
+          }
+        },
+        "note": null,
+        "python": false,
+        "want": false
+      }
+    },
+    "write_source": {
+      "w00": {
+        "input": {
+          "content": "body\r\nline2\n",
+          "html_path": "2026-01-01-x.html"
+        },
+        "note": null,
+        "python": {
+          "content": "body\r\nline2\n",
+          "md_name": "2026-01-01-x.md"
+        },
+        "want": {
+          "content": "body\r\nline2\n",
+          "md_name": "2026-01-01-x.md"
+        }
+      },
+      "w01": {
+        "input": {
+          "content": "",
+          "html_path": "2026-01-01-y.html"
+        },
+        "note": null,
+        "python": {
+          "content": "",
+          "md_name": "2026-01-01-y.md"
+        },
+        "want": {
+          "content": "",
+          "md_name": "2026-01-01-y.md"
+        }
+      },
+      "w02": {
+        "input": {
+          "content": "中文\n中文",
+          "html_path": "2026-01-01-z.html"
+        },
+        "note": null,
+        "python": {
+          "content": "中文\n中文",
+          "md_name": "2026-01-01-z.md"
+        },
+        "want": {
+          "content": "中文\n中文",
+          "md_name": "2026-01-01-z.md"
+        }
+      },
+      "w03": {
+        "input": {
+          "content": "no trailing newline",
+          "html_path": "2026-01-01-w.html"
+        },
+        "note": null,
+        "python": {
+          "content": "no trailing newline",
+          "md_name": "2026-01-01-w.md"
+        },
+        "want": {
+          "content": "no trailing newline",
+          "md_name": "2026-01-01-w.md"
+        }
+      }
+    }
+  }
+}

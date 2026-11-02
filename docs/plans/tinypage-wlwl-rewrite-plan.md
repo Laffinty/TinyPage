@@ -33,7 +33,7 @@
 | S1-2 行内解析器 | ✅ 完成 | `tp/lib/md_inline.wll`（生成器产出）；**21/21 测试通过**，含 3 个反向守卫 |
 | S1-3 块级解析器 | ✅ 完成 | `tp/lib/md.wll`（生成器产出）；**28/28 对照 mistune 3.2.1 逐字节通过**（25 基准 + 3 守卫）；链接去掉自加的 `rel` 属性以逐字节对齐 |
 | S1-4 front-matter/TOC/脚注/wikilink | ✅ 完成 | `frontmatter.wll` / `toc.wll` / `footnotes.wll` / `wikilink.wll` + 共享 `esc.wll`（全部生成器产出）；**38/38 + 41/41 + 23/23 + 28/28 + esc 19/19 全绿**；本地 CI 5 步全过（21 生成器 / 21 产物无 drift） |
-| S2 内容模型与生成器 | ⬜ 未开始 | `content.wll` + `generator.wll` + 站点产物 |
+| S2 内容模型与生成器 | 🔄 进行中（**2026-11-02 因额度中止，见 §0.3 断点快照**） | 卡 S2-2 首轮 ✅（`tp/lib/sort_util.wll`，**25/25**，2000 元素 618ms，比内建 `SORT` 快约 170 倍）；卡 S2-2 补缺口 ⚠（4 个导出已落地，**新导出零基准零测试**）；卡 S2-1 ⚠（**基准 246 条已交付**，实现与测试未写） |
 | S3 前台静态服务（TLS） | ⬜ 未开始 | `serve_public.wll`（TLS 终止 + 静态文件） |
 | S4 Admin 后台 | ⬜ 未开始 | `serve_admin.wll` + 会话/CSRF/限流/CRUD |
 | S5 AI 助手（出站 HTTPS） | ⬜ 未开始 | `ai.wll`（`tls.CONNECT` + 手写 HTTP/1.1） |
@@ -56,11 +56,13 @@
 3. **测试必须自己把关退出码**：`RUN_TESTS()` 的失败**不影响退出码**（规范明载）
    ⇒ 测试文件末尾要 `IF(>(failed, 0), (PRINT_ERR(...); PANIC(...)), NULL);`，
    否则「测试失败但 CI 绿」。
-4. **实测得到的十九条 WLWL 陷阱**见 `tp/README.md` 的对照表（无中缀算术、`CAT` 不拼数组、
+4. **实测得到的二十四条 WLWL 陷阱**见 `tp/README.md` 的对照表（无中缀算术、`CAT` 不拼数组、
    `WHILE` 值为 NULL、顶层语句缺分号、`std.*` 须 IMPORT、`&&`/`||` 而非 `AND`/`OR`、
    字符串转义白名单、布尔大写、递归上限 2000、`SORT` 二次复杂度、`FUN` 两组括号、
    闭包读写外层 `LET MUT`、`CAT` 遇 NULL 拼出字面 `NULL`、无逗号表达式、
-   `RE_TEST` 整串锚定、正则无前瞻、`$1` 而非 `\1`、`\w` 不含非 ASCII、内建 `HTML_ESCAPE` 出 `&#39;`）。
+   `RE_TEST` 整串锚定、正则无前瞻、`$1` 而非 `\1`、`\w` 不含非 ASCII、内建 `HTML_ESCAPE` 出 `&#39;`、
+   正则不认 `\uXXXX`、**读数组绑定深拷贝 ⇒ `AT`/`LEN` 实测 O(n)**、**`PUSH` 是纯函数不原地修改**、
+   **`READ_FILE`/`WRITE_FILE` 不转换行尾（Python `read_text` 会转）**、**`WRITE_FILE_ATOMIC` 成功返回 `NULL`、失败返回 `ERR`**）。
 5. **项目根 = 含 `wlwl.toml` 的最近祖先目录** ⇒ `tp/wlwl.toml` 必须存在，
    否则 `tp/test/` 里的 `IMPORT("./../lib/...")` 越界（`E0040`）。
 6. **共享工具只留一份**：HTML 转义统一走 `tp/lib/esc.wll::ESCAPE_HTML`
@@ -88,6 +90,95 @@
    | a | PowerShell 把 native 命令的 stderr 当错误流 | pwsh 7 下守卫步**误报红**（退出码明明是 3） | 该步用 `shell: cmd` + `call :label` 取退出码，**不让 PowerShell 参与** |
    | b | cmd 的 `REM` 行不认 UTF-8 | yml 里的中文注释被当命令执行 | CI yml 与 `.ps1` 的注释**一律英文** |
    | c | PowerShell 5.1 读无 BOM 的 `.ps1` 按 ANSI 码页解析 | 中文注释让字节错位 ⇒ 引号被破坏 ⇒ `Unexpected token '}'` | `.ps1` 保持**纯 ASCII**；`.gitattributes` 用 `text eol=crlf` |
+
+### §0.3 断点快照（2026-11-02 07:00–08:15 因运行额度中止）
+
+> 两个 worker 被中止。**本节是接续工作的唯一依据** —— 恢复时先读这里，再读 §2.1。
+
+**中止时的整体状态**：S1 全部完成并已推送（CI run #5 十步全绿）；
+S2-2 已完成并核验；S2-1 完成了一半（基准已交付，实现未写）；
+S2-2 的「补两个缺口导出」已完成实现、**但基准与测试未补**。
+工作区**自洽**（三个 sort_util 生成器幂等、无 drift），**但有未提交的改动**。
+
+#### ✅ 已完成且经父进程独立核验
+
+| 项 | 状态 | 读数 |
+|---|---|---|
+| 卡 S2-2 首轮（`SORT_BY_DATE` / `SORT_STRINGS`） | ✅ 完成 | `wlwl check` OK (6648 bytes)；`wlwl run` **25/25**（22 基准 + 3 守卫），failed=0，exit 0；2000 元素 **635ms** vs 内建 `SORT` 约 113s |
+| §2.1 台账 F18–F24（7 条新事实） | ✅ 已入册 | 均附父进程独立实测读数与归因实验 |
+| `tp/README.md` 陷阱表 | ✅ 扩到 **24 条** | 新增 #21–#24（数组绑定克隆 / `PUSH` 纯函数 / 行尾不转换 / 原子写返回语义） |
+| S2-1～S2-5 + S3-1 的 Python 侧权威落点 | ✅ 已入卡片 | 含 `validate_filename` 7 项规则、写入 5 步校验顺序、删除 8 步回滚、渲染 7 步顺序、模板 19 占位符、产物 9 个函数位置、nginx 5 安全头等 |
+
+#### ⚠ 卡 S2-1（`article_store.wll`）—— **基准已交付，实现未写**
+
+| 文件 | 状态 |
+|---|---|
+| `tp/test/gen_article_store_baseline.py` | ✅ **已交付**（453 行） |
+| `tp/test/fixtures/article_store_baseline.json` | ✅ **已交付**（**246 条 / 11 组**，只有 2 条已知差异） |
+| `tp/test/gen_article_store.py`（实现生成器） | ❌ **未写** |
+| `tp/lib/article_store.wll` | ❌ 未生成 |
+| `tp/test/gen_test_article_store.py`（测试生成器） | ❌ **未写** |
+| `tp/test/test_article_store.wll` | ❌ 未生成 |
+
+- **基准的 11 组**：`validate_filename`(31) / `validate_content`(13) / `validate_date_format`(23) /
+  `validate_title`(7) / `safe_path_check`(18) / `source_path`(9) / `write_source`(4) /
+  `decode_content`(22) / `decode_legacy_body`(22) / `unescape_to_fixpoint`(90) / `meta_value`(7)。
+- **全部直接 `import` 真 Python 实现**；唯一的「复刻」是 `validate_title`
+  （Python 侧无独立函数，规则内联在 `content.py:270`，已在 `TITLE_RULE_SOURCE` 标注出处）。
+- **基准已登记的 2 条已知差异**：
+  - **D2** `validate_filename/f30`：Python `re` 的 `\d` 匹配 Unicode 数字（`int()` 也能解析），
+    WLWL 的 `\d` 只认 ASCII ⇒ **WLWL 拒绝、Python 接受**。
+  - **D3** `safe_path_check/p15`：卡片要求「拒绝含 `..` 的输入」（WLWL 的 `PATH_CANONICAL`
+    是词法判定、不解析符号链接）⇒ **WLWL 拒绝、Python 允许**（Python 的 `resolve()` 会消解 `..`）。
+- ⚠ `safe_path_check` 的扩展名白名单分支**依赖目标是否真实存在** ⇒
+  基准用固定相对布局 `dirs=['sub'] files=['ok.html','bad.exe','sub/a.txt']`，
+  基准与测试**必须用同一份布局**。
+- ⚠ 基准路径一律用 `PurePosixPath` 渲染（Windows 上 `Path` 会渲染成 `\`）⇒ 夹具跨机器稳定。
+
+**接续要点**：实现生成器要覆盖 11 个对应导出；`validate_title` 与 `safe_path_check` 两条
+**按基准的 `want` 走**（不是 Python 的 `python` 值）；路径安全必须**额外**加「拒绝含 `..` 的输入」
+（卡片明确要求，且已作为 D3 登记）。
+
+#### ⚠ 卡 S2-2 补缺口 —— **实现已落地，但零测试覆盖**
+
+| 文件 | 状态 |
+|---|---|
+| `tp/test/gen_sort_util.py` | ✅ 已改为 **4 个导出**：`SORT_BY_DATE` / `SORT_BY_NUM_DESC` / `SORT_BY_TITLE_OR_FILE` / `SORT_STRINGS` |
+| `tp/test/gen_sort_util_baseline.py` | ✅ 已改为新结构 `{"cases":[{name, fn, input, expected, note}]}` |
+| `tp/test/gen_test_sort_util.py` | ✅ 已适配新结构（按 `case['fn']` 选导出） |
+| 三个产物 | ✅ 已重生成，**幂等**（重跑哈希不变 ⇒ no-drift 不会红） |
+| `tp/lib/sort_util.wll` | ✅ `wlwl check` OK (13778 bytes)，269 行 |
+
+- **现有 25 条测试仍全绿**（22 基准 + 3 守卫），2000 元素 **618ms**。
+- ⚠⚠ **缺口 A / 缺口 B 的基准用例与测试用例都还没写** ⇒
+  `SORT_BY_TITLE_OR_FILE` 与 `SORT_BY_NUM_DESC` **零覆盖**。
+  基准 JSON 的 `fn` 分布实测为 `{'SORT_STRINGS': 11, 'SORT_BY_DATE': 11}` ⇒ **无新导出用例**。
+- **父进程已做的冒烟验证**（临时探针，已删）—— 两个新导出行为与 Python **一致**：
+  | | Python 权威 | WLWL 实测 |
+  |---|---|---|
+  | A 顺序（`title` 空串回落 `file`） | `z.html \| b.html \| aaa.html`（键 `['Alpha','Beta','aaa.html']`） | 同 |
+  | B 顺序（数值倒序、相等键稳定） | `b a c`（键 `[0.9, 0.5, 0.5]`） | 同 |
+  | A 空数组 / B 单元素 | `0` / `1` | `0` / `1` |
+
+  ⇒ **但这只是冒烟**（3 组输入），**不是逐字节基准**。接续时**必须**补：
+  ① `gen_sort_util_baseline.py` 里加 `SORT_BY_TITLE_OR_FILE` 与 `SORT_BY_NUM_DESC` 的用例
+  （期望值由**真 Python** `sorted(..., key=...)` 产出；A 的键要用 `SimpleNamespace`
+  复刻 `ArticleMeta` 的**属性访问**语义，不是 dict）；② `gen_test_sort_util.py` 随之自动覆盖；
+  ③ 用例至少含：空 title 回落、相等键稳定性、数值倒序、空数组、单元素。
+
+#### 恢复后的执行顺序（建议）
+
+1. **先补 S2-2 缺口 A/B 的基准与测试**（生成器已就位，只差加用例）→ 跑全量本地 CI。
+2. **再写 S2-1 的实现生成器 + 测试生成器**（基准已有 246 条，实现有明确目标）。
+3. 两者都绿后**一次性提交推送**，确认 GitHub Actions 全绿。
+4. 之后才进 **S2-3（模板与主题）**。
+
+#### 中止时的收尾动作（已完成）
+
+- 两个 worker 的 **47 个 `tmp_probe*` 临时探针** + **6 个 `probe_out*` 目录**已清理
+  （⚠ 这些 `.wll` 会被 CI 静态检查器扫到，语法不合法的会让 CI 直接红 ⇒ **必须清**）。
+- 父进程自己的探针（`_probe_*` / `_tmp_*`）亦已全部清理。
+- `sort_util` 三个生成器已重跑确认幂等 ⇒ 工作区无 drift。
 
 ---
 
@@ -149,6 +240,13 @@
 | F15 | **`FUN` 是两个括号组** `FUN((params), (body))`；零参写 `FUN((), (body))` | `FUN((body))` → `E0010: expected parameter name, got If` |
 | F16 | **闭包可读可写外层 `LET MUT`**（`SET` 直达外层绑定） | 探针：`LET MUT(y, "Y0"); LET(g, FUN((), (SET(y, CAT(y, "+g"))))); g(); g();` ⇒ `y = Y0+g+g` |
 | F17 | **WLWL 正则不认 `\uXXXX`**：未知转义 `\u` 退化成**字面 `u`** ⇒ `\u4e00-\u9fa5` 匹配的是文本 `u4e00-u9fa5` 而**不是 CJK**。Python `re` 则认得它（`re.match(r"[一-龥]", "中")` → True） | 探针（wlwl 0.12.1）：`RE_TEST(RE("^[一-龥]+$"), "中文")` → **TRUE**；`RE_TEST(RE("^\\u4e00-\\u9fa5$"), "中")` → **FALSE**；同式对 `"u4e00-u9fa5"` → **TRUE** ⇒ 证明是字面匹配。**写字符类一律用字面 `一-龥`**（toc.wll 实测与 Python 逐字节一致） |
+| **F18** | ⚠⚠ **求值一个数组绑定会克隆整个数组** ⇒ `AT(arr,i)` / `arr[i]` / `LEN(arr)` 实测都是 **O(n)**，**违反规范 §18.3 的 O(1) 规范性上界**（⚠ 且 §18.6「参考实现未达标项」清单**没有登记这一条** ⇒ 可反馈上游的缺口） | 父进程独立实测（wlwl 0.12.1，300 次固定访问）：`AT` 在 500 元素数组 12ms / 2000 元素数组 35ms（**比值 2.9**）；`LEN` 8ms / 30ms（**比值 3.75**）。**归因实验**（2000 元素 × 300 次）：直接读绑定 **34ms** / 别名 `LET(alias,arr)` **39ms** / 字典取值 `AT_K(d,"a",[])` **42ms** / **字符串对照 `LEN(str1)` 仅 1ms** ⇒ **不是 `LEN` 本身慢，是「求值数组绑定」这一步克隆**（值语义 §19.1），且**别名与字典都绕不过**。⇒ **任何数组密集算法在本解释器上都是 O(n²)**，这是 S2-4（拼 HTML 数组）、S2-5（扫文件列表）、S3（发文件）的共同性能基线。**规避手段：把需要的元素/长度缓存进局部标量，绝不在热循环里反复读数组绑定** |
+| **F19** | **`PUSH` 是纯函数，不原地修改任何已有数组**（参数与自己上次返回值都不改）⇒ 必须 `SET(x, PUSH(x, v))` 或 `LET(x, PUSH(x, v))`，否则元素**静默丢失** | 父进程独立实测：`LET(x,[1,2,3]); PUSH(x,4);` ⇒ `LEN(x)` 仍 **3**；`LET(y,PUSH(x,4));` ⇒ `LEN(x)=3` `LEN(y)=4`；`PUSH(z2,10);` ⇒ `LEN(z2)` 仍 **4**（连它自己上次返回的数组也不改） |
+| **F20** | **`PUSH` 规范上是 O(n) 最坏**（「数组不可变，**必须**产出新数组」，§18.3）**，但参考实现识别了「可变累加器形态」**（§18.6 登记已达标）⇒ 循环内 `SET(p, PUSH(p,x))` 实测为**线性摊还 O(1)**，逐元素追加不退化成二次 | 父进程独立实测 `SET(p, PUSH(p,"x"))` 循环：1000 次 **3ms** / 2000 次 **6ms** / 4000 次 **8ms**（线性）。⚠ 注意：若**丢弃**返回值来测，数组永远不长 ⇒ 会误测成「更快的 O(1)」，两种测法结论不同 |
+| **F21** | **字符串比较是码点序**，与 Python `sorted` 完全一致 ⇒ 字符串排序可逐字节对照（UTF-8 字节序 == 码点序） | S2-2 实测：`"A"<"a"` ✔、`"中">"a"` ✔、`"é">"z"` ✔、`""<"z"` ✔、`"-"<"0"` ✔ |
+| **F22** | ⚠⚠ **`READ_FILE` / `WRITE_FILE` 不做任何行尾转换**（CRLF 原样保留），而 **Python 的 `Path.read_text()` 用 universal newlines ⇒ CRLF 转 LF** ⇒ **同一文件两边读出的字符串差 CRLF 个字符** | 父进程独立实测（`themes/default/theme.css`，**20326 bytes / 805 个 CRLF**）：Python `read_text()` → **19517 字符、无 CR**；WLWL `READ_FILE` → **20322 字符、有 CR**（`first_cr_index=63` 与 `first_lf_index=64` 相邻）⇒ **差 805**。写-读往返也保留（写 `"a\r\nb\r\n"` 读回长度 6）。⇒ **凡是要与 Python 逐字节对照的文件读取，WLWL 侧必须自己做 CRLF→LF 归一化**（S2-3 读 `theme.css` 必踩） |
+| **F23** | **`REMOVE` 只能删文件，删非空目录失败** | `REMOVE(dir)` → ERR `FsError: 目录不是空的 (os error 145)` | 删目录要先删其中文件；或用 `MKDIRS` 前先确保为空 |
+| **F24** | **`WRITE_FILE_ATOMIC` 成功返回 `NULL`（非 `TRUE`）；失败返回 `ERR`**（`FsError`/`op`/`reason`）⇒ 未消费即 `E0103` | 父进程独立实测：写成功 ⇒ 返回 NULL、文件存在、`FILE_META.size` 正确、**不留 `.tmp` 残留**、覆盖写正常；写不存在的父目录 ⇒ ERR `cannot write (...): parent directory does not exist` | 用 `IS_ERR(x)` 判断成败（不要 `==(x, TRUE)`）；**父目录必须先 `MKDIRS`**（不会自动建） |
 
 ### 2.2 标准库能力（`wlwl namespace` 实测导出）
 
@@ -636,6 +734,71 @@ TinyPage/
   - `pages-evil/x.html` 形态（Python 注释里记过的前缀绕过）⇒ 必须被拒
   - 写入中途失败 ⇒ 不得留下半截 `.html`
 - **非目标**：不做数据库、不做并发写入协调（单进程单写者）
+- **🔎 Python 侧权威落点（2026-11-02 核查，基准生成器照此 import）**：
+  | 校验项 | 权威函数 | 位置 | 精确规则 |
+  |---|---|---|---|
+  | 文件名 | `validate_filename` | `tinypage/security.py:228` | 先过 `SAFE_FILENAME_PATTERN`（`security.py:22`：`^\d{4}-\d{2}-\d{2}-[a-zA-Z0-9一-龥-]+\.html$`），**再**按 `-` 切分取前 3 段 → `2000<=year<=2100 and 1<=month<=12 and 1<=day<=31` |
+  | 标题 | `content.py:270` | `tinypage/content.py:270` | `len(title) > 200` ⇒ 拒绝（**200 合法，201 拒绝**） |
+  | 正文 | `validate_content` | `tinypage/security.py:256` | `len>50000` 拒；`len(utf8字节)>50000*4` 拒；**控制字符占比 >10% 拒**（`ord(c)<32` 且非 `\t\n\r`） |
+  | 日期串 | `validate_date_format` | `tinypage/security.py:243` | `^\d{4}-\d{2}-\d{2} \d{2}:\d{2}$` **且** `strptime` 成功 **且** `2000<=year<=2100` |
+  | 路径 | `safe_path_check` | `tinypage/security.py:269` | `resolve()` + `is_relative_to()`（**不是字符串前缀**）⇒ `pages-evil` 绕过已被 Python 修掉；扩展名白名单 `.html/.xml/.json/.txt/.js/.css/.png/.jpg/.jpeg/.gif/.svg/.ico/.woff2` |
+  | 元数据值 | `meta_value` | `tinypage/core/article_store.py:90` | **复用 S1-4 的 `frontmatter.wll`**（已实现），不重写 |
+
+  ⚠ **两处 Python 侧既存缺陷，重写时不要"顺手修好"，按现状对齐**：
+  ① `validate_filename` 的日期只查 `1<=day<=31`，**不查当月天数** ⇒ `2026-02-31-x.html`
+  **合法**。逐字节对齐必须接受这一点。
+  ② `tinypage/core/article_store.py` 里 `_unescape_to_fixpoint` **定义了两次**
+  （132–150 行与 152–169 行，内容相同）⇒ 是冗余不是两套语义。
+- **🔎 写入/删除的完整流程（2026-11-02 核查，`write_article` 在 `content.py:241`）**：
+  - **校验顺序**（`content.py:268-275`，顺序即报错先后）：
+    `validate_filename(fname)` → `len(title)>200` → `validate_content(content)` →
+    `validate_date_format(date)` → 路径穿越检查。
+  - **路径检查**（`content.py:278`）：`path.resolve().relative_to(article_dir.resolve())`
+    —— 抛 `ValueError` 即穿越。**注意**：WLWL 的 `PATH_CANONICAL`/`PATH_CONTAINS`
+    是词法判定（**消解 `..`，但不解析符号链接**）⇒ 额外要求「拒绝含 `..` 的输入」+
+    「规范化后再比对」。
+  - **🔎 `PATH_CONTAINS` / `PATH_CANONICAL` 的实测语义（父进程独立实测，wlwl 0.12.1）**：
+    | 调用 | 结果 |
+    |---|---|
+    | `PATH_CONTAINS("pages", "pages-evil")` | **FALSE** ⇒ 天然挡住「同前缀兄弟目录」绕过 |
+    | `PATH_CONTAINS("pages", "pages-evil/x.html")` | **FALSE** |
+    | `PATH_CONTAINS("pages", "pages/a.html")` | TRUE |
+    | `PATH_CONTAINS("pages", "pages/../etc/passwd")` | **FALSE** |
+    | `PATH_CONTAINS("pages", "etc/passwd")` | FALSE |
+    | `PATH_CANONICAL("pages/../etc/passwd")` | `etc/passwd` ⇒ **确实消解 `..`** |
+    | `PATH_CANONICAL("pages/./a.html")` / `PATH_CANONICAL("pages//a.html")` | `pages/a.html`（两者都归一） |
+
+    ⇒ **反向守卫 `pages-evil/x.html` 靠 `PATH_CONTAINS` 本身就能挡住**（不需要额外字符串前缀判断）。
+    ⇒ 但「拒绝含 `..` 的**输入**」这条仍要保留：`PATH_CONTAINS` 是在**规范化之后**判定的，
+    规范化会把 `pages/../etc` 变成 `etc`（落在 base 外 ⇒ FALSE，安全），
+    但**规范化本身**不应替代「输入侧就拒绝 `..`」的显式检查（防御深度）。
+  - **🔎 `WRITE_FILE_ATOMIC` 的实测语义（父进程独立实测）**：
+    | 项 | 读数 |
+    |---|---|
+    | 签名 | `WRITE_FILE_ATOMIC(path, content)` |
+    | 成功返回 | **NULL**（不是 `TRUE`） |
+    | 失败返回 | **ERR**（`FsError`，kind=`FsError`，op=`WRITE_FILE_ATOMIC`，reason 形如 `cannot write (<path>): parent directory does not exist`）⇒ **未消费即 `E0103`「unhandled ERR was discarded」**（F8） |
+    | 是否留临时文件 | **不留**（写完目录里只有目标文件，无 `.tmp` 残留） |
+    | 覆盖写 | 正常（内容被替换，长度可变） |
+    | 父目录不存在 | **失败**（**不会自动建目录**）⇒ 写入前必须先 `MKDIRS` |
+    | `FILE_META` | `{exists, is_dir, mtime, mtime_http, size}` ⇒ `size` 为写入后的字节数 |
+  - **渲染管线顺序**（`content.py:283-305`，S1 四个模块的接线点，**不能调换**）：
+    ```
+    process_footnotes(content)          -> (processed_content, footnotes_html)
+    extract_headings(processed_content) -> headings
+    build_toc_html(headings)            -> toc_html
+    parse_bidirectional_links(...)     -> (processed_content, found_links)
+    render_markdown(processed_content)  -> html_body
+    add_heading_ids(html_body, headings)-> html_body
+    highlight_code_blocks(html_body)    -> html_body
+    ```
+    ⇒ 这四个模块正是 S1-4 刚交付的 `footnotes.wll` / `toc.wll` / `wikilink.wll` /
+    `md.wll`（`render_markdown`）+ `md_inline.wll`（`highlight` 相关）。
+  - **删除的备份-校验-回滚**（`content.py:122` `delete_article`）：
+    ① `copy2` 到 `.html.backup`；② `.md` 源存在则 `copy2` 到 `.md.backup`；
+    ③ 删 `.html`；④ 删 `.md`（若原本存在）；⑤ **校验 `.html` 已不存在**，
+    否则抛 `OSError("File deletion verification failed")`；
+    ⑥ 删两个 backup；**任何异常 ⇒ 把 backup 移回原位并向上抛**。
 
 #### 卡 S2-2：手写排序（替代 `SORT`）
 
@@ -650,7 +813,65 @@ TinyPage/
   期望：对 2000 个随机日期字符串，排序耗时 **≤ 200ms**（`SORT` 在此规模需数分钟）
 - **反向守卫**：
   - **静态检查**：`tp/lib/` 下 grep 不到 `SORT(` / `SORT_BY(` ⇒ 违反即失败
+    ⚠ 但本卡导出的 `SORT_BY_DATE` / `SORT_STRINGS` **本身就含 `SORT_BY` 子串** ⇒
+    守卫必须用能区分「调用内建 `SORT`/`SORT_BY`」与「自己导出的函数名」的精确
+    模式（如 `\bSORT_BY\(` 会误伤 `SORT_BY_DATE(`，需另行处理）。
   - 排序 2000 元素耗时若 > 1s ⇒ 说明误用了 `SORT`
+    ⚠ CI 机器可能比本地慢 ⇒ 守卫阈值放宽到 **2s**（仍远小于 `SORT` 在 2000
+    元素的数分钟），本地实测值另行记录。
+    ✅ **实测后调整为 5000ms**（理由见下方「实测状态」第 4 点）。
+- **✅ 实测状态（2026-11-02 完成，父进程独立复跑核验）**：
+  | 项 | 读数 |
+  |---|---|
+  | `wlwl check tp/lib/sort_util.wll` | `OK: parsed`（6648 bytes），exit 0 |
+  | `wlwl run tp/test/test_sort_util.wll` | **25/25**（22 基准 + 3 守卫），failed=0，末行 `test_sort_util: OK`，exit 0 |
+  | 导出面 | `SORT_BY_DATE(items)`（日期倒序，稳定）/ `SORT_STRINGS(items)`（码点升序，稳定） |
+  | 元素形态 | `SORT_BY_DATE` 接受 `ARRAY[DICT{"date":…}]` **或** `ARRAY[STRING]`（可混排）；`SORT_STRINGS` 接受 `ARRAY[STRING]` |
+  | 基准来源 | **两个互相独立的 Python 来源**：① Python 内建 `sorted`；② 真项目函数 `tinypage.content.list_articles()` 在临时目录真跑一遍的返回顺序 |
+  | 静态检查器 | `paren_check` / `check_semis` / `check_c_args`（三个生成器）全过 |
+  | 本地 CI | 5 步全过（生成器无 drift、27 个 .wll 全 check 过、反向守卫、9 个测试文件全绿） |
+
+  1. **日期键只取前 16 字符**（对齐 `content.py:185` 的 `meta.date[:16]`，分钟精度）。
+     原因不是偷懒：若比较整串（可能带秒），同一分钟内带秒的两篇文章两侧顺序会不同 ⇒ 逐字节对照会红。
+  2. **稳定性**：归并时相等键**取左半**（升序 `<=`、降序 `>=`）⇒ 与 Python `sorted`（含 `reverse=True` 保持稳定）一致。
+     2000 元素用例里只有 398 个不同日期、1985 个元素共享日期 ⇒ 若不稳定，逐字节对照**必然红**。
+  3. **性能**：本地实测 2000 元素 **649ms**（4 次连跑 629–881ms），**未达卡片原定的 200ms 目标**。
+     根因不是归并算法，而是 **§2.1 F18：读数组绑定会深拷贝 ⇒ `AT`/`LEN` 是 O(n)** ⇒ 数组路线在本解释器里理论下界约 300–450ms。
+     对比：内建 `SORT` 在 2000 元素约 **113s**（1000 元素实测 28.2s 二次外推）⇒ 本实现**快约 170 倍**，
+     C2 的决策目标（「500 篇以上不让构建卡到分钟级」）**已达成**。
+  4. **CI 守卫阈值定 5000ms**：本机 649ms，CI 按慢 3–5 倍算约 2–3.3s，留 1.5–2.5 倍余量；
+     同时比 `SORT` 的约 113s **低 22 倍** ⇒ 误用 `SORT` 必被抓住（守卫语义成立）。
+  5. **「无内建 SORT」守卫的实现**：放在 `gen_test_sort_util.py` 的**生成期**（⇒ CI 的「重跑生成器 + 要求无 drift」那步就会红，**不需要改 CI 配置**），
+     扫 `tp/lib/*.wll`，模式 `\bSORT\b|\bSORT_BY\b`（**整词**）且**先剥掉 `//` 行注释**。
+     不误伤自己的导出名：`SORT_BY_DATE` / `SORT_STRINGS` 里 `SORT` 后紧跟 `_`（词字符）⇒ **不构成词边界**。
+     挡得住内建调用：`SORT(x)` / `SORT_BY(x,f)` 的 `SORT` 前后是 `(`/空格 ⇒ 构成词边界；连 `IMPORT(…, ["SORT"])` 里的字符串 `"SORT"`（引号非词字符）也命中 ⇒ **导入也算用**。
+     已用正例单测（10/10）与端到端负例（临时放一个含内建 `SORT` 的 `.wll` ⇒ 生成器 exit=1）验证。
+  6. **已登记缺口（首轮交付时登记 → 2026-11-02 已安排补齐，不留给 S2-4）**：
+     ① **页面按标题排**（`content.py:698` `pages.sort(key=lambda x: x.title or x.file)`）
+     —— `list_standalones()` 被 `cli.py` build、`generate_static_pages`、**admin 的每个动作**调用 ⇒ 在 S2-4 必经路径上。
+     ② **按数值键排序**（`content.py:237` Jaccard 相似度倒序）—— `find_related_articles()` 在 `content.py:606` 生成文章页「相关文章」时必经。
+     ⇒ **两处都在 S2-4 路径上** ⇒ 已另派一轮在 `sort_util.wll` 上补
+     `SORT_BY_TITLE`（`title` 为**空串也回落** `file`，对齐 Python `or` 语义）与
+     `SORT_BY_NUMBER`（数值倒序、相等键稳定），**不留给 S2-4 跨卡返工**。
+     （另一处数值排序 `core/ai_assistance.py:258` 词频属卡 S5，本轮不要求。）
+  7. **已知差异**：日期串**格式非法**时，Python `list_articles` 会 `strptime` 失败并**整篇丢弃**
+     （`content.py:186-187`），而排序函数不校验格式、按字面码点比较 ⇒ **不可达**（写入侧
+     `validate_date_format` + `content.py:274` 已拦），已登记不修。
+- **非目标**：不做通用排序框架，只做项目需要的两种
+- **⚠ 若业主仍要求 ≤200ms**：需**另开一张卡 S2-2b「链表版归并排序」**并明确授权引入 OOP 范式
+  （实测 `SET_PROP` 只能作用于 `self` ⇒ `E0032`，OOP 路线受限）。**本卡未擅自走这条路。**
+- **🔎 Python 侧真实用法（2026-11-02 核查，3 种形态，不止卡片写的 1 种）**：
+  | 位置 | 排什么 | 键 | 方向 |
+  |---|---|---|---|
+  | `tinypage/content.py:196` | 文章列表 | `x.date_obj or datetime.min` | **倒序** |
+  | `tinypage/content.py:698` | 独立页列表 | `x.title or x.file` | 正序 |
+  | `tinypage/generator.py:684`、`tinypage/admin/views.py:133` | 分类名（去重集合） | 字符串本身 | 正序 |
+
+  ⇒ **`SORT_BY_DATE` 的「date」不是「日期字符串」而是「datetime 对象」**
+  （卡片原文写「随机日期字符串」是简化说法）。WLWL 侧需定一个可承载的形态：
+  以**排序键字符串**（如 `YYYY-MM-DD HH:MM:SS`）为准最直接，但必须与 Python
+  `date_obj` 的**缺失回落 `datetime.min`** 语义对齐（缺失项排最后，因倒序）。
+  ⇒ 另有「键可能为 None」的形态（`title or file`），须有确定的回落规则。
 - **非目标**：不做通用排序框架，只做项目需要的两种
 
 #### 卡 S2-3：模板与主题
@@ -673,6 +894,41 @@ TinyPage/
   - 缺占位符 ⇒ 前台模板必须**报错**，不得静默留 `$var`
   - 主题名 `../../etc` ⇒ 必须被拒（Python 侧有此缺陷，见 §2.7 与 §5 R4）
 - **非目标**：不做模板继承/局部模板（Python 侧也没有）
+- **🔎 Python 侧权威落点（2026-11-02 核查，S2-3 开工前必读）**：
+  - `render_skeleton` 在 `tinypage/core/template.py:52`，模板常量 `_PAGE_SKELETON`（同文件 1–49 行）。
+  - **19 个占位符**（`template.py:109-130` 的 `substitute(...)` 实参，顺序即模板变量名）：
+    `page_type` / `lang` / `site_title` / `page_title` / `description` / `dark_mode_meta` /
+    `pwa_meta` / `vt_meta` / `og_html` / `json_ld_html` / `pwa_manifest` / `theme_css` /
+    `dark_css_block` / `dark_mode_script` / `nav_links` / `theme_toggle` / `footer_text` /
+    `body_content` / `search_script` / `mermaid_script`
+    （其中 `dark_css_block` 是**派生占位符**，不是入参：`template.py:104-107`
+    由 `dark_css` 计算 `<style media="(prefers-color-scheme: dark)">…</style>`，空则空串。）
+  - **哪些值被 escape**：只有 `lang`/`site_title`/`page_title`/`description` 被
+    `escape_html`（用 S1-4 的 `esc.wll::ESCAPE_HTML`），且 `footer_text` 是
+    **条件 escape**（`template.py:126`：空则空串，否则 escape）。
+    `body_content`/`theme_css`/`nav_links`/`*_script`/`og_html` 等**不 escape**
+    （它们是已构造好的 HTML 片段）。
+  - **两套语义必须分开实现**：
+    ① 前台 `substitute()`（`template.py:109`）⇒ **缺键即 `KeyError`**；
+    ② 后台 `safe_substitute()`（另一处调用）⇒ **缺键留 `$var` 原样**。
+    ⇒ WLWL 侧要实现**两个**替换函数，**不要**合并成一个。
+  - `substitute` 语义细节：`$var` 与 `${var}` 两种写法都支持；`$$` 转义成字面 `$`。
+  - **🔎 主题加载的两个必踩点（父进程 2026-11-02 实测）**：
+    ① **CRLF 必须自己归一化**（§2.1 F22）：`themes/default/theme.css` 是 **20326 bytes /
+       805 个 CRLF**；Python `load_theme_css` 用 `read_text()` ⇒ **19517 字符（无 CR）**，
+       而 WLWL `READ_FILE` ⇒ **20322 字符（有 CR）** ⇒ **差 805**。
+       ⇒ WLWL 侧读 CSS 后**必须自己做 CRLF→LF**，否则与 Python 逐字节对照必红。
+       （`theme.dark.css` 同样：520 bytes / 20 CRLF。）
+    ② **Pygments CSS 追加那段不迁**：`generator.py:141-149` 的 `load_theme_css` 会
+       `base_css + "\n/* Pygments syntax highlighting */\n" + pygments_css`。
+       但 **D3 裁决「代码高亮改前端 highlight.js」** ⇒ 这段**不迁**，
+       WLWL 侧只输出 `theme.css` 原文（归一化后）+ `theme.dark.css` 原文。
+       ⚠ 这一条会让「与 Python 版产物逐字节相同」**不成立** ⇒ 属**预期差异**，
+       基准里要显式标注，别当成 bug 去"修"。
+  - **主题清单实际形态**（`themes/default/manifest.json`）：字段为
+    `name` / `version`（如 `3.1.0`）/ `description` / `layouts`（数组，如 `["blog"]`）/
+    `variables`（对象，如 `{"primary": "#a3e635", "accent": "#22c55e"}`）——
+    与卡片写的 `name/version/description/layouts/variables` 一致。
 
 #### 卡 S2-4：站点产物生成
 
@@ -695,6 +951,31 @@ TinyPage/
 - **反向守卫**：
   - 构建后 `git status` **不得**出现非预期产物（只允许 §3.2 列出的路径）
   - 生成 100 篇 → 耗时 ≤ 60s（按 0.3ms/行推算）
+- **⚠ 已知 blocker：`pages/` 下没有真实文章**（2026-11-02 实测）：
+  `pages/` 里只有 `pages/.tinypage/backlinks.json`（30 bytes），
+  **`.html` 0 个、`.md` 0 个** ⇒ 没有真实语料可跑端到端。
+  ⇒ **S1-3 / S1-4 / S2 各卡一律用「合成语料」验收**（基准生成器在临时目录造语料）。
+  ⇒ **S2-4 的验收口径**：用**合成语料**（如 100 篇含标题/日期/标签/分类/正文/
+  脚注/标题层级/双链的合成文章）跑一次构建，与 **Python 版在同样合成语料上的产物**
+  做逐字节/结构对照；**真实语料**验收待业主提供 `pages/article/*.md` 后补。
+  ⇒ ⚠ **另有一个未决问题**（已两次询问未获答复，不再阻塞推进）：
+  真实文章**是否使用表格**？S1-3 的 Markdown 范围明确**不做表格**
+  （§2.5），若真实文章用了表格则渲染结果与现状不一致。
+- **🔎 Python 侧权威落点（2026-11-02 核查）**：`tinypage/generator.py`
+  | 函数 | 位置 | 产物 |
+  |---|---|---|
+  | `generate_article_html` | 154 | `article/*.html` |
+  | `generate_list_page` | 298 | `index.html` / `list/{n}.html` |
+  | `generate_search_page` | 389 | `search.html` |
+  | `generate_standalone_html` | 429 | `standalone/*.html` |
+  | `generate_category_page` | 484 | `category/{cat}.html` |
+  | `generate_rss` | 542 | `rss.xml`（`generator.py:730-731`，**排除草稿**） |
+  | `generate_sitemap` | 571 | `sitemap.xml`（`generator.py:734-737`） |
+  | `generate_search_index` | 599 | `search-index.json`（`generator.py:724-726`） |
+  | `generate_static_pages` | 628 | 编排全部；`robots.txt` 在 740-744 |
+  - `site_url` 为空时回落 `"http://localhost:8080"`（`generator.py:545`、`579`）；
+    `robots.txt` 的 `Sitemap:` 行用 `cfg.site_url or ''`（`generator.py:742`）⇒ **不回落**。
+  - `robots.txt` 内容固定 3 行（`generator.py:740-743`）。
   - 重复构建两次 ⇒ 产物**逐字节一致**（幂等）
 - **非目标**：不生成 RSS 的 RFC822 严格日期；不做 sitemap 的 lastmod
 
@@ -713,6 +994,15 @@ TinyPage/
   期望：改 1 篇 ⇒ 只重建 1 篇；未改 ⇒ 0 篇重建
 - **反向守卫**：改一篇文章后，产物必须**确实**变了（不得因 mtime 精度问题跳过）
 - **非目标**：不做内容 hash 缓存（Python 侧也没有实际使用）
+- **🔎 Python 侧权威落点（2026-11-02 核查，`tinypage/core/incremental.py`）**：
+  - `should_use_incremental`（约 130–156 行）：`article_count < threshold` ⇒ 不用增量；
+    `modified_ratio = len(modified)/article_count` ⇒ **`< 0.1` 才用增量**。
+  - `build_cache_key`（159 行）：对 `sorted(article_dir.glob("*.html"))` 取
+    `f"{name}:{int(st_mtime)}"` 拼 `|` ⇒ `sha256` 前 12 位。
+    ⚠ **`int(st_mtime)` 是秒级截断** ⇒ 同秒内改动检测不到。
+  - `get_unchanged_articles`（182 行）：按 cache 分「未变/已变」两组。
+  - ⚠ 本卡**修正**的是「判定目录不匹配导致恒全量重建」的缺陷（R5），
+    **判定口径仍用 mtime**，不引入 hash。
 
 ### S3 前台静态服务（TLS）
 
@@ -743,6 +1033,30 @@ TinyPage/
   - 请求 `/admin_password.txt` ⇒ 404
   - 请求不存在的路径 ⇒ 404，**不得** 500
 - **非目标**：不做 gzip/brotli（nginx 现在也没做）；不做 HTTP/2
+- **🔎 权威落点（2026-11-02 核查，`nginx.conf` 全文 58 行 + `tinypage/security.py`）**：
+  - **5 个安全头**：`nginx.conf:9-13` 与 `security.py:331` 的 `get_security_headers()`
+    **逐字一致**（顺序也同）：
+    `X-Content-Type-Options: nosniff` / `X-Frame-Options: DENY` /
+    `Referrer-Policy: no-referrer` / `Cross-Origin-Opener-Policy: same-origin` /
+    `Permissions-Policy: accelerometer=(), camera=(), geolocation=(), gyroscope=(), magnetometer=(), microphone=(), payment=(), usb=()`
+    ⚠ `Permissions-Policy` 的完整取值是 **9 项**（卡片的 `...` 不要漏）。
+  - **静态资源长缓存**：`nginx.conf:43-47` 的 `location ~* \.(js|css|png|jpg|jpeg|gif|ico|svg|woff|woff2)$`
+    ⇒ `expires 1y` + `Cache-Control: public, immutable`。
+    ⚠ **nginx 的 `expires 1y` 会展开成 `Cache-Control: max-age=31536000`**，
+    且 `add_header Cache-Control "public, immutable"` 与 `expires` 产生的头**并存**
+    （nginx 会输出两个 `Cache-Control`）⇒ WLWL 侧是发**一个**还是**两个**头，
+    必须对齐现状并登记（建议实测 Python 版 `StaticApp` 的实际输出）。
+  - **隐藏文件**：`nginx.conf:50-53` `location ~ /\. { deny all; return 404; }`
+    ⇒ 任何路径含 `/.` ⇒ 404（不只是前缀）。
+  - **敏感文件**：`nginx.conf:54-57` `location ~* (admin_password\.txt|\.env|\.git)` ⇒ 404
+    （注意是**子串匹配**，不限于文件名）。
+  - **目录回落**：`nginx.conf:18-20` `try_files $uri $uri/ =404` + `index index.html`
+    ⇒ 目录 ⇒ 回落 `index.html`；都不存在 ⇒ 404。
+  - **admin/api 反代**：`nginx.conf:23-40`，`client_max_body_size 10m`。
+    ⚠ **D4 裁决「完全移除 nginx」后这两段反代不复存在** ⇒ admin 与公开站**分进程分端口**（C1/D2），
+    WLWL 侧不需要反代逻辑，但**请求体 10MB 上限**这个语义要保留到 admin 侧。
+  - `security.py:342` `get_csp_header()` 是 **admin 专用**的 CSP（`default-src 'self'` 等），
+    **公开站不发**（nginx 公开站段没有 CSP）⇒ 别给公开站多加 CSP。
 
 #### 卡 S3-2：TLS 终止
 
