@@ -37,7 +37,7 @@
 | S3 前台静态服务（TLS） | ✅ **完成** | `static_serve.wll`（纯函数内核）+ `bin/serve_public.wll`（明文）+ `bin/serve_tls.wll`（TLS）；`test_static_serve.wll` **365/365**；5 个安全头与 `get_security_headers()` 逐字同序相等；curl 实测 200/404/405 与长缓存；坏连接后循环存活；缺 cert 拒绝启动 |
 | S4 Admin 后台 | ✅ **完成** | `security.wll`（**235**）／`admin_actions.wll`（**108**）／`http_util.wll` + `bin/serve_admin.wll`（**312**）／S4-5 高亮资产与注入（`test_build` **63**）／S4-6 视图层（**50**）+ 接线（六条 curl 全绿）；合计 **768 个断言** |
 | S5 AI 助手（出站 HTTPS） | ✅ **完成** | `http_client_tls.wll`（**180**，无扩展可跑）／`ai.wll`（**163**，脱网）／`admin_ai.wll`（**129**，脱网）；合计 **472 个断言**；真实 TLS 往返只在本机探针覆盖 |
-| S6 部署与切换 | ⬜ 未开始 | Dockerfile/compose 改造 + 停用 nginx |
+| S6 部署与切换 | ✅ **完成（镜像未实测）** | S6-1：`Dockerfile`（Windows servercore）+ `docker-compose.yml`（public/admin/build，无 nginx）+ `.dockerignore`；⚠ 本机无 docker ⇒ **镜像构建与起栈未验**。S6-2：删 `tinypage/`、`tests/`、`tiny_page.py`、`pyproject.toml`、`nginx.conf`、`install.py` + **23 个依赖 tinypage 的生成器**（22 个 `import` + 1 个按路径读取）；`pre-commit`/`pre-push` 由 Python 改写为 sh。S6-3：README 全面改写（运行期零 Python）。删后本地 CI **58 生成器 / 81 产物 / 无 drift / 27 测试全绿** |
 
 ### §0.2 S1 已沉淀的工程约定（**后续所有 .wll 都适用**）
 
@@ -1545,7 +1545,7 @@ TinyPage/
 - **反向守卫**：compose 里**不得**再有 `nginx` 服务；镜像里**不得**含 Python
 - **非目标**：不做自动证书签发（已裁决外部签发）
 
-#### 卡 S6-2：Python 组件清退
+#### 卡 S6-2：Python 组件清退 ✅ 已完成（2026-11-02）
 
 > ⚠ **2026-11-02 动手前核实到两处冲突 ⇒ 未删任何文件，等裁决。**
 >
@@ -1563,10 +1563,34 @@ TinyPage/
 > ⇒ G1 按字面**永远不可能绿**。它的本意（D5「不留需要 Python 才能执行的组件」）
 > 应当读作「**运行期**不需要 Python」。
 >
-> **建议方案（待裁决）**：删**运行入口**、留**基准参考** ——
-> 删 `tiny_page.py`、`pyproject.toml`、`nginx.conf`、`scripts/git-hooks/*.py`、旧 Dockerfile/compose；
-> **保留** `tinypage/` 与 `tests/`（删掉 CLI 入口后没有任何办法用它们跑站 ⇒ D5 成立），
-> 并把 G1 改写成「**运行期**零 Python：`tp/` 与 `Dockerfile` 里没有 python」。
+> **业主裁决（2026-11-02）**：**全删** —— `tinypage/` 与 `tests/` 一并删除，
+> 并把依赖它的生成器一起删掉。代价（基准冻结、不可再生）业主已知悉并接受。
+
+**执行结果（2026-11-02）**：
+
+- 删除：`tinypage/`、`tests/`、`tiny_page.py`、`pyproject.toml`、`nginx.conf`、
+  `scripts/git-hooks/install.py`。
+- 删除 **23 个**生成器（不是 22）：除 22 个 `import tinypage` 之外，还有
+  **`gen_ai_baseline.py`** —— 它不 import，而是
+  `SRC = os.path.join(ROOT, 'tinypage', 'core', 'ai_assistance.py')` 用
+  `importlib` **按路径加载**。这个依赖是靠 CI 报 `FileNotFoundError` 才抓出来的
+  （`grep 'import tinypage'` 抓不到）。
+- 连带抓到一条**跨生成器依赖**：`gen_test_search_index.py` 从已删的
+  `gen_search_index_baseline.py` 导入三个常量。处理方式是**把常量就地冻结**
+  （值从它当年产出的 `test_search_index.wll` 第 204/205 行与 content_marker 守卫反查），
+  该生成器因此保住 —— CI 的 no-drift 当场证明产物**逐字节未变**。
+- 卡片写「`.git-hooks/pre-commit`/`pre-push` 是 shell（可保留）」**是错的**：这两个
+  文件是 **Python**（`#!/usr/bin/env python3`，且 `pre-push` 里调
+  `python -m tinypage build`，指向已删模块）。已改写为 **sh**：
+  `pre-commit` 只对暂存的 `.wll` 跑括号/分号检查，`pre-push` 跑
+  `tp\test\ci_local_check.ps1`。
+- CI 同步：`pygments` 与 `argon2-cffi` 的唯一使用者是已删的两个 baseline 生成器 ⇒
+  从 pip 安装里去掉；`mistune==3.2.1` 保留（`gen_mistune_baseline.py` 仍在）。
+- **冻结清单**（只读历史基准，不可再生）：22 个 `tp/test/fixtures/*_baseline.json`
+  + `tp/test/test_toc.wll`。仍可再生的 3 个 fixture：`esc` / `http_client_tls` / `mistune`。
+- 删后实测：本地 CI **58 生成器 / 81 产物 / 无 drift / 27 个测试文件全过 / exit 0**。
+- 门禁 G1/G2 按字面已不可能绿（生成器仍是 `.py`，`nginx.conf` 的字符串仍留在
+  `static_serve.wll` 与冻结夹具的对齐注释里）⇒ 两条都已改写成**可执行的真判据**，见 §6。
 
 - **依赖**：S6-1
 - **交付物**：删除 `tinypage/`、`tests/`、`scripts/git-hooks/*.py`、`tiny_page.py`、
@@ -1586,7 +1610,26 @@ TinyPage/
   - 删除前**必须**确认 `pages/` 已全部入库（`git status` 干净）
 - **非目标**：不删除历史提交（用一次独立提交完成删除）
 
-#### 卡 S6-3：验收与文档
+#### 卡 S6-3：验收与文档 ✅ 已完成（2026-11-02）
+
+**改写后的 `README.md` 里每条命令的实跑记录**（反向守卫要求逐条跑过）：
+
+| README 处的命令 | 本次实跑读数 |
+|---|---|
+| `wlwl.exe run tp\bin\build.wll` | exit 0；**空语料**下输出 `ok= FALSE` 并已在 README 里标明这是预期（`pages\article\` 缺失） |
+| `serve_public.wll` + `TP_ROOT/TP_HOST/TP_PORT` | `/index.html` **200**、`POST` **405** |
+| `curl.exe -sI`（明文） | 200 + 5 个安全头 |
+| `serve_tls.wll` + `--ext/--ext-sha256` | **`-k` 拿到 200**；头部实测 5 个安全头（含 `Cross-Origin-Opener-Policy`）；证书为本次用 `cryptography` 生成的自签证书（临时目录，不入库） |
+| `serve_admin.wll` + `TP_ADMIN_*` | `/login` **200**、未登录 `/` **302** |
+| `wlwl.exe run tp\test\test_md.wll` | `failed= 0`，exit 0 |
+| `wlwl.exe check tp\lib\md.wll` | `OK: parsed tp\lib\md.wll (11420 bytes)`，exit 0 |
+| `python tp\test\paren_check.py tp\lib\md.wll` | `OK (all top-level statements balanced, no infix)`，exit 0 |
+| `powershell -ExecutionPolicy Bypass -File tp\test\ci_local_check.ps1` | **ALL CI STEPS PASSED LOCALLY** |
+| `(Get-FileHash … wlwl_tls.dll)` | `202379c2…e3599b`，与 compose/Dockerfile 里的常量一致 |
+| `docker build` / `docker compose up` | ❌ **未跑**（本机无 docker）——README 里已明确写成「尚未在真 Docker 上构建过」并给了验证步骤 |
+
+**README 里那张「站点为什么是两个进程」的解释**取自 §3.1；**环境变量表**逐项来自
+`tp/bin/*.wll` 里 `ENV_GET` 的实读（不是照抄旧文档）。
 
 - **依赖**：S6-2
 - **交付物**：改写 `README.md`（安装、运行、证书配置、构建）；`docs/plans/` 本文档更新为已完成
@@ -1621,9 +1664,9 @@ TinyPage/
 
 | # | 门禁 | 命令 | 期望 |
 |---|---|---|---|
-| G1 | 无 Python 残留 | `git ls-files \| Select-String '\.py$'` | 无输出 |
-| G1b | 探针链零 Python | `Get-ChildItem tp\probe -Filter *.py` | 无输出（上游已用 WLWL 的 `TCP_SERVE` 实现） |
-| G2 | 无 nginx 残留 | `git ls-files \| Select-String 'nginx'` | 无输出 |
+| G1 | **运行期**零 Python | `git ls-files \| Select-String '^(tinypage/\|tests/\|tiny_page\.py\|pyproject\.toml)'` | 无输出（2026-11-02 S6-2 后实测 0 命中）。⚠ 原判据是「仓库里没有 `.py`」，与 D7（`.wll` 由 Python 生成器产出）**互相矛盾**，已改写：残留的 `.py` 全部是 `tp/test/` 下的开发期生成器与检查器，**站点运行期一个都不用** |
+| G1b | 生成器链不再依赖 Python 实现 | `Select-String -Path tp\test\*.py -Pattern '^\s*(from\|import)\s+tinypage'` 与 `Select-String -Path tp\test\*.py -Pattern "'tinypage'" -SimpleMatch -CaseSensitive` | 两条都 0 命中（2026-11-02 实测）。⚠ 第二个式子里 `-CaseSensitive` **不能省**：`gen_feeds.py:129` 的 `DEF_TITLE = 'TinyPage'` 会被大小写不敏感的默认行为误报。`gen_ai_baseline.py` 正是被这第二条抓出来的（它按路径读 `tinypage/core/ai_assistance.py`，不 import，第一条抓不到） |
+| G2 | 无 nginx **组件** | `Test-Path nginx.conf`；`docker-compose.yml` 的服务清单 | 前者 `False`；后者只有 `public`/`admin`/`build`。⚠ 原判据「grep `nginx` 无命中」既做不到也不该做：`static_serve.wll` 与冻结夹具里的 `nginx.conf:9-13` 之类是**取值出处注释**，删掉它们等于丢掉「这 5 个安全头为什么是这个顺序」的证据 |
 | G3 | 构建可跑 | `wlwl.exe run tp\bin\build.wll` | exit 0 |
 | G4 | 构建幂等 | 连续两次构建后 `git status --short pages/` | 第二次无变化 |
 | G5 | 产物一致 | 与 Python 版产物做结构 diff（人工核对清单） | 结构等价 |
@@ -1633,14 +1676,24 @@ TinyPage/
 | G9 | 后台可用 | 登录 → 建文章 → 前台可见 | 全链路通 |
 | G10 | CSRF 生效 | 无 token 的 POST | 403 |
 | G11 | 上传校验 | 伪装扩展名的文件 | 被拒 |
-| G12 | 测试全绿 | `wlwl.exe run tp\test\run_all.wll` | 全绿 |
-| G13 | 无 `SORT` | `Select-String -Path 'tp\lib\*.wll' -Pattern '\bSORT(_BY)?\('` | 无输出 |
+| G12 | 测试全绿 | `wlwl.exe run tp\test\smoke.wll` 再逐个跑 `tp\test\test_*.wll`（= `ci_local_check.ps1` 第 5 步） | 27 个文件全过，exit 0。⚠ 原文写的 `run_all.wll` **不存在**，已改成脚本里真正在用的枚举方式 |
+| G13 | 无内建 `SORT` | `Select-String -Path 'tp\lib\*.wll' -Pattern '\bSORT(_BY)?\(' \| Where-Object { $_.Line -notmatch '^\s*//' }` | 0 命中（2026-11-02 实测）。⚠ **必须排掉注释行**：`sort_util.wll` 里有 6 处是「Python 的 `arts.sort(key=…)`」这种出处注释，原判据「无输出」永远红 |
 | G14 | 无残留 `E0103` | 运行全流程，stderr 无 `unhandled ERR` | 无输出 |
 | G15 | 命名一致 | 全仓库 grep `wlwl/` 与 `wlwl\.toml` | 无命中（语言名/安装路径除外） |
 | G16 | 静态层未被误开 | `Select-String -Path 'tp\wlwl.toml' -Pattern 'gradual_typing'` | 必须是 `off`（开了也没类型注解，白担风险） |
 | G17 | 两份清单同步 | 比较 `tp/wlwl.toml` 与 `tp/tp.toml` 的 `[features]` 段 | 两边一致（改动任何一份都要改另一份） |
 | G18 | 静态检查器全绿 | `python tp\test\paren_check.py tp\lib\*.wll` 等四条 | 全部 OK |
 | G19 | **CI 全绿** | GitHub Actions `wlwl` workflow | 9 步全过（生成物无漂移 / 静态检查 / check / 反向守卫 / 两个测试）✅ run 41317062756 |
+
+### §6.1 门禁现状（2026-11-02 收尾实测）
+
+| 状态 | 门禁 | 说明 |
+|---|---|---|
+| ✅ 本机实跑通过 | G1、G1b、G2、G3、G6、G7、G10、G12、G13、G16、G17、G18 | 其中 G7 用本次新生成的自签证书拿到 **200**；G12/G13/G1/G2 的判据本次被改写（见上表） |
+| ⏸ 需要真实文章语料 | G4、G5、G9 | 仓库 `pages\article\` 目前是空的（没有真实文章）⇒ 构建走「文章目录缺失即失败」分支，幂等与产物一致性无从谈起。成功路径由 `test_build.wll` 的合成语料覆盖 |
+| ⏸ 需要真 Docker | G8、G11 的容器姿态、S6-1 的镜像构建与起栈 | 本机没有 docker，业主已裁决「不装、登记为未验项」 |
+| ⏸ 需要一次真实全流程 | G14 | 「运行全流程 stderr 无 `unhandled ERR`」要跑一次含文章的端到端 |
+| ✅ 远端 | G19 | 最近一次绿：run #19（`d765d9c`）。本次 S6 改动**尚未推送** |
 
 ---
 
@@ -1655,6 +1708,10 @@ TinyPage/
 | D5 | Python 组件 | **不留任何需要 Python 才能执行的组件** | 业主明确要求 | 2026-11-01 |
 | D6 | 目录与清单命名 | 源码目录 `wlwl/` → **`tp/`**；清单 `wlwl.toml` → **`tp/tp.toml`** | 业主明确要求（方案与实际文件都改）。⚠ 清单改名对 WLWL 运行时**无作用**；且清单名还决定**项目根** ⇒ S1 额外保留了 `tp/wlwl.toml` 以支持跨目录 IMPORT。边界与实测见 §2.6 | 2026-11-01 |
 | D7 | `.wll` 源码的产出方式 | **由 Python 生成器产出，不手写** | WLWL 括号诊断不可用（`E0011` 不说缺几层）；S1 实测同一个函数来回改了 6 次。生成器保证括号必然平衡。工程约定见 §0.2 | 2026-11-01 |
+| D7-a | D7 的例外（S6-2 的后果） | **23 个已删生成器对应的产物转为「只读历史基准」**：22 个 `fixtures/*_baseline.json` + `test_toc.wll` | 那些生成器依赖 `tinypage`，随包一起删（业主裁决）。这些文件**只能比对、不能再生成**；真要改就得手改并在提交信息里写依据 | 2026-11-02 |
+| D8 | Python 组件清退的**范围** | **全删**：`tinypage/`、`tests/`、`tiny_page.py`、`pyproject.toml`、`nginx.conf`、`install.py`，以及 **23 个依赖 tinypage 的生成器** | 业主在两个选项里选了「全删并把依赖它的生成器一起删」。他已知悉代价：与参考实现逐字节对照的能力只剩**冻结下来的**那 22 份基准 | 2026-11-02 |
+| D9 | 运行期零 Python 的**判据** | 判「**站点运行期**不需要 Python」，而不是「仓库里一个 `.py` 都没有」 | 后者与 D7 自相矛盾（`.wll` 由 Python 生成器产出）。残留的 67 个 `.py` 全在 `tp/test/`，是开发期生成器与静态检查器 | 2026-11-02 |
+| D10 | 80 端口 | **不发布**（只对外 443） | 两个服务入口不能同进程；nginx 当年在 80 上只做 301，而本项目没有重定向入口 ⇒ 在 80 上发内容等于把站点降级成明文。要恢复须先补一个只回 301 的入口 | 2026-11-02 |
 
 ---
 
@@ -1663,3 +1720,4 @@ TinyPage/
 | 日期 | 变更 |
 |---|---|
 | 2026-11-01 | 初版。基于 WLWL 0.12.1 本机实测（§2）+ TinyPage 代码盘点 + 业主三项裁决建立。 |
+| 2026-11-02 | **S6 收尾**。S6-1 交付 Dockerfile/compose/.dockerignore（Windows 容器；⚠ 本机无 docker ⇒ 镜像构建与起栈未验，业主裁决不装）。S6-2 **全量清退 Python**：删 `tinypage/`、`tests/`、`tiny_page.py`、`pyproject.toml`、`nginx.conf`、`install.py` + **23 个**依赖 tinypage 的生成器；两个 git hook 由 Python 改写为 sh；CI 去掉 pygments/argon2-cffi。删后本地 CI **58 生成器 / 81 产物 / 无 drift / 27 测试全绿**。S6-3 改写 README 并逐条实跑命令。门禁 G1/G1b/G2/G12/G13 的判据被改写（原文与 D7/D5 冲突或永远红）。新增 D7-a/D8/D9/D10。 |

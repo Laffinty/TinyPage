@@ -1,234 +1,260 @@
 # TinyPage
 
-A modern static site generator for documentation and digital gardens. Built with Python, stores content as HTML files without requiring a database.
+一个**纯 WLWL** 的静态站点生成器 + 后台管理服务。内容存成文件，不需要数据库。
 
-基于 Python 构建的现代化静态站点生成器，支持文档和数字花园功能。内容以 HTML 文件形式存储，无需数据库。
+**运行时不含 Python、不含 nginx、不含任何 WSGI 服务器。** 站点生成、静态服务、
+TLS 终止、后台 CRUD、上传、AI 助手全部由 WLWL（v0.12.1）实现。
 
----
+| 组件 | 实现 | 入口 |
+|---|---|---|
+| 构建 | `tp/bin/build.wll` | `wlwl.exe run tp\bin\build.wll` |
+| 公开站（TLS） | `tp/bin/serve_tls.wll` | 需 `--ext wlwl_tls.dll` |
+| 公开站（明文） | `tp/bin/serve_public.wll` | 无需扩展 |
+| 后台 | `tp/bin/serve_admin.wll` | 只绑回环 |
 
-## Features / 特性
-
-### Core / 核心功能
-- **Zero-dependency core** / 核心零依赖：Run with `pip install tinypage` or extend with extras
-- **Markdown support** / Markdown 支持：Rich content with optional mistune parser
-- **Syntax highlighting** / 代码高亮：Pygments integration with theme support
-- **Pagination** / 分页支持：Auto-generate paginated article lists
-- **Full-text search** / 全文搜索：Frontend JavaScript search with JSON index
-- **RSS & Sitemap** / RSS 与站点地图：Auto-generated for SEO
-
-### Digital Garden / 数字花园
-- **Bidirectional links** / 双向链接：`[[Page Title]]` wikilink syntax
-- **Table of Contents** / 目录导航：Auto-generated from headings
-- **Footnotes** / 脚注：`[^1]` footnote syntax
-- **Mermaid diagrams** / Mermaid 图表：Flowcharts and sequence diagrams
-- **Backlinks** / 反向链接：See what links to your articles
-- **Related articles** / 相关文章：Tag-based Jaccard similarity
-- **Tag graph** / 标签图谱：Visual tag network
-
-### Modern Web / 现代 Web
-- **PWA support** / PWA 支持：Offline-capable with service worker
-- **Dark mode** / 深色模式：System preference + manual toggle
-- **CSS View Transitions** / CSS 视图过渡：Smooth page navigation
-- **SEO optimized** / SEO 优化：JSON-LD, Open Graph, Twitter Cards
-- **Responsive design** / 响应式设计：Mobile-friendly layouts
-
-### Admin & Security / 管理与安全
-- **Admin dashboard** / 管理后台：HTMX-enhanced modern UI
-- **HTTP Basic Auth** / 基础认证：Protected admin access
-- **CSRF protection** / CSRF 防护：HMAC token + double-submit cookie
-- **Content Security Policy** / CSP：Modern security headers
-- **Rate limiting** / 速率限制：In-memory request throttling
-- **Audit logging** / 审计日志：Security event tracking
-
-### AI Features / AI 功能 (optional)
-- **AI writing assistant** / AI 写作助手：Complete, polish, translate
-- **Auto summarization** / 自动摘要：AI-powered summaries
-- **Smart tag suggestions** / 智能标签推荐：Keyword extraction
-
-### Theme System / 主题系统
-- **Theme switching** / 主题切换：Live preview in admin
-- **Dark mode themes** / 深色主题：Built-in theme support
-- **Extensible layouts** / 可扩展布局：Blog, doc, garden layouts
+> 为什么公开站有两个入口：WLWL 的等待点（TLS 握手、`TCP_SERVE` 的 accept）会冻结
+> **整个运行时**，同一进程里开不了两个服务。TLS 与明文是两个独立进程。
 
 ---
 
-## Quick Start / 快速开始
+## 1. 前置
 
-```bash
-# Install core (zero dependencies)
-pip install tinypage
+- **WLWL 编译器 v0.12.1**（Windows `x86_64-pc-windows-msvc`）。
+  本机路径示例：`D:\wlwl_v0.12.1\wlwl.exe`。
+  运行时目录需完整（`lib/stdlib/*.wll`、`lib/wlwl_tls.dll`）。
+- 系统上**不需要** Python / nginx / Docker（Docker 只在用容器部署时需要）。
+- Windows 10/11 桌面版或 Server 2019+。
 
-# Or install with extras
-pip install tinypage[markdown,syntax]     # Markdown + syntax highlighting
-pip install tinypage[ai]                  # AI features
-pip install tinypage[full]                 # All features
+`wlwl.exe` 与 `lib/` **没有**入库（体积与来源纪律）——下面命令一律写绝对路径占位
+`D:\wlwl_v0.12.1\wlwl.exe`，换成你自己的即可。
 
-# Run the server
-python -m tinypage serve
+---
 
-# Or use CLI
-tinypage build
-tinypage serve --port 8080
+## 2. 构建站点
+
+```powershell
+cd D:\Project\TinyPage
+D:\wlwl_v0.12.1\wlwl.exe run tp\bin\build.wll
 ```
 
-The application will start two services: / 应用将启动两个服务：
+输出形如 `build: articles= 3  written= 12  ok= TRUE  pages= 1  categories= 2`。
 
-- **Static frontend**: `http://127.0.0.1:8080` - Public-facing site
-- **Admin backend**: `http://127.0.0.1:8081` - Content management
+> ⚠ 在**当前仓库**直接跑，实际看到的是这一行（因为 `pages\article\` 里还没有文章）：
+> ```
+> build: articles= 0  written= 0  ok= FALSE  pages= 0  categories= 0
+> ```
+> 这是**预期**行为，不是故障（见下条）。有文章之后 `articles` / `written` 才会非零、
+> `ok` 才变 `TRUE`；这条成功路径由 `tp\test\test_build.wll` 用合成语料覆盖，
+> 它把产物与参考实现做过逐字节 sha256 对照。
 
-Admin credentials are generated automatically on first run if `ADMIN_PASS` is not set. Check the console output.  
-如果未设置 `ADMIN_PASS`，首次运行时将自动生成管理员密码，请查看控制台输出。
-
----
-
-## Installation Options / 安装选项
-
-| Extra | Description |
-|-------|-------------|
-| `markdown` | Mistune 3.x parser for extended Markdown |
-| `syntax` | Pygments for syntax highlighting |
-| `ai` | OpenAI/DeepSeek for AI writing assistance |
-| `server` | Waitress WSGI server |
-| `full` | All features |
-
----
-
-## Environment Variables / 环境变量
-
-| Variable | Description | Default |
-|----------|-------------|---------|
-| `ADMIN_USER` | Admin username | `admin` |
-| `ADMIN_PASS` | Admin password | auto-generated |
-| `STATIC_PORT` | Frontend port | `8080` |
-| `ADMIN_PORT` | Backend port | `8081` |
-| `STATIC_HOST` | Bind address | `127.0.0.1` |
-| `BIND_DOMAIN` | Domain for Nginx proxy | (empty) |
+- 源文章放在 **`pages\article\*.md`**；⚠ **该目录不存在时构建直接失败**
+  （`ok= FALSE`，`error= "article dir missing: pages/article"`）——这是照抄原 Python
+  版 `cli.py:107-110` 的口径，不是 bug。
+- 产物也写进 `pages\`（`index.html` / `list\` / `category\` / `standalone\` /
+  `rss.xml` / `sitemap.xml` / `search-index.json` / `robots.txt` …），
+  这些路径在 `.gitignore` 里，**不入库**。
+- 构建是**全量**的。原 Python 版的 `--incremental` 只影响「少写几个文件」，
+  不改变任何产物形态，本实现不提供该开关。
 
 ---
 
-## Deployment / 部署
+## 3. 起公开站
 
-### Docker
+### 3.1 明文（内网 / 调试）
 
-```bash
-docker-compose up -d
+```powershell
+$env:TP_ROOT='pages'
+$env:TP_HOST='127.0.0.1'
+$env:TP_PORT='18080'
+D:\wlwl_v0.12.1\wlwl.exe run tp\bin\serve_public.wll
 ```
 
-### Nginx Reverse Proxy / Nginx 反向代理
+```powershell
+curl.exe -sI http://127.0.0.1:18080/index.html
+```
 
-```nginx
-# Frontend (static pages) - Public HTTPS
-server {
-    listen 443 ssl http2;
-    server_name your-domain.com;
+### 3.2 TLS（对外）
 
-    ssl_certificate /path/to/your/cert.pem;
-    ssl_certificate_key /path/to/your/key.pem;
+```powershell
+$env:TP_ROOT='pages'
+$env:TP_HOST='0.0.0.0'
+$env:TP_PORT='443'
+$env:TP_CERT='C:\certs\fullchain.pem'   # 必填
+$env:TP_KEY ='C:\certs\privkey.pem'     # 必填
+D:\wlwl_v0.12.1\wlwl.exe run --ext D:\wlwl_v0.12.1\lib\wlwl_tls.dll `
+    --ext-sha256 202379c21f2c2950635442fce895d71383a9e100e2eac65a2fd0e1da42e3599b `
+    tp\bin\serve_tls.wll
+```
 
-    location / {
-        proxy_pass http://127.0.0.1:8080;
-        proxy_set_header Host $host;
-        proxy_set_header X-Real-IP $remote_addr;
-        proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
-        proxy_set_header X-Forwarded-Proto $scheme;
-    }
-}
+- 证书由**外部签发**（Let's Encrypt / 商业证书），本程序不申请证书、不做 ACME。
+- 缺 `TP_CERT` / `TP_KEY` 或文件不存在 ⇒ **拒绝启动并 PANIC**，不会静默降级成明文。
+- `--ext-sha256` 是扩展的完整性校验（小写 hex，64 字符），首次用前请自己算一次：
+  `(Get-FileHash D:\wlwl_v0.12.1\lib\wlwl_tls.dll -Algorithm SHA256).Hash.ToLower()`
+- ⚠ 加载原生扩展等于把**整个进程权限**交给它，它**不是沙箱**。启动时宿主会打一行告警。
 
-# Admin backend - Private HTTPS port
-server {
-    listen 10443 ssl http2;
-    server_name your-domain.com;
+实测响应头（5 个安全头，顺序固定）：
 
-    ssl_certificate /path/to/your/cert.pem;
-    ssl_certificate_key /path/to/your/key.pem;
-
-    location / {
-        proxy_pass http://127.0.0.1:8081;
-        proxy_set_header Host $host;
-        proxy_set_header X-Real-IP $remote_addr;
-        proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
-        proxy_set_header X-Forwarded-Proto $scheme;
-
-        proxy_read_timeout 300s;
-        proxy_connect_timeout 75s;
-    }
-}
+```
+HTTP/1.1 200 OK
+Content-Type: text/html; charset=utf-8
+Cache-Control: max-age=300, must-revalidate
+X-Content-Type-Options: nosniff
+X-Frame-Options: DENY
+Referrer-Policy: no-referrer
+Cross-Origin-Opener-Policy: same-origin
+Permissions-Policy: accelerometer=(), camera=(), geolocation=(), gyroscope=(), magnetometer=(), microphone=(), payment=(), usb=()
 ```
 
 ---
 
-## Project Structure / 项目结构
+## 4. 起后台
+
+```powershell
+$env:TP_ROOT='pages'
+$env:TP_ADMIN_HOST='127.0.0.1'          # ⚠ 设成别的值会直接 PANIC
+$env:TP_ADMIN_PORT='8081'
+$env:TP_ADMIN_USER='admin'
+$env:TP_ADMIN_PASS='<至少 16 位>'
+D:\wlwl_v0.12.1\wlwl.exe run tp\bin\serve_admin.wll
+```
+
+打开 <http://127.0.0.1:8081/login>。
+
+- **后台只绑回环**，不做 admin 侧 TLS（回环不经过网络）。设 `TP_ADMIN_HOST` 为非
+  `127.0.0.1` 会被拒绝启动——这是故意的，不提供「改绑」开关。
+- `TP_ADMIN_PASS` 为空 ⇒ 登录返回 **503**（对齐原实现的「未配置口令即不可登录」）。
+- 未登录访问除 `/login` 以外的路由 ⇒ **302** 到 `/login`。
+- 无 CSRF token 的 POST ⇒ **403**。
+
+---
+
+## 5. 测试与本地 CI
+
+```powershell
+# 全量（生成器无漂移 → 静态检查 → wlwl check → 反向守卫 → 27 个测试文件）
+powershell -ExecutionPolicy Bypass -File tp\test\ci_local_check.ps1
+
+# 单个模块
+D:\wlwl_v0.12.1\wlwl.exe run tp\test\test_md.wll
+
+# 只做语法/括号检查
+D:\wlwl_v0.12.1\wlwl.exe check tp\lib\md.wll
+python tp\test\paren_check.py tp\lib\md.wll
+```
+
+⚠ **测试自己把关**：`RUN_TESTS()` 失败**不会**改进程退出码，所以每个测试文件末尾
+自己 `PANIC`。看退出码是可靠的；看 `failed= 0` 也是。
+
+---
+
+## 6. 环境变量
+
+**公开站（`serve_public.wll` / `serve_tls.wll`）**
+
+| 变量 | 说明 | 缺省 |
+|---|---|---|
+| `TP_ROOT` | 产物根目录 | `pages` |
+| `TP_HOST` | 监听地址 | `0.0.0.0` |
+| `TP_PORT` | 监听端口 | `80`（TLS 入口 `443`） |
+| `TP_CERT` | 证书路径（TLS 入口**必填**） | — |
+| `TP_KEY` | 私钥路径（TLS 入口**必填**） | — |
+
+**后台（`serve_admin.wll`）**
+
+| 变量 | 说明 | 缺省 |
+|---|---|---|
+| `TP_ADMIN_HOST` | 只接受 `127.0.0.1` | `127.0.0.1` |
+| `TP_ADMIN_PORT` / `ADMIN_PORT` | 监听端口 | `8081` |
+| `TP_ADMIN_USER` / `ADMIN_USER` | 登录用户名 | `admin` |
+| `TP_ADMIN_PASS` / `ADMIN_PASS` | 登录口令 | 空 ⇒ 登录 503 |
+| `TP_ROOT` | 站点根 | `pages` |
+| `TP_THEMES_DIR` | 主题目录 | `themes` |
+| `TP_THEME` | 主题名 | `default` |
+| `TP_AI_ENABLED` | `true` 才启用 AI | `false` |
+| `TP_AI_API_KEY` | AI 服务的 key | 空 ⇒ 功能关闭 |
+| `TP_AI_MODEL` | 模型名 | `gpt-3.5-turbo` |
+| `TP_AI_PROVIDER` | `openai` / `custom` | `openai` |
+| `TP_AI_ENDPOINT` | 自定义 base URL | 按 provider 推导 |
+
+`wlwl run` **不透传脚本参数**（`--port` 会被编译器拒掉），所以端口/路径一律走环境变量。
+
+后台的站点设置（主题等）持久化在 **`.tinypage/config.json`**，与前台共用同一份站点根。
+
+---
+
+## 7. Docker
+
+`Dockerfile` 与 `docker-compose.yml` 已按上面的进程划分写好（`public` / `admin` / `build`
+三个服务，**不含 nginx**）。⚠ **尚未在真 Docker 上构建过**：只有 Windows 构建的
+`wlwl.exe` ⇒ 必须是 Windows 容器（`servercore`，因为它导入 `VCRUNTIME140.dll`），
+而编写这套文件的环境里没有 Docker。用它之前请先在目标机验一遍：
+
+```powershell
+docker build -t tinypage:wlwl .
+docker compose up -d
+curl.exe -k --resolve localhost:443:127.0.0.1 https://localhost/index.html
+```
+
+构建前需把 WLWL 运行时放进构建上下文的 `wlwl-runtime\`：
+`wlwl-runtime\wlwl.exe`、`wlwl-runtime\lib\wlwl_tls.dll`、`wlwl-runtime\lib\stdlib\*.wll`。
+
+---
+
+## 8. 目录结构
 
 ```
 TinyPage/
-├── tinypage/              # Core Python package
-│   ├── __init__.py        # Package entry point, version, exports
-│   ├── __main__.py        # CLI entry point
-│   ├── config.py          # Configuration management
-│   ├── server.py          # Dual-service startup
-│   ├── frontend.py        # Static file WSGI app
-│   ├── admin.py           # Admin dashboard WSGI app
-│   ├── generator.py       # HTML generators
-│   ├── content.py         # Article I/O & digital garden
-│   ├── models.py          # Data models
-│   ├── security.py        # Security utilities
-│   ├── cli.py             # CLI commands
-│   ├── parsers/           # Content parsers
-│   │   ├── markdown.py    # Markdown rendering
-│   │   ├── syntax.py      # Syntax highlighting
-│   │   ├── toc.py         # Table of contents
-│   │   ├── footnotes.py   # Footnote processing
-│   │   ├── bidirectional_links.py  # Bidirectional links
-│   │   ├── mermaid_init.py         # Mermaid diagram init
-│   │   └── tag_graph.py   # Tag visualization
-│   └── core/              # Core utilities
-│       ├── template.py    # Page skeleton templates
-│       ├── ai_assistance.py # AI writing tools
-│       └── incremental.py # Incremental build engine
-├── themes/                 # Theme files
-│   └── default/           # Default theme
-├── static_inject/         # Frontend assets injected into pages
-│   ├── htmx.min.js        # HTMX library
-│   ├── manifest.json      # PWA manifest
-│   ├── search.js          # Client-side search
-│   └── sw.js              # Service worker
-├── pages/                 # Content & generated output
-├── scripts/               # Utility scripts
-│   └── git-hooks/         # Git hook scripts
-├── tiny_page.py           # Legacy entry point
+├── tp/
+│   ├── lib/              # 25 个 WLWL 模块（解析器 / 内容模型 / 安全 / 静态服务 / AI）
+│   ├── bin/              # 4 个入口：build / serve_public / serve_tls / serve_admin
+│   ├── test/             # 26 个测试文件 + smoke + 58 个生成器 + fixtures/
+│   └── probe/            # 一次性实测探针（入库，供复查结论）
+├── pages/                # 站点根：article/*.md 是正文真相源，其余是产物（不入库）
+├── themes/default/       # 主题：theme.css / theme.dark.css / manifest.json
+├── admin_templates/      # 后台页面模板（7 个）
+├── static_inject/        # 前端资产：htmx / highlight / search.js / sw.js / manifest
+├── scripts/git-hooks/    # pre-commit / pre-push（sh）
+├── .tinypage/config.json # 后台持久化的站点设置
 ├── Dockerfile
-├── docker-compose.yml
-├── nginx.conf             # Nginx reverse proxy config
-└── pyproject.toml
+└── docker-compose.yml
 ```
 
 ---
 
-## Architecture / 架构
+## 9. 开发约定（重要）
 
-TinyPage uses a dual-service architecture:
-
-1. **Static Server** (port 8080): Serves pre-generated HTML, CSS, JS, and images
-2. **Admin Server** (port 8081): Protected backend for content management
-
-Content is stored as plain HTML files in the `pages/` directory, making it:
-- **Git-friendly**: Version control your content
-- **Database-free**: No SQLite or external DB required
-- **Portable**: Deploy anywhere that serves static files
-
----
-
-## Security Notes / 安全说明
-
-- Admin backend is bound to `127.0.0.1` by default
-- Use HTTPS reverse proxy for production
-- Change default admin credentials
-- Enable rate limiting in high-traffic scenarios
+1. **`.wll` 由 Python 生成器产出，不要手写。**
+   WLWL 的括号诊断**不告诉你缺几层**（`E0011`），手写基本靠猜。改实现请改
+   `tp/test/gen_<模块>.py` 再 `python tp\test\gen_<模块>.py`。
+   CI 的 no-drift 步骤会拦住「改了生成器忘了跑」和「手改了 .wll」两种情况。
+2. **没有 Python 也跑得起来站点**：仓库里剩下的 `.py` 只是**开发期生成器**，
+   站点运行期一个都不用。想彻底删干净就必须放弃「与参考实现逐字节对照」的能力
+   （见下一条）。
+3. **23 个生成器已在 S6-2 冻结删除**（它们 `import tinypage` 或按路径读取它）。
+   对应产物变成**只读的历史基准**：
+   - 22 个 `tp/test/fixtures/*_baseline.json`
+   - `tp/test/test_toc.wll`
+   这些文件只能比对、**不能再生成**。改相关 `.wll` 时若与基准不符，以基准为准并
+   说明差异；确实要改基准，就手改 JSON 并在提交信息里写清依据。
+4. 顶层名字跨模块共享（实测：后绑定会覆盖被 import 模块的同名**私有**名，而且诊断
+   的文件/行会错标）⇒ 每个模块的顶层名字都带专属前缀（`SEC_` / `ADM_` / `AI_` …）。
+5. 内建 `SORT` 是二次复杂度（1000 元素 28 秒）⇒ 排序一律走 `sort_util.wll`。
 
 ---
 
-## License / 许可证
+## 10. 安全说明
 
-MIT License - See [LICENSE](LICENSE) file for details.
+- 后台只绑 `127.0.0.1`，不对外；对外只有公开站。
+- 公开站 5 个安全头顺序固定；路径含 `..`、隐藏文件、`admin_password.txt` / `.env`
+  / `.git` 一律 404；非 GET/HEAD ⇒ 405。
+- CSRF 用 HMAC token + double-submit cookie；上传按扩展名白名单 + magic bytes 校验。
+- 后台口令请自己设且别写进仓库；`.env` / 证书 / 私钥都在 `.gitignore` 与
+  `.dockerignore` 里。
+
+---
+
+## License
+
+MIT License — 见 [LICENSE](LICENSE)。
 
 Copyright (c) 2026 Laffinty

@@ -1,93 +1,22 @@
-# TinyPage pre-commit hook
-# This hook runs before each commit to format and validate code
+#!/bin/sh
+# TinyPage pre-commit hook —— 只做「快」的那几条静态检查。
+#
+# S6-2（2026-11-02）：本文件原来是 **Python** 脚本（`#!/usr/bin/env python3`），
+# 随 Python 组件一起清退，改写为 sh。Git for Windows 用 sh 执行钩子，
+# 因此这里只做壳，真正的检查交给 tp/test 下的脚本。
+#
+# 只检查**本次暂存**的 .wll：全量检查在 pre-push 与 CI 里做。
+set -e
 
-import os
-import re
-import subprocess
-import sys
-from pathlib import Path
+files=$(git diff --cached --name-only --diff-filter=ACM | grep '\.wll$' || true)
+if [ -z "$files" ]; then
+    exit 0
+fi
 
-def get_repo_root() -> Path:
-    """Get the repository root directory."""
-    return Path(__file__).resolve().parent.parent.parent
+echo "[PRE-COMMIT] 静态检查 $(echo "$files" | wc -l) 个 .wll"
 
-def check_python_syntax(files: list[Path]) -> bool:
-    """Check Python files for syntax errors."""
-    errors = []
-    for f in files:
-        if f.suffix == ".py":
-            result = subprocess.run(
-                [sys.executable, "-m", "py_compile", str(f)],
-                capture_output=True,
-                text=True,
-            )
-            if result.returncode != 0:
-                errors.append(f)
-    return len(errors) == 0
+# 括号 / 分号这两条最有价值（WLWL 的括号诊断不告诉你缺几层）
+python tp/test/paren_check.py $files
+python tp/test/check_semis.py $files
 
-def check_no_debug_code(files: list[Path]) -> bool:
-    """Check for leftover debug code like print() statements."""
-    debug_patterns = [
-        r'\bprint\s*\(',
-        r'\bbreakpoint\s*\(',
-        r'^\s*#\s*TODO:.*debug',
-        r'console\.log',
-    ]
-    issues = []
-    for f in files:
-        if f.suffix in (".py", ".js", ".html"):
-            try:
-                content = f.read_text(encoding="utf-8")
-                for pattern in debug_patterns:
-                    if re.search(pattern, content, re.MULTILINE):
-                        issues.append((f, pattern))
-            except Exception:
-                pass
-    if issues:
-        print(f"[PRE-COMMIT] Warning: Potential debug code found in {len(issues)} location(s)")
-        for f, pattern in issues[:5]:
-            print(f"  {f}: {pattern}")
-    return len(issues) == 0
-
-def get_staged_files() -> list[Path]:
-    """Get list of staged files."""
-    try:
-        result = subprocess.run(
-            ["git", "diff", "--cached", "--name-only", "--diff-filter=ACM"],
-            capture_output=True,
-            text=True,
-            cwd=get_repo_root(),
-        )
-        if result.returncode == 0:
-            return [get_repo_root() / f for f in result.stdout.strip().split("\n") if f]
-    except Exception as e:
-        print(f"[PRE-COMMIT] Warning: Failed to get staged files: {e}")
-    return []
-
-def main() -> int:
-    """Main pre-commit hook."""
-    repo_root = get_repo_root()
-    staged_files = get_staged_files()
-
-    if not staged_files:
-        print("[PRE-COMMIT] No staged files")
-        return 0
-
-    python_files = [f for f in staged_files if f.suffix == ".py"]
-
-    print(f"[PRE-COMMIT] Checking {len(staged_files)} staged file(s)...")
-
-    if python_files:
-        print(f"[PRE-COMMIT] Checking Python syntax...")
-        if not check_python_syntax(python_files):
-            print("[PRE-COMMIT] Error: Python syntax errors found")
-            return 1
-
-    print(f"[PRE-COMMIT] Checking for debug code...")
-    check_no_debug_code(staged_files)
-
-    print("[PRE-COMMIT] All checks passed")
-    return 0
-
-if __name__ == "__main__":
-    sys.exit(main())
+exit 0

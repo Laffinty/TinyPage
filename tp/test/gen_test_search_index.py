@@ -51,9 +51,16 @@ sys.path.insert(0, HERE)
 sys.path.insert(0, REPO_ROOT)
 
 from wllgen import write  # noqa: E402
-from gen_search_index_baseline import (  # noqa: E402
-    CONTENT_MARKER, DRAFT_TITLE_LOWER, DRAFT_TITLE_UPPER,
-)
+
+# ── S6-2 冻结（2026-11-02）────────────────────────────────────────────
+# 这三个常量原本从 `gen_search_index_baseline.py` 导入。那个生成器直接
+# `import tinypage`，已随 `tinypage/` 包一起删除 ⇒ 常量改为**本地字面量**。
+# 值是从它当年产出的 `test_search_index.wll` 里反查出来的（第 204/205 行与
+# content_marker 守卫），因此本文件重新生成的产物必须与原来**逐字节相同** ——
+# 这一点由 CI 的 no-drift 步骤当场证明（不一致就是 drift 红）。
+CONTENT_MARKER = 'CONTENT-MUST-NOT-APPEAR-IN-INDEX'
+DRAFT_TITLE_LOWER = '小写草稿标题-DRAFT-LOWER'
+DRAFT_TITLE_UPPER = '大写草稿标题-DRAFT-UPPER'
 
 FIXTURES = os.path.join(HERE, 'fixtures')
 OUT = os.path.join(HERE, 'test_search_index.wll')

@@ -8,6 +8,16 @@ TinyPage 从 Python 重构为 **纯 WLWL**（编译器 `v0.12.1`，规范 `v1.0.
 > WLWL 的括号诊断（`E0011`）只说「expected `)` got X」，不告诉你缺了几层，
 > 手写嵌套代码时反复数括号极低效且极易错。改实现请改生成器。
 
+> ⚠⚠ **例外：23 个生成器已在 S6-2 随 `tinypage/` 一起删除**（它们 import 或按路径
+> 读取 Python 实现）。对应产物因此**冻结为只读历史基准**，不要再想「重跑生成器」：
+> - `test/fixtures/*_baseline.json` 里的 **22 个**（仍可再生的只有 3 个：
+>   `esc` / `http_client_tls` / `mistune`）
+> - `test/test_toc.wll`
+>
+> 这些文件改了就**没有第二来源**可以对照；确实要改，请在提交信息里写清依据。
+> 其余 `lib/*.wll`、`bin/*.wll`、`test/test_*.wll` **仍然全部由生成器产出**，
+> CI 的 no-drift 步骤照样会拦住手改。
+
 ## 目录
 
 ```

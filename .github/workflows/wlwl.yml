@@ -43,35 +43,25 @@ jobs:
         with:
           python-version: '3.13'
 
-      # The baseline generators import mistune (the reference Markdown
-      # implementation we compare against byte-for-byte), and they also import
-      # the tinypage package whose parsers/__init__.py pulls in mistune and
-      # pygments transitively. None of that is stdlib and the runner image does
-      # not ship it, so without this step gen_mistune_baseline.py dies with
-      # ImportError and the regenerate/no-drift step fails.
-      # (click / waitress are imported only by tinypage/cli.py and
-      #  tinypage/server.py, which are NOT reachable from the generators.)
+      # S6-2 (2026-11-02): the tinypage package and every generator that
+      # imported it are gone. By then `mistune` is the ONLY third-party import
+      # left anywhere under tp\test (gen_mistune_baseline.py, the reference
+      # Markdown implementation we compare md.wll against byte-for-byte).
+      # pygments (article highlight) and argon2-cffi (HASH_PASSWORD) were only
+      # reachable through generators that called into tinypage - both of those
+      # generators are deleted together with the package, so both pins are gone.
+      #
       # PINNED: the baseline fixture is a byte-exact snapshot of mistune's
       # output, so an unpinned upgrade would silently rewrite the fixture and
       # hide a real regression behind "just re-run the generator".
-      #
-      # argon2-cffi (2026-11-02): gen_security_baseline.py calls the real
-      # argon2.low_level.hash_secret_raw to produce HASH_PASSWORD expectations
-      # (S4-2 requires argon2id, not a SHA256 stand-in). Without it the
-      # regenerate step dies with ImportError. Also pinned for the same reason:
-      # the encoded hash string is a byte-exact fixture value.
-      - name: Install baseline dependencies (mistune, pygments, argon2-cffi)
+      - name: Install baseline dependencies (mistune)
         shell: pwsh
         run: |
           $ErrorActionPreference = 'Stop'
-          python -m pip install --disable-pip-version-check mistune==3.2.1 pygments==2.20.0 argon2-cffi==25.1.0
+          python -m pip install --disable-pip-version-check mistune==3.2.1
           $m = python -c "import mistune; print(mistune.__version__)"
-          $p = python -c "import pygments; print(pygments.__version__)"
-          $a = python -c "import importlib.metadata as m; print(m.version('argon2-cffi'))"
           if ($m -ne '3.2.1') { Write-Error "unexpected mistune version: $m"; exit 1 }
-          if ($p -ne '2.20.0') { Write-Error "unexpected pygments version: $p"; exit 1 }
-          if ($a -ne '25.1.0') { Write-Error "unexpected argon2-cffi version: $a"; exit 1 }
-          Write-Host "mistune $m / pygments $p / argon2-cffi $a"
+          Write-Host "mistune $m"
 
       # --- 1) fetch the WLWL compiler ---
       - name: Download WLWL 0.12.1 (Windows x86_64)
@@ -132,6 +122,13 @@ jobs:
           # must be reproducible. tp/bin was added 2026-11-02 when S2-4 landed
           # build.wll / serve_public.wll / serve_tls.wll: they are generator
           # products too, so hand-editing them must fail this gate as well.
+          #
+          # S6-2 (2026-11-02): 22 generators that imported tinypage are deleted
+          # together with the package. Their artifacts
+          # (tp/test/fixtures/*_baseline.json, plus test_toc.wll) are now FROZEN:
+          # nothing regenerates them, so they will never show up in this diff.
+          # The remaining generators still cover tp/lib, tp/bin and the
+          # generator-produced test files.
           $diff = git diff --stat -- 'tp/lib/*.wll' 'tp/bin/*.wll' 'tp/test/*.wll' 'tp/test/fixtures/*.json'
           if ($diff) {
             Write-Host "::error::Generated artifacts are out of sync with their generators."
