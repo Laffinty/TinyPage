@@ -320,7 +320,17 @@ def main():
 
     # ── safe_path_check（需要真实目录 ⇒ 用夹具建出来） ─────────────
     sp = {}
-    with tempfile.TemporaryDirectory() as td:
+    with tempfile.TemporaryDirectory() as _td:
+        # ⚠ 必须先把临时目录归一到**规范长路径**再往下算。
+        # gettempdir() 在 GitHub Windows runner 上返回 8.3 短名
+        # （实测 `C:\Users\RUNNER~1\AppData\Local\Temp\tmpXXXX`），而
+        # safe_path_check 内部的 resolve() 返回长名（`runneradmin`）⇒
+        # relpath(长, 短) 会算出 `..\..\..\runneradmin\AppData\...` 这种
+        # **机器相关**的相对路径，让夹具在本机与 CI 之间漂移
+        # （wf run #6 实测：本机生成 → CI 重生成，该 JSON 差 23 行）。
+        # realpath 走 GetFinalPathNameByHandle，在同一个卷上给出与
+        # resolve() 同形的规范路径，两边于是可比。
+        td = os.path.realpath(_td)
         base = os.path.join(td, 'pages')
         os.makedirs(base)
         for rel in SAFE_PATH_FIXTURE['files']:
@@ -339,6 +349,16 @@ def main():
             rel_out = None
             if ok and target is not None:
                 rel_out = os.path.relpath(str(target), str(base)).replace(os.sep, '/')
+                # 守卫：rel 若能跳出 base，说明 base 与 resolve() 的路径形态仍不一致
+                # （典型原因就是上面的 8.3 短名没被 realpath 归一）⇒ 此时写进夹具的
+                # 期望值必然是机器相关的。宁可在生成阶段炸掉，也不要让它悄悄漂移到 CI。
+                if rel_out == '..' or rel_out.startswith('../'):
+                    raise RuntimeError(
+                        'safe_path_check 基准夹具出现机器相关路径：input=%r rel=%r\n'
+                        'base=%r\ntarget=%r\n'
+                        'base 与 resolve() 的形态不一致（多半是 8.3 短名）⇒ '
+                        '先把它归一到规范长路径再生成。'
+                        % (s, rel_out, base, str(target)))
             py = {'ok': bool(ok), 'rel': rel_out}
             name = 'p%02d' % len(sp)
             entry = {'input': s, 'python': py, 'want': dict(py), 'note': None}
