@@ -14,6 +14,7 @@
 //   incremental BOOLEAN  默认 FALSE；**接受但忽略**（走全量，见尾注）
 //   out         STRING   产物根，默认 <root>/pages
 // 返回：["articles": INT, "written": INT, "ok": BOOLEAN, "failed": INT, ...]
+//   ⚠ `written` **不含**资产注入的文件数；注入数单独回报为 `injected`（见 BUILD 内注释）
 //
 // 五步渲染管线（content.py:283-305，**顺序不可调换**）：
 //   PROCESS_FOOTNOTES → EXTRACT_HEADINGS → PARSE_BIDIRECTIONAL_LINKS
@@ -42,7 +43,7 @@ IMPORT("wlwl:std.regex", ["RE", "RE_TEST", "RE_REPLACE"]);
 IMPORT("wlwl:std.math", ["MIN", "MAX"]);
 IMPORT("wlwl:std.encode", ["UTF8_DECODE"]);
 IMPORT("wlwl:std.env", ["ARGS"]);
-IMPORT("wlwl:std.fs", ["READ_FILE", "WRITE_FILE_ATOMIC", "MKDIRS", "LIST_DIR", "EXISTS", "PATH_JOIN", "PATH_BASE", "PATH_EXT", "FILE_META"]);
+IMPORT("wlwl:std.fs", ["READ_FILE", "WRITE_FILE_ATOMIC", "MKDIRS", "LIST_DIR", "EXISTS", "PATH_JOIN", "PATH_BASE", "PATH_EXT", "FILE_META", "READ_BYTES", "WRITE_BYTES"]);
 
 IMPORT("./../lib/esc.wll", ["ESCAPE_HTML"]);
 IMPORT("./../lib/article_store.wll", ["VALIDATE_FILENAME", "SOURCE_PATH", "DECODE_CONTENT"]);
@@ -456,9 +457,35 @@ LET(BUILD, FUN((opts), (
      LET MUT(page_size2, page_size);
      IF(<(page_size2, 1), (SET(page_size2, 1)), NULL);
 
+     // ── 资产注入（== frontend.py:25 `_get_injected_assets` 的等价物）──
+     // Python 在**服务期**把 static_inject/ 下的顶层**文件**挂到站点根路径：
+     //   `for f in base.iterdir(): if f.is_file(): assets["/" + f.name] = data`
+     // 静态托管没有这个钩子 ⇒ 本层改成**构建期逐字节拷贝**到 out_dir 根。
+     //
+     // ⚠ 位置在**文章目录守卫之前**：Python 的资产随时可取，与有没有文章无关;
+     //   放到守卫之后就变成「空语料仓库的站点样式/搜索/PWA 全 404」。
+     // ⚠ **不计入 `written`**：那个数对齐的是 Python 渲染出的产物数（基准断言 25）。
+     // ⚠ 判「是不是文件」用 `READ_BYTES` 失败即可 —— 实测**目录读必 ERR**、
+     //   不存在的路径也 ERR，而**空文件读回 0 字节不报错**（不会误跳过）。
+     // ⚠ 「读两次」是故意的：`LET(r, <ERR>)` 绑定不算消费 ERR（坑 25）。
+     LET(inject_dir, PATH_JOIN(root, "static_inject"));
+     LET MUT(injected, 0);
+     IF(EXISTS(inject_dir), (
+          FOR(entry, LIST_DIR(inject_dir), (
+               IF(IS_ERR(READ_BYTES(entry)), NULL, (
+                    IF(IS_ERR(WRITE_BYTES(
+                         PATH_JOIN(out_dir, PATH_BASE(entry)),
+                         READ_BYTES(entry))), NULL, (
+                         SET(injected, +(injected, 1))
+                    ))
+               ))
+          ))
+     ), NULL);
+
      // ── 文章目录不存在 ⇒ 与 cli.py:107-110 同口径：直接失败 ──────
      IF(!EXISTS(article_dir), (
           RETURN(["articles": 0, "written": 0, "ok": FALSE,
+                  "injected": injected,
                   "error": CAT("article dir missing: ", article_dir)])
      ), NULL);
 
@@ -662,7 +689,9 @@ LET(BUILD, FUN((opts), (
       "failed": failed,
       "pages": pages_n,
       "categories": LEN(cats),
-      "standalones": LEN(sts)]
+      "standalones": LEN(sts),
+      // 资产注入的**成功**文件数（不计入 written，见上的说明）;
+      "injected": injected]
 )));
 
 EXPORT(["BUILD"]);
@@ -687,7 +716,8 @@ IF(TPB_SP("build.wll"), (
            " written=", AT_K(res, "written", 0),
            " ok=", AT_K(res, "ok", FALSE),
            " pages=", AT_K(res, "pages", 0),
-           " categories=", AT_K(res, "categories", 0))
+           " categories=", AT_K(res, "categories", 0),
+           " injected=", AT_K(res, "injected", 0))
 ), NULL);
 
 // ── 尾注：`incremental` 接受但忽略 ───────────────────────────────────

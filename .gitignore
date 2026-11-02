@@ -74,6 +74,20 @@ pages/category/
 pages/static/
 pages/.tinypage/
 
+# 资产注入：build 把 static_inject/ 的顶层文件**逐字节**拷到 pages/ 根。
+# 等价于原 Python 在服务期由 frontend.py:25 `_get_injected_assets` 挂在站点根的
+# 那 9 个路径（静态托管没有服务期钩子 ⇒ 挪到构建期）。
+# ⚠ 单个文件列出，不用 `pages/*.css` 这种宽规则：那会连用户手放的静态资源一起吃掉。
+pages/admin.css
+pages/admin.js
+pages/highlight-theme.css
+pages/highlight.min.js
+pages/htmx.min.js
+pages/manifest.json
+pages/search.js
+pages/sw.js
+pages/HIGHLIGHT.md
+
 # -----------------------------------------------------------------------------
 # WLWL 重构期的本地临时件（不入库）
 # -----------------------------------------------------------------------------

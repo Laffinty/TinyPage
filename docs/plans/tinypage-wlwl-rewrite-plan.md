@@ -37,7 +37,7 @@
 | S3 前台静态服务（TLS） | ✅ **完成** | `static_serve.wll`（纯函数内核）+ `bin/serve_public.wll`（明文）+ `bin/serve_tls.wll`（TLS）；`test_static_serve.wll` **365/365**；5 个安全头与 `get_security_headers()` 逐字同序相等；curl 实测 200/404/405 与长缓存；坏连接后循环存活；缺 cert 拒绝启动 |
 | S4 Admin 后台 | ✅ **完成** | `security.wll`（**235**）／`admin_actions.wll`（**108**）／`http_util.wll` + `bin/serve_admin.wll`（**312**）／S4-5 高亮资产与注入（`test_build` **63**）／S4-6 视图层（**50**）+ 接线（六条 curl 全绿）；合计 **768 个断言** |
 | S5 AI 助手（出站 HTTPS） | ✅ **完成** | `http_client_tls.wll`（**180**，无扩展可跑）／`ai.wll`（**163**，脱网）／`admin_ai.wll`（**129**，脱网）；合计 **472 个断言**；真实 TLS 往返只在本机探针覆盖 |
-| S6 部署与切换 | ✅ **完成（镜像未实测）** | S6-1：`Dockerfile`（Windows servercore）+ `docker-compose.yml`（public/admin/build，无 nginx）+ `.dockerignore`；⚠ 本机无 docker ⇒ **镜像构建与起栈未验**。S6-2：删 `tinypage/`、`tests/`、`tiny_page.py`、`pyproject.toml`、`nginx.conf`、`install.py` + **23 个依赖 tinypage 的生成器**（22 个 `import` + 1 个按路径读取）；`pre-commit`/`pre-push` 由 Python 改写为 sh。S6-3：README 全面改写（运行期零 Python）。删后本地 CI **58 生成器 / 81 产物 / 无 drift / 27 测试全绿** |
+| S6 部署与切换 | ✅ **完成（镜像未实测）** | S6-1：`Dockerfile`（Windows servercore）+ `docker-compose.yml`（public/admin/build，无 nginx）+ `.dockerignore`；⚠ 本机无 docker ⇒ **镜像构建与起栈未验**。S6-2：删 `tinypage/`、`tests/`、`tiny_page.py`、`pyproject.toml`、`nginx.conf`、`install.py` + **23 个依赖 tinypage 的生成器**（22 个 `import` + 1 个按路径读取）；`pre-commit`/`pre-push` 由 Python 改写为 sh。S6-3：README 全面改写（运行期零 Python）。**S6-4：静态资产注入**（构建期把 `static_inject/` 9 个文件逐字节拷到 `pages/`，实测 9/9 一致且全部 200 —— 关掉「部署后样式/搜索/PWA 全 404」那条）。删后本地 CI **58 生成器 / 81 产物 / 无 drift / 27 测试全绿** |
 
 ### §0.2 S1 已沉淀的工程约定（**后续所有 .wll 都适用**）
 
@@ -1439,6 +1439,8 @@ TinyPage/
   WLWL 无本地时区格式化，用 UTC 会差 8 小时、比空值更误导）；② `/translate` 只到文本层；
   ③ 编辑页不做 Python 的懒迁移写盘；④ `/admin.css` `/admin.js` `/htmx.min.js` 本入口**不返回**
   —— 页面样式/JS 在真实部署里仍需资产管线（与 D-HL 那条「`static_inject/` 映射」是同一个缺口）。
+  **✅ ④ 已由卡 S6-4（2026-11-02）关闭**：构建期把 `static_inject/` 的 9 个顶层文件逐字节拷到
+  `pages/` 根，实测这 9 个路径全部 200。
 
 ### S5 AI 助手（出站 HTTPS）
 #### 卡 S5-1：出站 HTTPS 客户端 ✅ 已完成
@@ -1637,6 +1639,44 @@ TinyPage/
 - **反向守卫**：README 里的每条命令**必须**逐条实跑过
 - **非目标**：不写部署运维手册（超出本次范围）
 
+#### 卡 S6-4：静态资产注入 ✅ 已完成（2026-11-02 收尾补卡）
+
+> **为什么补这张卡**：S6 收尾时复盘发现——部署出来的站点**样式、搜索、PWA 全部 404**。
+> `static_serve.wll` 只在 `TP_ROOT` 下取文件，而页面引用的 `/highlight.min.js`、
+> `/search.js`、`/manifest.json` 等 9 个路径都在仓库根的 `static_inject/`。
+> 原 Python 版靠服务期钩子解决，纯静态内核没有这个钩子。
+
+- **Python 的原始口径**（`frontend.py:25 _get_injected_assets`，已随包删除，用
+  `git show 3062521^:tinypage/frontend.py` 可复查）：`base = Path("static_inject")`，
+  `for f in base.iterdir(): if f.is_file(): assets["/" + f.name] = data` ——
+  只看**顶层**、只看**文件**、挂到站点根。
+- **交付物**：`tp/bin/build.wll`（改 `tp/test/gen_build.py` 重新生成）新增「资产注入」段。
+- **实现选择**：**构建期逐字节拷贝**，不做服务期多根查找。
+  理由：产物自洽、静态托管天然命中、将来接 CDN 不用改服务端；服务期多根查找要引入第二个根
+  与路径优先级，还得把「不许穿越」重新守一遍。已排除。
+- **两处刻意的口径**：
+  1. **放在文章目录守卫之前**。Python 的资产随时可取，与有没有文章无关；放到守卫之后就变成
+     「空语料仓库的站点仍是全 404」。
+  2. **不计入 `written`**。`written` 对齐的是 Python 渲染出的产物数（基准断言写死
+     `written == 25`），把拷贝数混进去会让那份**冻结**基准直接红。注入数单独回报为 `injected`。
+- **判「是不是文件」的正解**（实测，不是读文档推的）：`READ_BYTES` 对**目录**必 ERR、
+  对**不存在路径**也 ERR，而**空文件读回 0 字节不报错** ⇒ 「读失败＝不是文件」既等价于
+  `f.is_file()`，又不会把空文件误跳过。
+- **验收命令与读数**：
+  ```
+  wlwl.exe run tp\bin\build.wll
+  # build: articles= 0  written= 0  ok= FALSE  pages= 0  categories= 0  injected= 9
+  ```
+  9 个文件与 `static_inject/` 源逐个 `Get-FileHash` 比对 —— **9/9 相等**。
+  起 `serve_public.wll` 后逐个请求：`highlight.min.js` / `highlight-theme.css` /
+  `search.js` / `manifest.json` / `sw.js` / `htmx.min.js` / `admin.css` / `admin.js` /
+  `HIGHLIGHT.md` ⇒ **全部 200**（content-type 也对：`application/javascript` /
+  `text/css` / `application/json` / `text/markdown`）。
+- **反向守卫**：`written` 仍然是 25（`test_build.wll` 的 `stats/written` 断言不变）；
+  全量本地 CI 58 生成器 / 81 产物 / 无 drift / 27 测试全绿。
+- **副作用处理**：这 9 个路径已加进 `.gitignore`（**逐条列出**，不用 `pages/*.css` 这种宽规则，
+  否则会把用户手放的静态资源一起吃掉），`git status --short pages/` 保持空。
+
 ---
 
 ## §5 风险登记
@@ -1720,4 +1760,4 @@ TinyPage/
 | 日期 | 变更 |
 |---|---|
 | 2026-11-01 | 初版。基于 WLWL 0.12.1 本机实测（§2）+ TinyPage 代码盘点 + 业主三项裁决建立。 |
-| 2026-11-02 | **S6 收尾**。S6-1 交付 Dockerfile/compose/.dockerignore（Windows 容器；⚠ 本机无 docker ⇒ 镜像构建与起栈未验，业主裁决不装）。S6-2 **全量清退 Python**：删 `tinypage/`、`tests/`、`tiny_page.py`、`pyproject.toml`、`nginx.conf`、`install.py` + **23 个**依赖 tinypage 的生成器；两个 git hook 由 Python 改写为 sh；CI 去掉 pygments/argon2-cffi。删后本地 CI **58 生成器 / 81 产物 / 无 drift / 27 测试全绿**。S6-3 改写 README 并逐条实跑命令。门禁 G1/G1b/G2/G12/G13 的判据被改写（原文与 D7/D5 冲突或永远红）。新增 D7-a/D8/D9/D10。 |
+| 2026-11-02 | **S6 收尾**。S6-1 交付 Dockerfile/compose/.dockerignore（Windows 容器；⚠ 本机无 docker ⇒ 镜像构建与起栈未验，业主裁决不装）。S6-2 **全量清退 Python**：删 `tinypage/`、`tests/`、`tiny_page.py`、`pyproject.toml`、`nginx.conf`、`install.py` + **23 个**依赖 tinypage 的生成器；两个 git hook 由 Python 改写为 sh；CI 去掉 pygments/argon2-cffi。S6-3 改写 README 并逐条实跑命令。**S6-4 静态资产注入**（构建期逐字节拷贝 9 个文件到 `pages/` 根，实测 9/9 hash 相等、9 个路径全 200）。门禁 G1/G1b/G2/G12/G13 的判据被改写（原文与 D7/D5 冲突或永远红）。新增 D7-a/D8/D9/D10。 |

@@ -37,15 +37,22 @@ cd D:\Project\TinyPage
 D:\wlwl_v0.12.1\wlwl.exe run tp\bin\build.wll
 ```
 
-输出形如 `build: articles= 3  written= 12  ok= TRUE  pages= 1  categories= 2`。
+输出形如 `build: articles= 3  written= 12  ok= TRUE  pages= 1  categories= 2  injected= 9`。
 
 > ⚠ 在**当前仓库**直接跑，实际看到的是这一行（因为 `pages\article\` 里还没有文章）：
 > ```
-> build: articles= 0  written= 0  ok= FALSE  pages= 0  categories= 0
+> build: articles= 0  written= 0  ok= FALSE  pages= 0  categories= 0  injected= 9
 > ```
 > 这是**预期**行为，不是故障（见下条）。有文章之后 `articles` / `written` 才会非零、
 > `ok` 才变 `TRUE`；这条成功路径由 `tp\test\test_build.wll` 用合成语料覆盖，
 > 它把产物与参考实现做过逐字节 sha256 对照。
+
+- **资产注入**：`static_inject\` 下的 9 个顶层文件每次构建都会**逐字节**拷到
+  `pages\` 根（`admin.css` / `admin.js` / `highlight-theme.css` / `highlight.min.js` /
+  `htmx.min.js` / `manifest.json` / `search.js` / `sw.js` / `HIGHLIGHT.md`），
+  这样页面里引用的 `/highlight.min.js`、`/search.js`、`/manifest.json` 才能取到。
+  拷贝数单独回报成 `injected=`，**不计入** `written=`（后者对齐的是渲染产物数）。
+  这 9 个路径在 `.gitignore` 里，不会污染 `pages\` 的提交状态。
 
 - 源文章放在 **`pages\article\*.md`**；⚠ **该目录不存在时构建直接失败**
   （`ok= FALSE`，`error= "article dir missing: pages/article"`）——这是照抄原 Python
