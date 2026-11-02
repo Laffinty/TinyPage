@@ -209,104 +209,104 @@ TEST("stats/ok", FUN(() ,
 
 // ── 逐文件对照（sha256 + 码点数）──────────────────────────────────────
 TEST("files/article/2026-01-05-site-launch.html", FUN(() ,
-    (ASSERT(ASSERT_EQ(SHA256(f0), "ffe59485a789f5405a1fccf4a0c96ef8c67945a7a3f670f8c9e35384aa33b72e")));
-    (ASSERT(ASSERT_EQ(LEN(f0), 5042)));
+    (ASSERT(ASSERT_EQ(SHA256(f0), "845584ddbcabf4f61d50f5d548eb393c27381fcf51a43619014ca3ef91e95bdf")));
+    (ASSERT(ASSERT_EQ(LEN(f0), 5174)));
     TRUE));
 TEST("files/article/2026-01-05-site-launch.md", FUN(() ,
     (ASSERT(ASSERT_EQ(SHA256(f1), "03f33a9e012a05855515cfb91c5f401b5d869ed556292784d5aa2875f0b4ad64")));
     (ASSERT(ASSERT_EQ(LEN(f1), 453)));
     TRUE));
 TEST("files/article/2026-01-09-markdown-notes.html", FUN(() ,
-    (ASSERT(ASSERT_EQ(SHA256(f2), "f59d20285f0df9ad7249e8175fd5c67d8a34053550dd3c3b6aa917671a5708d9")));
-    (ASSERT(ASSERT_EQ(LEN(f2), 5346)));
+    (ASSERT(ASSERT_EQ(SHA256(f2), "7528ee01fb62a32fc82e5ff913cbaf280da05dcae69157edb07ff6fa9260d4c4")));
+    (ASSERT(ASSERT_EQ(LEN(f2), 5478)));
     TRUE));
 TEST("files/article/2026-01-09-markdown-notes.md", FUN(() ,
     (ASSERT(ASSERT_EQ(SHA256(f3), "d6e46decc433683df9b2d33204fa626bbe73e8a6850fb0c94a1ef987d90f0da7")));
     (ASSERT(ASSERT_EQ(LEN(f3), 375)));
     TRUE));
 TEST("files/article/2026-01-12-wikilink-garden.html", FUN(() ,
-    (ASSERT(ASSERT_EQ(SHA256(f4), "7a77153ff0061e07cb09af6c840a96c0b2ec61a741337ff2fa4b7a5bdc1aa101")));
-    (ASSERT(ASSERT_EQ(LEN(f4), 5359)));
+    (ASSERT(ASSERT_EQ(SHA256(f4), "196d8c80bc4b07c85a9d31e9e8f7ea334e6b4a509b4e2b8d3fec5640d0b64b50")));
+    (ASSERT(ASSERT_EQ(LEN(f4), 5491)));
     TRUE));
 TEST("files/article/2026-01-12-wikilink-garden.md", FUN(() ,
     (ASSERT(ASSERT_EQ(SHA256(f5), "364553ee49d73fb09bc289ca1203cda9d6b4daaaf7cc4f703ea097731fdbb15d")));
     (ASSERT(ASSERT_EQ(LEN(f5), 348)));
     TRUE));
 TEST("files/article/2026-01-16-long-title.html", FUN(() ,
-    (ASSERT(ASSERT_EQ(SHA256(f6), "124e23a99d6fb35be30d602d517a88888b65a8d66c11671349041d07ede0ab44")));
-    (ASSERT(ASSERT_EQ(LEN(f6), 5305)));
+    (ASSERT(ASSERT_EQ(SHA256(f6), "7381dfb9aa17ecda5d8b43f521af7ca0f5e98f3461643273369e82aec729aecc")));
+    (ASSERT(ASSERT_EQ(LEN(f6), 5437)));
     TRUE));
 TEST("files/article/2026-01-16-long-title.md", FUN(() ,
     (ASSERT(ASSERT_EQ(SHA256(f7), "bc1ce5ce3cb09d142d1a265d3aceacbb3166cd52799d5f21a4e4766c9d0d535a")));
     (ASSERT(ASSERT_EQ(LEN(f7), 304)));
     TRUE));
 TEST("files/article/2026-01-20-css-grid.html", FUN(() ,
-    (ASSERT(ASSERT_EQ(SHA256(f8), "3344148cae448ce9e77e9e574ae558e1fd69d5dfc98600c134dd84b16a5b1737")));
-    (ASSERT(ASSERT_EQ(LEN(f8), 5087)));
+    (ASSERT(ASSERT_EQ(SHA256(f8), "7dc55384e7b56e69bc216adb2ac260f8d9b7f5bac8e1189dc5cda03ea5ada3e5")));
+    (ASSERT(ASSERT_EQ(LEN(f8), 5219)));
     TRUE));
 TEST("files/article/2026-01-20-css-grid.md", FUN(() ,
     (ASSERT(ASSERT_EQ(SHA256(f9), "a6a2853e125413aceb068886185a98f3a9a864c6bd333670336fa0a04fb16fd4")));
     (ASSERT(ASSERT_EQ(LEN(f9), 275)));
     TRUE));
 TEST("files/article/2026-01-24-life-notes.html", FUN(() ,
-    (ASSERT(ASSERT_EQ(SHA256(f10), "de3fbfd74b1ab4f561713fde8825d3cbe1647919b48c6cb29e25d59f9afb24ef")));
-    (ASSERT(ASSERT_EQ(LEN(f10), 4677)));
+    (ASSERT(ASSERT_EQ(SHA256(f10), "109dc7cf12166e71219914e2a5eca79d03b0c015194b376ea83dbd444e7c9142")));
+    (ASSERT(ASSERT_EQ(LEN(f10), 4809)));
     TRUE));
 TEST("files/article/2026-01-24-life-notes.md", FUN(() ,
     (ASSERT(ASSERT_EQ(SHA256(f11), "7d25339854c67f532edb3f71c9d2343b43450c4249f4ba3bcbcb4921edef2f0f")));
     (ASSERT(ASSERT_EQ(LEN(f11), 279)));
     TRUE));
 TEST("files/article/2026-02-01-no-tags.html", FUN(() ,
-    (ASSERT(ASSERT_EQ(SHA256(f12), "5c531736c72cf1b6531b9ee6c1512c788ba3a0047c29808030fb0801e22fd217")));
-    (ASSERT(ASSERT_EQ(LEN(f12), 4235)));
+    (ASSERT(ASSERT_EQ(SHA256(f12), "76616363a5e7f52f9e2ff911d9d226eec7165fa9870c818ae159c2f0f871dc31")));
+    (ASSERT(ASSERT_EQ(LEN(f12), 4367)));
     TRUE));
 TEST("files/article/2026-02-01-no-tags.md", FUN(() ,
     (ASSERT(ASSERT_EQ(SHA256(f13), "2dcca440838eb30af7325afd0fd48785f67dc58471e558a42d43420a279be889")));
     (ASSERT(ASSERT_EQ(LEN(f13), 305)));
     TRUE));
 TEST("files/article/2026-02-04-footnotes-deep.html", FUN(() ,
-    (ASSERT(ASSERT_EQ(SHA256(f14), "2c221aea7c5830c809831f3dd5a279248697321e37a6cb998c59ab92a4636e6b")));
-    (ASSERT(ASSERT_EQ(LEN(f14), 5216)));
+    (ASSERT(ASSERT_EQ(SHA256(f14), "a3e15a9fedb35307bbfd1b71af6e48073064eb7d64f978936059da557035462c")));
+    (ASSERT(ASSERT_EQ(LEN(f14), 5348)));
     TRUE));
 TEST("files/article/2026-02-04-footnotes-deep.md", FUN(() ,
     (ASSERT(ASSERT_EQ(SHA256(f15), "1c06cdd1ba4a2c46cce3d807334f5549c070144ecbcbe036e7203ab14652d75c")));
     (ASSERT(ASSERT_EQ(LEN(f15), 346)));
     TRUE));
 TEST("files/article/2026-02-08-search-design.html", FUN(() ,
-    (ASSERT(ASSERT_EQ(SHA256(f16), "de598d99f38e227e5f198c140fc78a968dc549b1bda18d5299a2f18bc0a8d9fe")));
-    (ASSERT(ASSERT_EQ(LEN(f16), 5269)));
+    (ASSERT(ASSERT_EQ(SHA256(f16), "2fcd803fea1d4a0e0a699551b6effe67dca7bafdeac8078c6a08d5e71fca1e07")));
+    (ASSERT(ASSERT_EQ(LEN(f16), 5401)));
     TRUE));
 TEST("files/article/2026-02-08-search-design.md", FUN(() ,
     (ASSERT(ASSERT_EQ(SHA256(f17), "f137834e7a1d413d8de2921e566ac6c39ab47a42ebcabe4c8b4c0164c831f955")));
     (ASSERT(ASSERT_EQ(LEN(f17), 340)));
     TRUE));
 TEST("files/article/2026-02-12-theme-dark.html", FUN(() ,
-    (ASSERT(ASSERT_EQ(SHA256(f18), "c76b349f9d9d008abbe657bfad82cfda95f47f68b41c561e93cd1c62ec35add6")));
-    (ASSERT(ASSERT_EQ(LEN(f18), 5191)));
+    (ASSERT(ASSERT_EQ(SHA256(f18), "f60d97396b53dd681238502d7facd615f3f232462b4eee5172e7a03a4261349b")));
+    (ASSERT(ASSERT_EQ(LEN(f18), 5323)));
     TRUE));
 TEST("files/article/2026-02-12-theme-dark.md", FUN(() ,
     (ASSERT(ASSERT_EQ(SHA256(f19), "37d765e3837ed6d1b0977a1678ef8ca2b2aa41553c8f2c277e072a26832e748c")));
     (ASSERT(ASSERT_EQ(LEN(f19), 335)));
     TRUE));
 TEST("files/article/2026-02-16-writing-habit.html", FUN(() ,
-    (ASSERT(ASSERT_EQ(SHA256(f20), "21c9aa6477e09707e2a9dbc6eb4d13a42a4cbb44e48d66a20edae5317f94d9ad")));
-    (ASSERT(ASSERT_EQ(LEN(f20), 4699)));
+    (ASSERT(ASSERT_EQ(SHA256(f20), "0bb2b8cfbbf7612e48e4f253a62cf352be46f9d66867a9f201e49a87de33b955")));
+    (ASSERT(ASSERT_EQ(LEN(f20), 4831)));
     TRUE));
 TEST("files/article/2026-02-16-writing-habit.md", FUN(() ,
     (ASSERT(ASSERT_EQ(SHA256(f21), "3f9ca7a6f7d3bf825660406569d77238c5fe590a518dc20323ef5f18b71d5b76")));
     (ASSERT(ASSERT_EQ(LEN(f21), 284)));
     TRUE));
 TEST("files/article/2026-02-20-robots.html", FUN(() ,
-    (ASSERT(ASSERT_EQ(SHA256(f22), "2e10cb1fd19db96a4705bde6b8c7cf735d4dfc4d1f9bdd6b698862c80bb869d6")));
-    (ASSERT(ASSERT_EQ(LEN(f22), 4879)));
+    (ASSERT(ASSERT_EQ(SHA256(f22), "68c289c4878dc1e3d580ebbf47fd17c301f1dbbf49b7a12e440d049e6f3f73ac")));
+    (ASSERT(ASSERT_EQ(LEN(f22), 5011)));
     TRUE));
 TEST("files/article/2026-02-20-robots.md", FUN(() ,
     (ASSERT(ASSERT_EQ(SHA256(f23), "da89c189ac97c38b504007ef46790ac6c55ed52aef9532e3f954b3c658335ef2")));
     (ASSERT(ASSERT_EQ(LEN(f23), 307)));
     TRUE));
 TEST("files/article/2026-02-24-pagination.html", FUN(() ,
-    (ASSERT(ASSERT_EQ(SHA256(f24), "bbf6e6fcd9bde371e777c2e1f1510bc628a3f8d03d2da24857782aa5d9967d1b")));
-    (ASSERT(ASSERT_EQ(LEN(f24), 5764)));
+    (ASSERT(ASSERT_EQ(SHA256(f24), "1383933b44ddf59909911e7cfb8e46de675c2d07f03dffeaa999211ef94a2adb")));
+    (ASSERT(ASSERT_EQ(LEN(f24), 5896)));
     TRUE));
 TEST("files/article/2026-02-24-pagination.md", FUN(() ,
     (ASSERT(ASSERT_EQ(SHA256(f25), "a7f8b757419fd084f59dd74c3fa3ff96124413e3f1ab85b1b8f9603a901571fd")));
@@ -321,24 +321,24 @@ TEST("files/article/2026-03-02-draft-wip.md", FUN(() ,
     (ASSERT(ASSERT_EQ(LEN(f27), 289)));
     TRUE));
 TEST("files/category/Notes.html", FUN(() ,
-    (ASSERT(ASSERT_EQ(SHA256(f28), "32953583792ce8b4002a5db5b874334cc3fa65b4a8fa64a9e0a479ea857eb6bb")));
-    (ASSERT(ASSERT_EQ(LEN(f28), 3481)));
+    (ASSERT(ASSERT_EQ(SHA256(f28), "59c23077a83b24142f632fa698544b3474be40a7466994ab72c56f7b0c78cda6")));
+    (ASSERT(ASSERT_EQ(LEN(f28), 3613)));
     TRUE));
 TEST("files/category/Tech.html", FUN(() ,
-    (ASSERT(ASSERT_EQ(SHA256(f29), "6be868ba25b8d1b525c785e4ba16ffcb91af826fcc658cb2d3e877c83ba40778")));
-    (ASSERT(ASSERT_EQ(LEN(f29), 4119)));
+    (ASSERT(ASSERT_EQ(SHA256(f29), "27410d21fe19335491ccabffc88a96187c88c29e31816c216029e34cb6165894")));
+    (ASSERT(ASSERT_EQ(LEN(f29), 4251)));
     TRUE));
 TEST("files/category/生活.html", FUN(() ,
-    (ASSERT(ASSERT_EQ(SHA256(f30), "4c3a7212e9905c9719a6242808fb1988cb0e081b699a1f970b6677070a687aa6")));
-    (ASSERT(ASSERT_EQ(LEN(f30), 2642)));
+    (ASSERT(ASSERT_EQ(SHA256(f30), "b6b008a6bb94f19b2d079263412881fba060f32505601d0ca84870c0487c11b8")));
+    (ASSERT(ASSERT_EQ(LEN(f30), 2774)));
     TRUE));
 TEST("files/index.html", FUN(() ,
-    (ASSERT(ASSERT_EQ(SHA256(f31), "44ddbc7505e11115d3741cc9a67e1d56cabaecc7ed6e5525fd38c8e1b121f065")));
-    (ASSERT(ASSERT_EQ(LEN(f31), 7041)));
+    (ASSERT(ASSERT_EQ(SHA256(f31), "18b8e949ba058741d9375c4201232ac366a8226757f89958952901a0cde68a4c")));
+    (ASSERT(ASSERT_EQ(LEN(f31), 7173)));
     TRUE));
 TEST("files/list/2.html", FUN(() ,
-    (ASSERT(ASSERT_EQ(SHA256(f32), "085e9d28504ed34c001796269e6c0482528a2b8407b35f5e28bba436baf8bf98")));
-    (ASSERT(ASSERT_EQ(LEN(f32), 3705)));
+    (ASSERT(ASSERT_EQ(SHA256(f32), "cb00b27daa6296545d7213c4a596eb8699eb7eb50fa838e7c3cc1cc707928a15")));
+    (ASSERT(ASSERT_EQ(LEN(f32), 3837)));
     TRUE));
 TEST("files/robots.txt", FUN(() ,
     (ASSERT(ASSERT_EQ(SHA256(f33), "8a866fc2b9049200535ab74d2fe852944c49a5cd70cf7497fb854472defd0927")));
@@ -353,20 +353,20 @@ TEST("files/search-index.json", FUN(() ,
     (ASSERT(ASSERT_EQ(LEN(f35), 2620)));
     TRUE));
 TEST("files/search.html", FUN(() ,
-    (ASSERT(ASSERT_EQ(SHA256(f36), "e502993cb173c6fdc328ac197af3c89ad6ba951aff983d49310c164da80a8a0d")));
-    (ASSERT(ASSERT_EQ(LEN(f36), 1984)));
+    (ASSERT(ASSERT_EQ(SHA256(f36), "9c79786a9a3ea4b5f43789f5e061da522d184016cc658994001349b937b640b8")));
+    (ASSERT(ASSERT_EQ(LEN(f36), 2116)));
     TRUE));
 TEST("files/sitemap.xml", FUN(() ,
     (ASSERT(ASSERT_EQ(SHA256(f37), "ba9fca5038af362263b5cc9f13328b670b7b51df34a157c7527130a6d406f00e")));
     (ASSERT(ASSERT_EQ(LEN(f37), 1773)));
     TRUE));
 TEST("files/standalone/about.html", FUN(() ,
-    (ASSERT(ASSERT_EQ(SHA256(f38), "2a5f8dafafd3a1b894e21f75aa9cd49c6f7bad04fe3442c248bbb6685cc9f23a")));
-    (ASSERT(ASSERT_EQ(LEN(f38), 2190)));
+    (ASSERT(ASSERT_EQ(SHA256(f38), "2f27df00fdde34cde0960a8046e00a06e9f997205bc41eae7a071c65a7e512db")));
+    (ASSERT(ASSERT_EQ(LEN(f38), 2322)));
     TRUE));
 TEST("files/standalone/colophon-long-title.html", FUN(() ,
-    (ASSERT(ASSERT_EQ(SHA256(f39), "b197d62a416414c902a00a1e37aad1a80aaf1935189845a3387f42dec14874e4")));
-    (ASSERT(ASSERT_EQ(LEN(f39), 2294)));
+    (ASSERT(ASSERT_EQ(SHA256(f39), "67a55deddc698742c82e09e590cc441c602835a56ccdc54b59a25f01c66679b3")));
+    (ASSERT(ASSERT_EQ(LEN(f39), 2426)));
     TRUE));
 
 // ── 文件清单 ──────────────────────────────────────────────────────

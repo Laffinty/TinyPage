@@ -1363,6 +1363,22 @@ TinyPage/
   浏览器打开页面确认着色生效
 - **反向守卫**：产物里**不得**残留 pygments 的 `class="k"` 之类 token span
 - **非目标**：不做服务端高亮（已裁决前端方案）
+- **✅ 裁决（2026-11-02，业主选「方案一」）：允许构建产物带高亮标签，登记为新差异 `D-HL`**
+  - **背景（冲突点）**：页面骨架 `template.wll` 必须逐字复刻 Python 的 `_PAGE_SKELETON`，
+    **没有放 `<script src>` 的位置**；塞进 `search_script` / `mermaid_script` 是语义撒谎，
+    新增槽位又会改变产物字节、让 `test_build` 的 40/40 失效。
+  - **做法**：构建阶段对**每个 `.html` 产物**注入两行（置于骨架之外）：
+    `</head>` 前 `<link rel="stylesheet" href="/highlight-theme.css">`；
+    `</body>` 前 `<script src="/highlight.min.js"></script><script>hljs.highlightAll();</script>`。
+    **基准生成器对 Python 的产物做同一后处理** ⇒ 40/40 的比对仍然有意义（差异被隔离成**一个**已登记的步骤）。
+  - **URL 形态对齐 Python 的资产命名空间**：`static_inject/*` 在 Python 侧由 `frontend.py:25` 的
+    `StaticApp` 直接挂到 `/文件名`（**不**拷进 `pages/`）⇒ 标签用 `/highlight.min.js`、`/highlight-theme.css`。
+  - **⚠ 由此产生的一条接线缺口（登记，非本轮修）**：`tp/lib/static_serve.wll` 当前只在 `root` 下取文件，
+    **不会**映射 `static_inject/` ⇒ 部署层（S6）要么把这两份资产放进被服务的根，要么给静态内核加一条
+    「注入资产」映射（与 Python 的 `_get_injected_assets` 同义）。
+  - **素材**：`static_inject/highlight.min.js`（highlight.js 11.10.0，BSD-3-Clause，保留 banner）
+    + `static_inject/highlight-theme.css`（明/暗两套 token 颜色，跟本站的 `.light` 切换方式对齐）
+    + `static_inject/HIGHLIGHT.md`（版本/来源/许可/用法）。
 
 ### S5 AI 助手（出站 HTTPS）
 

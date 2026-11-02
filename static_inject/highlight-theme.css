@@ -1,0 +1,151 @@
+/*!
+ * TinyPage — highlight.js token theme (dark by default, light via `html.light`)
+ *
+ * Pairs with static_inject/highlight.min.js (highlight.js v11.10.0, BSD-3-Clause).
+ * Scope: TOKEN COLOURS ONLY.
+ *   - Block background / border / padding / radius come from themes/default/theme.css
+ *     (`pre`, `pre code`), so this file deliberately does not repeat them and does not
+ *     touch layout.
+ *   - Theme switch follows this site's own convention: <html> is DARK by default and
+ *     switches to LIGHT through the `html.light` class (themes/default/theme.css:59).
+ *     No `prefers-color-scheme` query on purpose: on this site the OS preference does
+ *     not decide the theme, the class does.
+ *
+ * Licence: project-authored file (not a copy of an upstream highlight.js theme).
+ */
+
+/* ---------- palette: dark (site default) ---------- */
+.hljs {
+  --hljs-fg: #e6e9ef;
+  --hljs-comment: #6b7280;
+  --hljs-keyword: #c792ea;
+  --hljs-type: #ffcb6b;
+  --hljs-string: #a5e075;
+  --hljs-number: #f78c6c;
+  --hljs-function: #82aaff;
+  --hljs-tag: #f07178;
+  --hljs-attr: #ffcb6b;
+  --hljs-meta: #89ddff;
+  --hljs-variable: #d7dce5;
+  --hljs-punct: #a6aab5;
+  --hljs-add-fg: #7ee7a8;
+  --hljs-add-bg: rgba(50, 240, 140, 0.12);
+  --hljs-del-fg: #ff8a8a;
+  --hljs-del-bg: rgba(204, 75, 83, 0.16);
+
+  color: var(--hljs-fg);
+}
+
+/* ---------- palette: light (html.light) ---------- */
+html.light .hljs {
+  --hljs-fg: #1f2328;
+  --hljs-comment: #6b7280;
+  --hljs-keyword: #a626a4;
+  --hljs-type: #9a6700;
+  --hljs-string: #2e7d32;
+  --hljs-number: #b45309;
+  --hljs-function: #1d4ed8;
+  --hljs-tag: #c53030;
+  --hljs-attr: #9a6700;
+  --hljs-meta: #0a7ea4;
+  --hljs-variable: #24292f;
+  --hljs-punct: #4b5563;
+  --hljs-add-fg: #0a7a46;
+  --hljs-add-bg: rgba(10, 158, 90, 0.12);
+  --hljs-del-fg: #b42318;
+  --hljs-del-bg: rgba(204, 75, 83, 0.14);
+}
+
+/* ---------- tokens ---------- */
+.hljs-comment,
+.hljs-quote {
+  color: var(--hljs-comment);
+}
+
+.hljs-keyword,
+.hljs-doctag,
+.hljs-meta .hljs-keyword,
+.hljs-template-tag,
+.hljs-template-variable,
+.hljs-type,
+.hljs-selector-tag {
+  color: var(--hljs-keyword);
+}
+
+.hljs-built_in,
+.hljs-title.class_,
+.hljs-class .hljs-title,
+.hljs-selector-id,
+.hljs-selector-class {
+  color: var(--hljs-type);
+}
+
+.hljs-string,
+.hljs-regexp,
+.hljs-symbol,
+.hljs-bullet,
+.hljs-link,
+.hljs-char.escape_,
+.hljs-selector-attr,
+.hljs-selector-pseudo {
+  color: var(--hljs-string);
+}
+
+.hljs-number,
+.hljs-literal,
+.hljs-variable.constant_ {
+  color: var(--hljs-number);
+}
+
+.hljs-title,
+.hljs-title.function_,
+.hljs-section {
+  color: var(--hljs-function);
+}
+
+.hljs-tag,
+.hljs-name {
+  color: var(--hljs-tag);
+}
+
+.hljs-attr,
+.hljs-attribute,
+.hljs-property {
+  color: var(--hljs-attr);
+}
+
+.hljs-meta,
+.hljs-meta .hljs-string,
+.hljs-code,
+.hljs-formula {
+  color: var(--hljs-meta);
+}
+
+.hljs-variable,
+.hljs-params {
+  color: var(--hljs-variable);
+}
+
+.hljs-operator,
+.hljs-punctuation,
+.hljs-subst {
+  color: var(--hljs-punct);
+}
+
+.hljs-addition {
+  color: var(--hljs-add-fg);
+  background: var(--hljs-add-bg);
+}
+
+.hljs-deletion {
+  color: var(--hljs-del-fg);
+  background: var(--hljs-del-bg);
+}
+
+.hljs-emphasis {
+  font-style: italic;
+}
+
+.hljs-strong {
+  font-weight: 700;
+}

@@ -70,6 +70,12 @@ EXCLUDE_DIRS = ('.tinypage',)
 
 DRAFT_FILE = '2026-03-02-draft-wip.html'
 
+# 构建**不会**重生成的 .html（草稿）——从语料里取，避免写死。
+# ⚠ D-HL：高亮注入只对「构建实际重写」的文件做；草稿页保留语料原样。
+DRAFT_FILES = {a['file'] for a in site_corpus.ARTICLES
+               if str(a.get('status', '')).lower() == 'draft'}
+assert DRAFT_FILE in DRAFT_FILES, 'corpus 与 DRAFT_FILE 不一致'
+
 
 def _run_python_build(root):
     """在 `root` 里跑一次真 Python 的全量构建，返回写出的文件集合（相对 pages/）。"""
@@ -109,6 +115,29 @@ def _run_python_build(root):
     return stats
 
 
+HL_LINK = '<link rel="stylesheet" href="/highlight-theme.css">\n'
+HL_SCRIPT = ('<script src="/highlight.min.js"></script>\n'
+             '<script>hljs.highlightAll();</script>\n')
+
+
+def _inject_hl(text):
+    """对 `.html` 产物施加与 `tp/bin/build.wll` **完全相同**的高亮注入（差异 D-HL）。
+
+    ⚠ 这是本基准里**唯一**一处「不是 Python 原始输出」的地方：业主裁决
+    「高亮改前端」（D3/D7），Python 那侧是服务端 Pygments 注入 CSS，本实现改成
+    前端 highlight.js ⇒ 两边都在往 HTML 里加高亮资源，只是方式不同。
+    ⇒ 基准对 Python 的产物做**同一后处理**，让 40/40 的逐字节比对仍然有意义，
+       差异被隔离成这一个已登记的步骤，而不是让整批产物悄悄不等。
+    """
+    h = text.find('</head>')
+    if h >= 0:
+        text = text[:h] + HL_LINK + text[h:]
+    b = text.find('</body>')
+    if b >= 0:
+        text = text[:b] + HL_SCRIPT + text[b:]
+    return text
+
+
 def _collect(root):
     """把 `pages/` 下的产物读成 `相对路径 → {sha256, chars, bytes}`（LF 归一化）。"""
     base = Path(root) / PAGES
@@ -121,6 +150,11 @@ def _collect(root):
             continue
         # read_text 会把 CRLF / 孤立 CR 归一成 LF（坑 23 / 40）
         text = p.read_text(encoding='utf-8')
+        # ⚠ D-HL：只对**构建实际重写**的 .html 注入 —— 草稿页不在 `arts` 里
+        #   （`list_articles(include_drafts=False)`）⇒ 磁盘上仍是语料原样，
+        #   若给它注入就会与磁盘实际不符。见 gen_build.py:731 的写盘点。
+        if rel.endswith('.html') and rel.split('/')[-1] not in DRAFT_FILES:
+            text = _inject_hl(text)
         raw = text.encode('utf-8')
         out[rel] = {
             'sha256': hashlib.sha256(raw).hexdigest(),
