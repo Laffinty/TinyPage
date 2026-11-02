@@ -22,7 +22,7 @@
 IMPORT("wlwl:std.str", ["SPLIT_LINES", "INDEX_OF", "CAT"]);
 IMPORT("wlwl:std.sanitize", ["HTML_ESCAPE"]);
 IMPORT("wlwl:std.regex", ["RE", "RE_TEST", "RE_FIND_ALL"]);
-IMPORT("./md_inline.wll", ["INLINE"]);
+IMPORT("./md_inline.wll", ["INLINE", "MD_ESCAPE"]);
 
 // // s 是否以 prefix 开头
      LET(starts_with, FUN((s, prefix), (
@@ -177,7 +177,7 @@ IMPORT("./md_inline.wll", ["INLINE"]);
                     LET(line, lines[i]);
                     IF(in_code, (
                          IF(is_fence(line), (
-                              SET(out, CAT(out, "<pre><code", IF(==(code_lang, ""), "", CAT(" class=\"language-", code_lang, "\"")), ">", HTML_ESCAPE(code_buf), "</code></pre>\n"));
+                              SET(out, CAT(out, "<pre><code", IF(==(code_lang, ""), "", CAT(" class=\"language-", code_lang, "\"")), ">", MD_ESCAPE(code_buf), "</code></pre>\n"));
                               SET(code_buf, "");
                               SET(in_code, FALSE)
                          ), (
@@ -234,7 +234,7 @@ IMPORT("./md_inline.wll", ["INLINE"]);
                flush_list();
                flush_quote();
                IF(in_code, (
-                    SET(out, CAT(out, "<pre><code", IF(==(code_lang, ""), "", CAT(" class=\"language-", code_lang, "\"")), ">", HTML_ESCAPE(code_buf), "</code></pre>\n"))
+                    SET(out, CAT(out, "<pre><code", IF(==(code_lang, ""), "", CAT(" class=\"language-", code_lang, "\"")), ">", MD_ESCAPE(code_buf), "</code></pre>\n"))
                ), NULL);
                out
      )));

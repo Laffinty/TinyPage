@@ -33,9 +33,57 @@
 //   IS_SAFE_URL(url)                   -> BOOLEAN  协议白名单判定
 //   WIKILINK_TARGET(link_text, map)    -> STRING  wikilink 的目标 URL
 
-IMPORT("wlwl:std.sanitize", ["HTML_ESCAPE"]);
+IMPORT("wlwl:std.sanitize", ["HTML_ESCAPE", "HTML_UNESCAPE"]);
 IMPORT("wlwl:std.str", ["INDEX_OF", "CAT"]);
 IMPORT("wlwl:std.text", ["TO_LOWER"]);
+IMPORT("wlwl:std.regex", ["RE", "RE_REPLACE"]);
+IMPORT("wlwl:std.encode", ["UTF8_ENCODE", "UTF8_DECODE"]);
+
+// ── 与 mistune 一致的 HTML 转义（不转单引号）────────────────
+// ⚠ 实测 mistune 3.2.1 对文本与代码**都**只转义 & < > "，**不转** 单引号；
+//   而内建 HTML_ESCAPE 会转成 &#39;（= Python html.escape(quote=True)）
+//   ⇒ 借内建做完，再把 &#39; 还原成 '（输入里的字面 &#39; 会先被转成
+//   &amp;#39; ⇒ 不会被这条误伤）。
+// // 对齐 mistune 的转义：& < > " 转，单引号不转
+     LET(MD_ESCAPE, FUN((s), (
+               RE_REPLACE(RE("&#39;"), HTML_ESCAPE(s), "'")
+     )));
+
+// 安全字符集（对齐 mistune 的 safe= 参数 + RFC3986 unreserved）：
+//   unreserved: A-Z a-z 0-9 - . _ ~
+//   safe      : : / ? # @ ! $ & ( ) * + , ; = %
+LET(URL_SAFE, "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789-._~:/?#@!$&()*+,;=%");
+// 十六进制数字表（WLWL 没有 ORD/CHR，只能查表）
+LET(HEX_DIGITS, ["0", "1", "2", "3", "4", "5", "6", "7",
+                   "8", "9", "A", "B", "C", "D", "E", "F"]);
+
+// // URL 百分号编码（对齐 mistune.util.escape_url）
+     LET(URL_QUOTE, FUN((url), (
+               // 对齐 mistune.util.escape_url：quote(html.unescape(url), safe=...);
+               // ⚠ 必须先 html.unescape：调用点传进来的 url 已被 MD_ESCAPE 转过（& 变 &amp;），;
+               //   而 mistune 是在**未转义**的原文上做 quote、之后才做属性转义 ⇒ 顺序必须还原。;
+               LET(raw, HTML_UNESCAPE(url));
+               LET(bs, UTF8_ENCODE(raw));
+               LET MUT(out, "");
+               LET MUT(i, 0);
+               LET(n, LEN(bs));
+               WHILE(<(i, n), (
+                    LET(b, AT(bs, i, 0));
+                    IF(<(b, 128), (
+                         LET(ch, UTF8_DECODE([b]));
+                         IF(>(INDEX_OF(URL_SAFE, ch), -1), (
+                              SET(out, CAT(out, ch))
+                         ), (
+                              SET(out, CAT(out, "%", AT(HEX_DIGITS, /(b, 16), "0"), AT(HEX_DIGITS, %(b, 16), "0")))
+                         ))
+                    ), (
+                         SET(out, CAT(out, "%", AT(HEX_DIGITS, /(b, 16), "0"), AT(HEX_DIGITS, %(b, 16), "0")))
+                    ));
+                    SET(i, +(i, 1))
+               ));
+               out
+     )));
+
 
 // ── 协议白名单（对齐 tinypage/security.py）────────────────────
 LET(SAFE_PROTOCOLS, ["http", "https", "ftp", "ftps", "mailto", "tel", "sip", "sips",
@@ -156,7 +204,7 @@ LET(CODE_PH, "\0CODE");
                WHILE(<(i, LEN(codes)), (
                     LET(at, INDEX_OF(out, CODE_PH));
                     IF(>=(at, 0), (
-                         LET(rep, CAT("<code>", codes[i], "</code>"));
+                         LET(rep, CAT("<code>", MD_ESCAPE(codes[i]), "</code>"));
                          SET(out, replace_span(out, at, +(at, LEN(CODE_PH)), rep))
                     ), NULL);
                     SET(i, +(i, 1))
@@ -265,7 +313,7 @@ LET(CODE_PH, "\0CODE");
                     LET(text, SUB(out, +(open, 1), -(close, +(open, 1))));
                     LET(url, SUB(out, +(close, 2), -(paren, +(close, 2))));
                     LET(rep, (
-                         IF(IS_SAFE_URL(url), CAT("<a href=\"", url, "\">", text, "</a>"), CAT("[", text, "](", url, ")"))
+                         IF(IS_SAFE_URL(url), CAT("<a href=\"", MD_ESCAPE(URL_QUOTE(url)), "\">", text, "</a>"), CAT("[", text, "](", url, ")"))
                     ));
                     IF(<(paren, 0), (
                          SET(guard, 1000)
@@ -284,7 +332,7 @@ LET(CODE_PH, "\0CODE");
                LET(ec, extract_code(text));
                LET(s0, ec[0]);
                LET(codes, ec[1]);
-               LET(s1, HTML_ESCAPE(s0));
+               LET(s1, MD_ESCAPE(s0));
                LET(s2, replace_wikilinks(s1, article_map));
                LET(s3, replace_links(s2));
                LET(s4, replace_pairs(s3, "**", "<strong>", "</strong>"));
@@ -294,4 +342,4 @@ LET(CODE_PH, "\0CODE");
 
 LET(INLINE, FUN((text), INLINE_WITH_MAP(text, NULL)));
 
-EXPORT(["INLINE", "INLINE_WITH_MAP", "IS_SAFE_URL", "WIKILINK_TARGET"]);
+EXPORT(["INLINE", "INLINE_WITH_MAP", "IS_SAFE_URL", "MD_ESCAPE", "URL_QUOTE", "WIKILINK_TARGET"]);

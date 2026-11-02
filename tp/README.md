@@ -157,6 +157,8 @@ powershell -File tp\test\ci_local_check.ps1
 | 55 | **Python 的 `write_text()` 在 Windows 上写 CRLF**（坑 23 只讲**读入**侧） | 产物磁盘字节与 WLWL 的 LF 不同 ⇒ 「逐字节比文件」必红 | 比**归一化后的内容**；或明确登记为差异（本仓库记为 D-NL） |
 | 56 | **`IS_ERR(...)` 兜不住类型错** | `E0030`（元数/类型错）是**硬诊断**，不是 ERR 值 ⇒ `IS_ERR(ARTICLE_PAGE(…))` 对类型错照样中止 | 类型问题靠 `TYPE(...)` 前置判断，别指望 `IS_ERR` 接住 |
 | 57 | ⚠ **GitHub Windows runner 上 Python 的 stdout 是 cp1252**，不是 UTF-8 | 生成器 `print()` 一个带中文的路径（`category/生活.html`）⇒ `UnicodeEncodeError: 'charmap' codec can't encode` ⇒ 「重生成 + 无漂移」整步失败。**本地永远复现不出来**，因为 `tp\test\ci_local_check.ps1` 自己设了 `PYTHONIOENCODING=utf-8` | workflow 的 **job 级** `env: PYTHONIOENCODING: utf-8`（本仓库已加）。⚠ 教训更普适：**本地 CI 脚本与远端 workflow 的环境必须对齐**，否则「本地绿、远端红」会反复发生 |
+| 58 | ⚠ **WLWL 内建 `HTML_ESCAPE` 会转单引号（`'`→`&#39;`），而 mistune 不转** | 想「对齐 mistune 输出」时，任何含 `'` 的正文/代码都会不一致（`it's` vs `it&#39;s`） | 用 `tp/lib/md_inline.wll` 导出的 `MD_ESCAPE`（内建转义后把 `&#39;` 还原）。⚠ 但对齐 **Python `html.escape(quote=True)`** 的场合（如页面标题）要的**就是** `&#x27;`，用 `tp/lib/esc.wll::ESCAPE_HTML` —— **两把尺子别混用** |
+| 59 | **链接目标要按 `quote(html.unescape(url), safe=":/?#@!$&()*+,;=%")` 编码**（mistune 的 `escape_url`） | 不编码 ⇒ `/article/中文.html` 与 mistune 的 `%E4%B8%AD%E6%96%87` 不同；顺序错了（先转义再 quote）⇒ `'` 会变成 `&%23x27%3B` 这类垃圾 | 先 `HTML_UNESCAPE` 还原原文，再逐字节 percent-encode（`UTF8_ENCODE` 拿字节、`HEX_DIGITS` 查表），最后再做属性转义。`md_inline.wll` 的 `URL_QUOTE` 是现成实现 |
 
 ## 参考
 

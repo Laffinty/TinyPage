@@ -11,6 +11,14 @@
     "html": "<pre><code>plain\n</code></pre>\n",
     "src": "```\nplain\n```\n"
   },
+  "code_fence_quote_lang": {
+    "html": "<pre><code class=\"language-js\">a'b\n</code></pre>\n",
+    "src": "```js\na'b\n```\n"
+  },
+  "code_fence_quotes": {
+    "html": "<pre><code>x'y&quot;z&lt;w&gt;&amp;v\n</code></pre>\n",
+    "src": "```\nx'y\"z<w>&v\n```\n"
+  },
   "empty": {
     "html": "",
     "src": ""

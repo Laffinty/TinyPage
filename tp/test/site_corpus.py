@@ -44,8 +44,8 @@ site_corpus.spec()          →  DICT（可 JSON 序列化）     语料的唯�
    | ``x `a & b` y`` | `<code>a &amp; b</code>` | `<code>a & b</code>` |
 
    这是 `md_inline.wll` 的**未登记缺口**（不是本卡的编排问题，也不在本人可改范围）。
-   ⇒ 语料刻意避开它，让「构建编排层」的对齐结论不被它污染；缺口本身连同复现
-   一起登记在报告与本文件的 `KNOWN_GAP_INLINE_CODE`，`md_inline` 修好后可以放回来。
+   ⇒ **2026-11-02 已在 md_inline.wll 修好**，语料已把它放回来（见 `_body` 里的
+   「转义与编码边界」那一段）；下面两个 dict 保留为**修复记录 + 复现命令**。
 
 ## 覆盖清单（卡 S2-构建 要求逐条对应）
 
@@ -68,7 +68,8 @@ SITE_URL = 'https://tiny.example.com'
 # 已知缺口（不是本卡的编排问题）：md_inline.wll 不转义行内代码的内容。
 # 语料刻意避开它（见模块 docstring 的约束 9）；缺口本身登记在此，供 lib 侧修复后回归。
 KNOWN_GAP_INLINE_CODE = {
-    'owner': 'tp/lib/md_inline.wll（不在 S2-构建 的可改范围）',
+    'status': 'FIXED 2026-11-02（md_inline 的 restore_code 改用 MD_ESCAPE）',
+    'owner': 'tp/lib/md_inline.wll',
     'repro': [
         {'src': 'a `x<y&z"q` b',
          'mistune': '<p>a <code>x&lt;y&amp;z&quot;q</code> b</p>',
@@ -83,9 +84,10 @@ KNOWN_GAP_INLINE_CODE = {
 
 # 已知缺口 2（同一模块）：md_inline.wll 不 percent-encode 链接目标里的非 ASCII，
 # mistune 会（`/article/中文.html` → `/article/%E4%B8%AD%E6%96%87.html`）。
-# ⇒ 语料的「未命中双链」用 ASCII 标题（`[[no-such-page]]`），避免撞上它。
+# ⇒ 语料曾用 ASCII 标题避开它；2026-11-02 已修，`_body` 里放了 CJK 目标链接。
 KNOWN_GAP_LINK_PERCENT = {
-    'owner': 'tp/lib/md_inline.wll（不在 S2-构建 的可改范围）',
+    'status': 'FIXED 2026-11-02（新增 URL_QUOTE，对齐 mistune.util.escape_url）',
+    'owner': 'tp/lib/md_inline.wll',
     'repro': [
         {'src': 'x [a](/article/中文.html) y',
          'mistune': '<p>x <a href="/article/%E4%B8%AD%E6%96%87.html">a</a> y</p>',
@@ -125,6 +127,13 @@ def _body(heading, paras, footnote=None, wikilink=None):
     out.append('')
     out.append('这一节用来钉住行内语法：**粗体**、*斜体*、`行内代码`，'
                '以及一个[外链](https://example.org/a?b=1&c=2)。')
+    out.append('')
+    # ⚠ 2026-11-02：这两处曾因 md_inline 的缺陷被语料**避开**，现已修好并放回。
+    #   · 行内代码里的 `<` `&` `"` 必须被转义
+    #   · 链接目标的 CJK 必须 percent-encode
+    #   · 单引号**不**转义（mistune 口径）
+    out.append('转义与编码边界：`x<y&z"q` 与 `it\'s`，'
+               '以及一个[中文链接](/article/中文.html)。')
     out.append('')
     if wikilink:
         out.append('延伸阅读：' + wikilink + '。')

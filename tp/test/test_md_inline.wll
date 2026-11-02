@@ -38,88 +38,128 @@ LET(body_4, FUN(() ,
     (ASSERT_EQ(INLINE("[t](https://a.b/c)"), "<a href=\"https://a.b/c\">t</a>"));
     TRUE));
 
-// inline/wikilink
+// inline/code_escape
 LET(body_5, FUN(() ,
+    (ASSERT_EQ(INLINE("a `x<y&z\"q` b"), "a <code>x&lt;y&amp;z&quot;q</code> b"));
+    TRUE));
+
+// inline/code_apostrophe
+LET(body_6, FUN(() ,
+    (ASSERT_EQ(INLINE("a `x'y` b"), "a <code>x'y</code> b"));
+    TRUE));
+
+// inline/text_apostrophe
+LET(body_7, FUN(() ,
+    (ASSERT_EQ(INLINE("it's a 'test'"), "it's a 'test'"));
+    TRUE));
+
+// inline/link_cjk
+LET(body_8, FUN(() ,
+    (ASSERT_EQ(INLINE("[a](/article/中文.html)"), "<a href=\"/article/%E4%B8%AD%E6%96%87.html\">a</a>"));
+    TRUE));
+
+// inline/link_apostrophe
+LET(body_9, FUN(() ,
+    (ASSERT_EQ(INLINE("[a](/x'y)"), "<a href=\"/x%27y\">a</a>"));
+    TRUE));
+
+// inline/link_amp
+LET(body_10, FUN(() ,
+    (ASSERT_EQ(INLINE("[a](/x?y=1&z=2)"), "<a href=\"/x?y=1&amp;z=2\">a</a>"));
+    TRUE));
+
+// inline/link_pct_kept
+LET(body_11, FUN(() ,
+    (ASSERT_EQ(INLINE("[a](/x%20y)"), "<a href=\"/x%20y\">a</a>"));
+    TRUE));
+
+// inline/link_umlaut
+LET(body_12, FUN(() ,
+    (ASSERT_EQ(INLINE("[a](https://ex.com/ü)"), "<a href=\"https://ex.com/%C3%BC\">a</a>"));
+    TRUE));
+
+// inline/wikilink
+LET(body_13, FUN(() ,
     (ASSERT_EQ(INLINE("[[Page]]"), "<a class=\"wikilink\" href=\"/article/page.html\">Page</a>"));
     TRUE));
 
 // inline/wikilink_alias
-LET(body_6, FUN(() ,
+LET(body_14, FUN(() ,
     (ASSERT_EQ(INLINE("[[Page|显示]]"), "<a class=\"wikilink\" href=\"/article/page.html\">显示</a>"));
     TRUE));
 
 // guard/unpaired_bold_keeps_rest
-LET(body_7, FUN(() ,
+LET(body_15, FUN(() ,
     (LET(out, INLINE("**未闭合 后面还有正文")); ASSERT(CONTAINS_SUB(out, "后面还有正文")); ASSERT(NOT(CONTAINS_SUB(out, "<strong>"))));
     TRUE));
 
 // guard/unpaired_italic_keeps_rest
-LET(body_8, FUN(() ,
+LET(body_16, FUN(() ,
     (LET(out, INLINE("a *b")); ASSERT(CONTAINS_SUB(out, "a *b")); ASSERT(NOT(CONTAINS_SUB(out, "<em>"))));
     TRUE));
 
 // guard/script_is_escaped
-LET(body_9, FUN(() ,
+LET(body_17, FUN(() ,
     (LET(out, INLINE("<script>alert(1)</script>")); ASSERT(NOT(CONTAINS_SUB(out, "<script>"))); ASSERT(CONTAINS_SUB(out, "&lt;script&gt;")));
     TRUE));
 
 // guard/quotes_are_escaped
-LET(body_10, FUN(() ,
+LET(body_18, FUN(() ,
     (LET(out, INLINE("a \"b\" c")); ASSERT(NOT(CONTAINS_SUB(out, "\"b\""))); ASSERT(CONTAINS_SUB(out, "&quot;")));
     TRUE));
 
 // guard/javascript_protocol_blocked
-LET(body_11, FUN(() ,
+LET(body_19, FUN(() ,
     (LET(out, INLINE("[x](javascript:alert(1))")); ASSERT(NOT(CONTAINS_SUB(out, "<a "))));
     TRUE));
 
 // guard/data_protocol_blocked
-LET(body_12, FUN(() ,
+LET(body_20, FUN(() ,
     (LET(out, INLINE("[x](data:text/html,x)")); ASSERT(NOT(CONTAINS_SUB(out, "<a "))));
     TRUE));
 
 // guard/vbscript_protocol_blocked
-LET(body_13, FUN(() ,
+LET(body_21, FUN(() ,
     (LET(out, INLINE("[x](vbscript:msgbox)")); ASSERT(NOT(CONTAINS_SUB(out, "<a "))));
     TRUE));
 
 // url/safe_protocols
-LET(body_14, FUN(() ,
+LET(body_22, FUN(() ,
     (ASSERT(IS_SAFE_URL("https://example.com")); ASSERT(IS_SAFE_URL("http://example.com")); ASSERT(IS_SAFE_URL("/relative/path")); ASSERT(IS_SAFE_URL("mailto:a@b.c")); ASSERT(IS_SAFE_URL("//protocol-relative")));
     TRUE));
 
 // url/dangerous_protocols
-LET(body_15, FUN(() ,
+LET(body_23, FUN(() ,
     (ASSERT(NOT(IS_SAFE_URL("javascript:alert(1)"))); ASSERT(NOT(IS_SAFE_URL("JavaScript:alert(1)"))); ASSERT(NOT(IS_SAFE_URL("data:text/html,x"))); ASSERT(NOT(IS_SAFE_URL("file:///etc/passwd"))); ASSERT(NOT(IS_SAFE_URL("vbscript:x"))); ASSERT(NOT(IS_SAFE_URL(""))); ASSERT(NOT(IS_SAFE_URL(NULL))));
     TRUE));
 
 // url/unknown_protocol_rejected
-LET(body_16, FUN(() ,
+LET(body_24, FUN(() ,
     (ASSERT(NOT(IS_SAFE_URL("weirdscheme://x"))));
     TRUE));
 
 // wiki/article_map
-LET(body_17, FUN(() ,
+LET(body_25, FUN(() ,
     (LET(m, ["另一篇": "/article/other.html"]); ASSERT_EQ(WIKILINK_TARGET("另一篇", m), "/article/other.html"); ASSERT_EQ(WIKILINK_TARGET("没找到", m), "/article/没找到.html"));
     TRUE));
 
 // wiki/slug_strips_both_ends
-LET(body_18, FUN(() ,
+LET(body_26, FUN(() ,
     (ASSERT_EQ(WIKILINK_TARGET("Hello, World!", DICT()), "/article/hello-world.html"); ASSERT_EQ(WIKILINK_TARGET("---lead", DICT()), "/article/lead.html"); ASSERT_EQ(WIKILINK_TARGET("trail---", DICT()), "/article/trail.html"); ASSERT_EQ(WIKILINK_TARGET("---both---", DICT()), "/article/both.html"));
     TRUE));
 
 // inline/code_has_priority
-LET(body_19, FUN(() ,
+LET(body_27, FUN(() ,
     (LET(out, INLINE("`*not italic*`")); ASSERT(CONTAINS_SUB(out, "<code>*not italic*</code>")); ASSERT(NOT(CONTAINS_SUB(out, "<em>"))));
     TRUE));
 
 // inline/mixed
-LET(body_20, FUN(() ,
+LET(body_28, FUN(() ,
     (LET(out, INLINE("**粗** 与 *斜* 与 `码` 与 [链](https://x.y)")); ASSERT(CONTAINS_SUB(out, "<strong>粗</strong>")); ASSERT(CONTAINS_SUB(out, "<em>斜</em>")); ASSERT(CONTAINS_SUB(out, "<code>码</code>")); ASSERT(CONTAINS_SUB(out, "href=\"https://x.y\"")));
     TRUE));
 
 // inline/deterministic
-LET(body_21, FUN(() ,
+LET(body_29, FUN(() ,
     (LET(a, INLINE("**a** *b* `c` [d](https://e.f) [[g]]")); LET(b, INLINE("**a** *b* `c` [d](https://e.f) [[g]]")); ASSERT_EQ(a, b));
     TRUE));
 
@@ -129,23 +169,31 @@ TEST("inline/bold", body_1);
 TEST("inline/italic", body_2);
 TEST("inline/bold_before_italic", body_3);
 TEST("inline/link", body_4);
-TEST("inline/wikilink", body_5);
-TEST("inline/wikilink_alias", body_6);
-TEST("guard/unpaired_bold_keeps_rest", body_7);
-TEST("guard/unpaired_italic_keeps_rest", body_8);
-TEST("guard/script_is_escaped", body_9);
-TEST("guard/quotes_are_escaped", body_10);
-TEST("guard/javascript_protocol_blocked", body_11);
-TEST("guard/data_protocol_blocked", body_12);
-TEST("guard/vbscript_protocol_blocked", body_13);
-TEST("url/safe_protocols", body_14);
-TEST("url/dangerous_protocols", body_15);
-TEST("url/unknown_protocol_rejected", body_16);
-TEST("wiki/article_map", body_17);
-TEST("wiki/slug_strips_both_ends", body_18);
-TEST("inline/code_has_priority", body_19);
-TEST("inline/mixed", body_20);
-TEST("inline/deterministic", body_21);
+TEST("inline/code_escape", body_5);
+TEST("inline/code_apostrophe", body_6);
+TEST("inline/text_apostrophe", body_7);
+TEST("inline/link_cjk", body_8);
+TEST("inline/link_apostrophe", body_9);
+TEST("inline/link_amp", body_10);
+TEST("inline/link_pct_kept", body_11);
+TEST("inline/link_umlaut", body_12);
+TEST("inline/wikilink", body_13);
+TEST("inline/wikilink_alias", body_14);
+TEST("guard/unpaired_bold_keeps_rest", body_15);
+TEST("guard/unpaired_italic_keeps_rest", body_16);
+TEST("guard/script_is_escaped", body_17);
+TEST("guard/quotes_are_escaped", body_18);
+TEST("guard/javascript_protocol_blocked", body_19);
+TEST("guard/data_protocol_blocked", body_20);
+TEST("guard/vbscript_protocol_blocked", body_21);
+TEST("url/safe_protocols", body_22);
+TEST("url/dangerous_protocols", body_23);
+TEST("url/unknown_protocol_rejected", body_24);
+TEST("wiki/article_map", body_25);
+TEST("wiki/slug_strips_both_ends", body_26);
+TEST("inline/code_has_priority", body_27);
+TEST("inline/mixed", body_28);
+TEST("inline/deterministic", body_29);
 
 LET(records, RUN_TESTS());
 PRINT("test_md_inline: ", LEN(records), " test(s) run");

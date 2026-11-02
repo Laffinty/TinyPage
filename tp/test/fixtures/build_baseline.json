@@ -47,33 +47,33 @@
   },
   "files": {
    "pages/article/2026-01-05-site-launch.html": "<!-- title: 发布：站点上线 -->\n<!-- date: 2026-01-05 09:30 -->\n<!-- slug: site-launch -->\n<!-- tags: 公告,静态站点,Tech -->\n<!-- summary: 站点第一次上线时的说明。 -->\n<!-- category: Tech -->\n<!-- status: published -->\n<!DOCTYPE html>\n<html><body>\n<div class=\"post-content\"><p>旧正文占位：真实正文在同名 .md 里。</p></div>\n</body></html>\n",
-   "pages/article/2026-01-05-site-launch.md": "## 我们上线了\n\n这是站点上线后的第一篇说明，正文放在同名的 `.md` 文件里。\n\n正文经过 `PROCESS_FOOTNOTES` → `EXTRACT_HEADINGS` → `PARSE_BIDIRECTIONAL_LINKS` → `RENDER_MD` → `ADD_HEADING_IDS` 五步。\n\n### 小节：格式\n\n这一节用来钉住行内语法：**粗体**、*斜体*、`行内代码`，以及一个[外链](https://example.org/a?b=1&c=2)。\n\n#### 四级标题（不进 TOC）\n\n四级标题落在 `build_toc_html(2, 3)` 的过滤范围之外。\n\n> 引用块：一行也要能渲染成 blockquote。\n\n- 列表项甲\n- 列表项乙\n- 列表项丙\n\n正文里引用一次脚注[^1]。\n\n[^1]: 编排顺序不可调换：脚注必须先于标题提取。\n",
+   "pages/article/2026-01-05-site-launch.md": "## 我们上线了\n\n这是站点上线后的第一篇说明，正文放在同名的 `.md` 文件里。\n\n正文经过 `PROCESS_FOOTNOTES` → `EXTRACT_HEADINGS` → `PARSE_BIDIRECTIONAL_LINKS` → `RENDER_MD` → `ADD_HEADING_IDS` 五步。\n\n### 小节：格式\n\n这一节用来钉住行内语法：**粗体**、*斜体*、`行内代码`，以及一个[外链](https://example.org/a?b=1&c=2)。\n\n转义与编码边界：`x<y&z\"q` 与 `it's`，以及一个[中文链接](/article/中文.html)。\n\n#### 四级标题（不进 TOC）\n\n四级标题落在 `build_toc_html(2, 3)` 的过滤范围之外。\n\n> 引用块：一行也要能渲染成 blockquote。\n\n- 列表项甲\n- 列表项乙\n- 列表项丙\n\n正文里引用一次脚注[^1]。\n\n[^1]: 编排顺序不可调换：脚注必须先于标题提取。\n",
    "pages/article/2026-01-09-markdown-notes.html": "<!-- title: Markdown 笔记：脚注与标题层级 -->\n<!-- date: 2026-01-09 14:05 -->\n<!-- slug: markdown-notes -->\n<!-- tags: Markdown,笔记 -->\n<!-- summary: 脚注与标题层级的边界情况。 -->\n<!-- category: Notes -->\n<!-- status: published -->\n<!DOCTYPE html>\n<html><body>\n<div class=\"post-content\"><p>旧正文占位：真实正文在同名 .md 里。</p></div>\n</body></html>\n",
-   "pages/article/2026-01-09-markdown-notes.md": "## 脚注与标题\n\n标题提取在脚注处理**之后**：`[^1]:` 定义行已经不在文本里了，否则它会被当成普通段落。\n\n### 小节：格式\n\n这一节用来钉住行内语法：**粗体**、*斜体*、`行内代码`，以及一个[外链](https://example.org/a?b=1&c=2)。\n\n延伸阅读：[[双向链接与数字花园]]。\n\n#### 四级标题（不进 TOC）\n\n四级标题落在 `build_toc_html(2, 3)` 的过滤范围之外。\n\n> 引用块：一行也要能渲染成 blockquote。\n\n- 列表项甲\n- 列表项乙\n- 列表项丙\n\n正文里引用一次脚注[^1]。\n\n[^1]: 脚注定义行里的 `#` 不会被当成标题。\n",
+   "pages/article/2026-01-09-markdown-notes.md": "## 脚注与标题\n\n标题提取在脚注处理**之后**：`[^1]:` 定义行已经不在文本里了，否则它会被当成普通段落。\n\n### 小节：格式\n\n这一节用来钉住行内语法：**粗体**、*斜体*、`行内代码`，以及一个[外链](https://example.org/a?b=1&c=2)。\n\n转义与编码边界：`x<y&z\"q` 与 `it's`，以及一个[中文链接](/article/中文.html)。\n\n延伸阅读：[[双向链接与数字花园]]。\n\n#### 四级标题（不进 TOC）\n\n四级标题落在 `build_toc_html(2, 3)` 的过滤范围之外。\n\n> 引用块：一行也要能渲染成 blockquote。\n\n- 列表项甲\n- 列表项乙\n- 列表项丙\n\n正文里引用一次脚注[^1]。\n\n[^1]: 脚注定义行里的 `#` 不会被当成标题。\n",
    "pages/article/2026-01-12-wikilink-garden.html": "<!-- title: 双向链接与数字花园 -->\n<!-- date: 2026-01-12 08:00 -->\n<!-- slug: wikilink-garden -->\n<!-- tags: 双链,笔记,Markdown -->\n<!-- summary: 双向链接的两个出口：命中的标题与未命中的标题。 -->\n<!-- category: Tech -->\n<!-- status: published -->\n<!DOCTYPE html>\n<html><body>\n<div class=\"post-content\"><p>旧正文占位：真实正文在同名 .md 里。</p></div>\n</body></html>\n",
-   "pages/article/2026-01-12-wikilink-garden.md": "## 双向链接\n\n命中的双链解析成文章页的 URL，未命中的回退到「按标题 slug 拼出来的」URL。\n\n### 小节：格式\n\n这一节用来钉住行内语法：**粗体**、*斜体*、`行内代码`，以及一个[外链](https://example.org/a?b=1&c=2)。\n\n延伸阅读：回链：[[发布：站点上线]]；不存在的：[[no-such-page]]。\n\n#### 四级标题（不进 TOC）\n\n四级标题落在 `build_toc_html(2, 3)` 的过滤范围之外。\n\n> 引用块：一行也要能渲染成 blockquote。\n\n- 列表项甲\n- 列表项乙\n- 列表项丙\n",
+   "pages/article/2026-01-12-wikilink-garden.md": "## 双向链接\n\n命中的双链解析成文章页的 URL，未命中的回退到「按标题 slug 拼出来的」URL。\n\n### 小节：格式\n\n这一节用来钉住行内语法：**粗体**、*斜体*、`行内代码`，以及一个[外链](https://example.org/a?b=1&c=2)。\n\n转义与编码边界：`x<y&z\"q` 与 `it's`，以及一个[中文链接](/article/中文.html)。\n\n延伸阅读：回链：[[发布：站点上线]]；不存在的：[[no-such-page]]。\n\n#### 四级标题（不进 TOC）\n\n四级标题落在 `build_toc_html(2, 3)` 的过滤范围之外。\n\n> 引用块：一行也要能渲染成 blockquote。\n\n- 列表项甲\n- 列表项乙\n- 列表项丙\n",
    "pages/article/2026-01-16-long-title.html": "<!-- title: 一个被刻意写得很长的文章标题用来钉住列表页的八十码点截断以及导航栏的二十码点截断确保超长标题不会把布局撑破也不会在截断处产生半个字符或多余的省略号这是原实现的行为我们照抄不误 -->\n<!-- date: 2026-01-16 11:11 -->\n<!-- slug: long-title -->\n<!-- tags: 测试,长标题 -->\n<!-- summary: 超长标题的截断行为。 -->\n<!-- category: Notes -->\n<!-- status: published -->\n<!DOCTYPE html>\n<html><body>\n<div class=\"post-content\"><p>旧正文占位：真实正文在同名 .md 里。</p></div>\n</body></html>\n",
-   "pages/article/2026-01-16-long-title.md": "## 超长标题\n\n列表页用 `title[:80]`、导航用 `title[:20]`、页面标题不截断。\n\n### 小节：格式\n\n这一节用来钉住行内语法：**粗体**、*斜体*、`行内代码`，以及一个[外链](https://example.org/a?b=1&c=2)。\n\n#### 四级标题（不进 TOC）\n\n四级标题落在 `build_toc_html(2, 3)` 的过滤范围之外。\n\n> 引用块：一行也要能渲染成 blockquote。\n\n- 列表项甲\n- 列表项乙\n- 列表项丙\n",
+   "pages/article/2026-01-16-long-title.md": "## 超长标题\n\n列表页用 `title[:80]`、导航用 `title[:20]`、页面标题不截断。\n\n### 小节：格式\n\n这一节用来钉住行内语法：**粗体**、*斜体*、`行内代码`，以及一个[外链](https://example.org/a?b=1&c=2)。\n\n转义与编码边界：`x<y&z\"q` 与 `it's`，以及一个[中文链接](/article/中文.html)。\n\n#### 四级标题（不进 TOC）\n\n四级标题落在 `build_toc_html(2, 3)` 的过滤范围之外。\n\n> 引用块：一行也要能渲染成 blockquote。\n\n- 列表项甲\n- 列表项乙\n- 列表项丙\n",
    "pages/article/2026-01-20-css-grid.html": "<!-- title: CSS Grid 布局速查 -->\n<!-- date: 2026-01-20 20:20 -->\n<!-- slug: css-grid -->\n<!-- tags: CSS,前端 -->\n<!-- summary: Grid 的两条心智模型。 -->\n<!-- category: Tech -->\n<!-- status: published -->\n<!DOCTYPE html>\n<html><body>\n<div class=\"post-content\"><p>旧正文占位：真实正文在同名 .md 里。</p></div>\n</body></html>\n",
-   "pages/article/2026-01-20-css-grid.md": "## Grid\n\n轨道与区域是两套正交的模型。\n\n### 小节：格式\n\n这一节用来钉住行内语法：**粗体**、*斜体*、`行内代码`，以及一个[外链](https://example.org/a?b=1&c=2)。\n\n#### 四级标题（不进 TOC）\n\n四级标题落在 `build_toc_html(2, 3)` 的过滤范围之外。\n\n> 引用块：一行也要能渲染成 blockquote。\n\n- 列表项甲\n- 列表项乙\n- 列表项丙\n",
+   "pages/article/2026-01-20-css-grid.md": "## Grid\n\n轨道与区域是两套正交的模型。\n\n### 小节：格式\n\n这一节用来钉住行内语法：**粗体**、*斜体*、`行内代码`，以及一个[外链](https://example.org/a?b=1&c=2)。\n\n转义与编码边界：`x<y&z\"q` 与 `it's`，以及一个[中文链接](/article/中文.html)。\n\n#### 四级标题（不进 TOC）\n\n四级标题落在 `build_toc_html(2, 3)` 的过滤范围之外。\n\n> 引用块：一行也要能渲染成 blockquote。\n\n- 列表项甲\n- 列表项乙\n- 列表项丙\n",
    "pages/article/2026-01-24-life-notes.html": "<!-- title: 生活片段：三件小事 -->\n<!-- date: 2026-01-24 21:40 -->\n<!-- slug: life-notes -->\n<!-- tags: 随笔 -->\n<!-- summary: 三件不值得单独写的小事。 -->\n<!-- category: 生活 -->\n<!-- status: published -->\n<!DOCTYPE html>\n<html><body>\n<div class=\"post-content\"><p>旧正文占位：真实正文在同名 .md 里。</p></div>\n</body></html>\n",
-   "pages/article/2026-01-24-life-notes.md": "## 三件小事\n\n冬天的太阳、修好的椅子、没读完的书。\n\n### 小节：格式\n\n这一节用来钉住行内语法：**粗体**、*斜体*、`行内代码`，以及一个[外链](https://example.org/a?b=1&c=2)。\n\n#### 四级标题（不进 TOC）\n\n四级标题落在 `build_toc_html(2, 3)` 的过滤范围之外。\n\n> 引用块：一行也要能渲染成 blockquote。\n\n- 列表项甲\n- 列表项乙\n- 列表项丙\n",
+   "pages/article/2026-01-24-life-notes.md": "## 三件小事\n\n冬天的太阳、修好的椅子、没读完的书。\n\n### 小节：格式\n\n这一节用来钉住行内语法：**粗体**、*斜体*、`行内代码`，以及一个[外链](https://example.org/a?b=1&c=2)。\n\n转义与编码边界：`x<y&z\"q` 与 `it's`，以及一个[中文链接](/article/中文.html)。\n\n#### 四级标题（不进 TOC）\n\n四级标题落在 `build_toc_html(2, 3)` 的过滤范围之外。\n\n> 引用块：一行也要能渲染成 blockquote。\n\n- 列表项甲\n- 列表项乙\n- 列表项丙\n",
    "pages/article/2026-02-01-no-tags.html": "<!-- title: 无标签无分类的文章 -->\n<!-- date: 2026-02-01 07:00 -->\n<!-- slug: no-tags -->\n<!-- tags:  -->\n<!-- summary: 既没有标签也没有分类。 -->\n<!-- category:  -->\n<!-- status: published -->\n<!DOCTYPE html>\n<html><body>\n<div class=\"post-content\"><p>旧正文占位：真实正文在同名 .md 里。</p></div>\n</body></html>\n",
-   "pages/article/2026-02-01-no-tags.md": "## 什么都没有\n\n标签为空串时不出标签行；分类为空串时不进任何分类页，也不进 sitemap 的分类段。\n\n### 小节：格式\n\n这一节用来钉住行内语法：**粗体**、*斜体*、`行内代码`，以及一个[外链](https://example.org/a?b=1&c=2)。\n\n#### 四级标题（不进 TOC）\n\n四级标题落在 `build_toc_html(2, 3)` 的过滤范围之外。\n\n> 引用块：一行也要能渲染成 blockquote。\n\n- 列表项甲\n- 列表项乙\n- 列表项丙\n",
+   "pages/article/2026-02-01-no-tags.md": "## 什么都没有\n\n标签为空串时不出标签行；分类为空串时不进任何分类页，也不进 sitemap 的分类段。\n\n### 小节：格式\n\n这一节用来钉住行内语法：**粗体**、*斜体*、`行内代码`，以及一个[外链](https://example.org/a?b=1&c=2)。\n\n转义与编码边界：`x<y&z\"q` 与 `it's`，以及一个[中文链接](/article/中文.html)。\n\n#### 四级标题（不进 TOC）\n\n四级标题落在 `build_toc_html(2, 3)` 的过滤范围之外。\n\n> 引用块：一行也要能渲染成 blockquote。\n\n- 列表项甲\n- 列表项乙\n- 列表项丙\n",
    "pages/article/2026-02-04-footnotes-deep.html": "<!-- title: 脚注的边界情况 -->\n<!-- date: 2026-02-04 12:00 -->\n<!-- slug: footnotes-deep -->\n<!-- tags: Markdown,笔记 -->\n<!-- summary: 脚注定义出现在正文中间的情况。 -->\n<!-- category: Notes -->\n<!-- status: published -->\n<!DOCTYPE html>\n<html><body>\n<div class=\"post-content\"><p>旧正文占位：真实正文在同名 .md 里。</p></div>\n</body></html>\n",
-   "pages/article/2026-02-04-footnotes-deep.md": "## 脚注边界\n\n定义行被摘掉之后，剩下的文本才是 Markdown 的输入。\n\n### 小节：格式\n\n这一节用来钉住行内语法：**粗体**、*斜体*、`行内代码`，以及一个[外链](https://example.org/a?b=1&c=2)。\n\n#### 四级标题（不进 TOC）\n\n四级标题落在 `build_toc_html(2, 3)` 的过滤范围之外。\n\n> 引用块：一行也要能渲染成 blockquote。\n\n- 列表项甲\n- 列表项乙\n- 列表项丙\n\n正文里引用一次脚注[^1]。\n\n[^1]: 这条脚注的文字里含 `&` 与 `<`，两侧都必须逐字节一致。\n",
+   "pages/article/2026-02-04-footnotes-deep.md": "## 脚注边界\n\n定义行被摘掉之后，剩下的文本才是 Markdown 的输入。\n\n### 小节：格式\n\n这一节用来钉住行内语法：**粗体**、*斜体*、`行内代码`，以及一个[外链](https://example.org/a?b=1&c=2)。\n\n转义与编码边界：`x<y&z\"q` 与 `it's`，以及一个[中文链接](/article/中文.html)。\n\n#### 四级标题（不进 TOC）\n\n四级标题落在 `build_toc_html(2, 3)` 的过滤范围之外。\n\n> 引用块：一行也要能渲染成 blockquote。\n\n- 列表项甲\n- 列表项乙\n- 列表项丙\n\n正文里引用一次脚注[^1]。\n\n[^1]: 这条脚注的文字里含 `&` 与 `<`，两侧都必须逐字节一致。\n",
    "pages/article/2026-02-08-search-design.html": "<!-- title: 站内搜索设计 -->\n<!-- date: 2026-02-08 15:15 -->\n<!-- slug: search-design -->\n<!-- tags: 搜索,前端 -->\n<!-- summary: 索引只含摘要不含正文。 -->\n<!-- category: Tech -->\n<!-- status: published -->\n<!DOCTYPE html>\n<html><body>\n<div class=\"post-content\"><p>旧正文占位：真实正文在同名 .md 里。</p></div>\n</body></html>\n",
-   "pages/article/2026-02-08-search-design.md": "## 搜索索引\n\n`search-index.json` 的每条记录只有 title / summary / url / date / tags / category 六个键。\n\n### 小节：格式\n\n这一节用来钉住行内语法：**粗体**、*斜体*、`行内代码`，以及一个[外链](https://example.org/a?b=1&c=2)。\n\n#### 四级标题（不进 TOC）\n\n四级标题落在 `build_toc_html(2, 3)` 的过滤范围之外。\n\n> 引用块：一行也要能渲染成 blockquote。\n\n- 列表项甲\n- 列表项乙\n- 列表项丙\n",
+   "pages/article/2026-02-08-search-design.md": "## 搜索索引\n\n`search-index.json` 的每条记录只有 title / summary / url / date / tags / category 六个键。\n\n### 小节：格式\n\n这一节用来钉住行内语法：**粗体**、*斜体*、`行内代码`，以及一个[外链](https://example.org/a?b=1&c=2)。\n\n转义与编码边界：`x<y&z\"q` 与 `it's`，以及一个[中文链接](/article/中文.html)。\n\n#### 四级标题（不进 TOC）\n\n四级标题落在 `build_toc_html(2, 3)` 的过滤范围之外。\n\n> 引用块：一行也要能渲染成 blockquote。\n\n- 列表项甲\n- 列表项乙\n- 列表项丙\n",
    "pages/article/2026-02-12-theme-dark.html": "<!-- title: 暗色主题与配色 -->\n<!-- date: 2026-02-12 18:45 -->\n<!-- slug: theme-dark -->\n<!-- tags: CSS,主题,前端 -->\n<!-- summary: 暗色主题靠一份额外的 CSS。 -->\n<!-- category: Tech -->\n<!-- status: published -->\n<!DOCTYPE html>\n<html><body>\n<div class=\"post-content\"><p>旧正文占位：真实正文在同名 .md 里。</p></div>\n</body></html>\n",
-   "pages/article/2026-02-12-theme-dark.md": "## 暗色\n\n`theme.dark.css` 存在 ⇒ `has_dark` 为真 ⇒ 页面里多出 `color-scheme` meta、形态脚本与主题切换按钮。\n\n### 小节：格式\n\n这一节用来钉住行内语法：**粗体**、*斜体*、`行内代码`，以及一个[外链](https://example.org/a?b=1&c=2)。\n\n#### 四级标题（不进 TOC）\n\n四级标题落在 `build_toc_html(2, 3)` 的过滤范围之外。\n\n> 引用块：一行也要能渲染成 blockquote。\n\n- 列表项甲\n- 列表项乙\n- 列表项丙\n",
+   "pages/article/2026-02-12-theme-dark.md": "## 暗色\n\n`theme.dark.css` 存在 ⇒ `has_dark` 为真 ⇒ 页面里多出 `color-scheme` meta、形态脚本与主题切换按钮。\n\n### 小节：格式\n\n这一节用来钉住行内语法：**粗体**、*斜体*、`行内代码`，以及一个[外链](https://example.org/a?b=1&c=2)。\n\n转义与编码边界：`x<y&z\"q` 与 `it's`，以及一个[中文链接](/article/中文.html)。\n\n#### 四级标题（不进 TOC）\n\n四级标题落在 `build_toc_html(2, 3)` 的过滤范围之外。\n\n> 引用块：一行也要能渲染成 blockquote。\n\n- 列表项甲\n- 列表项乙\n- 列表项丙\n",
    "pages/article/2026-02-16-writing-habit.html": "<!-- title: 写作习惯：每天两百字 -->\n<!-- date: 2026-02-16 06:30 -->\n<!-- slug: writing-habit -->\n<!-- tags: 随笔,习惯 -->\n<!-- summary: 两百字的下限。 -->\n<!-- category: 生活 -->\n<!-- status: published -->\n<!DOCTYPE html>\n<html><body>\n<div class=\"post-content\"><p>旧正文占位：真实正文在同名 .md 里。</p></div>\n</body></html>\n",
-   "pages/article/2026-02-16-writing-habit.md": "## 两百字\n\n写不出来的时候也写两百字，写完再决定要不要留下。\n\n### 小节：格式\n\n这一节用来钉住行内语法：**粗体**、*斜体*、`行内代码`，以及一个[外链](https://example.org/a?b=1&c=2)。\n\n#### 四级标题（不进 TOC）\n\n四级标题落在 `build_toc_html(2, 3)` 的过滤范围之外。\n\n> 引用块：一行也要能渲染成 blockquote。\n\n- 列表项甲\n- 列表项乙\n- 列表项丙\n",
+   "pages/article/2026-02-16-writing-habit.md": "## 两百字\n\n写不出来的时候也写两百字，写完再决定要不要留下。\n\n### 小节：格式\n\n这一节用来钉住行内语法：**粗体**、*斜体*、`行内代码`，以及一个[外链](https://example.org/a?b=1&c=2)。\n\n转义与编码边界：`x<y&z\"q` 与 `it's`，以及一个[中文链接](/article/中文.html)。\n\n#### 四级标题（不进 TOC）\n\n四级标题落在 `build_toc_html(2, 3)` 的过滤范围之外。\n\n> 引用块：一行也要能渲染成 blockquote。\n\n- 列表项甲\n- 列表项乙\n- 列表项丙\n",
    "pages/article/2026-02-20-robots.html": "<!-- title: robots 与站点地图 -->\n<!-- date: 2026-02-20 10:10 -->\n<!-- slug: robots -->\n<!-- tags: SEO -->\n<!-- summary: robots.txt 的 Sitemap 行不回落 localhost。 -->\n<!-- category: Notes -->\n<!-- status: published -->\n<!DOCTYPE html>\n<html><body>\n<div class=\"post-content\"><p>旧正文占位：真实正文在同名 .md 里。</p></div>\n</body></html>\n",
-   "pages/article/2026-02-20-robots.md": "## 抓取协议\n\nSitemap 那一行用的是 site_url 或空串，**不**回落 localhost。\n\n### 小节：格式\n\n这一节用来钉住行内语法：**粗体**、*斜体*、`行内代码`，以及一个[外链](https://example.org/a?b=1&c=2)。\n\n#### 四级标题（不进 TOC）\n\n四级标题落在 `build_toc_html(2, 3)` 的过滤范围之外。\n\n> 引用块：一行也要能渲染成 blockquote。\n\n- 列表项甲\n- 列表项乙\n- 列表项丙\n",
+   "pages/article/2026-02-20-robots.md": "## 抓取协议\n\nSitemap 那一行用的是 site_url 或空串，**不**回落 localhost。\n\n### 小节：格式\n\n这一节用来钉住行内语法：**粗体**、*斜体*、`行内代码`，以及一个[外链](https://example.org/a?b=1&c=2)。\n\n转义与编码边界：`x<y&z\"q` 与 `it's`，以及一个[中文链接](/article/中文.html)。\n\n#### 四级标题（不进 TOC）\n\n四级标题落在 `build_toc_html(2, 3)` 的过滤范围之外。\n\n> 引用块：一行也要能渲染成 blockquote。\n\n- 列表项甲\n- 列表项乙\n- 列表项丙\n",
    "pages/article/2026-02-24-pagination.html": "<!-- title: 分页：第二页的上一页指向哪 -->\n<!-- date: 2026-02-24 09:00 -->\n<!-- slug: pagination -->\n<!-- tags: 前端,SEO,测试 -->\n<!-- summary: 第 2 页的 `prev_url` 是 `/`。 -->\n<!-- category: Tech -->\n<!-- status: published -->\n<!DOCTYPE html>\n<html><body>\n<div class=\"post-content\"><p>旧正文占位：真实正文在同名 .md 里。</p></div>\n</body></html>\n",
-   "pages/article/2026-02-24-pagination.md": "## 分页\n\n13 篇 + `page_size=10` ⇒ 两页；第 2 页的上一页链接是 `/`（不是 `/list/1.html`）。\n\n### 小节：格式\n\n这一节用来钉住行内语法：**粗体**、*斜体*、`行内代码`，以及一个[外链](https://example.org/a?b=1&c=2)。\n\n延伸阅读：[[站内搜索设计]]。\n\n#### 四级标题（不进 TOC）\n\n四级标题落在 `build_toc_html(2, 3)` 的过滤范围之外。\n\n> 引用块：一行也要能渲染成 blockquote。\n\n- 列表项甲\n- 列表项乙\n- 列表项丙\n",
+   "pages/article/2026-02-24-pagination.md": "## 分页\n\n13 篇 + `page_size=10` ⇒ 两页；第 2 页的上一页链接是 `/`（不是 `/list/1.html`）。\n\n### 小节：格式\n\n这一节用来钉住行内语法：**粗体**、*斜体*、`行内代码`，以及一个[外链](https://example.org/a?b=1&c=2)。\n\n转义与编码边界：`x<y&z\"q` 与 `it's`，以及一个[中文链接](/article/中文.html)。\n\n延伸阅读：[[站内搜索设计]]。\n\n#### 四级标题（不进 TOC）\n\n四级标题落在 `build_toc_html(2, 3)` 的过滤范围之外。\n\n> 引用块：一行也要能渲染成 blockquote。\n\n- 列表项甲\n- 列表项乙\n- 列表项丙\n",
    "pages/article/2026-03-02-draft-wip.html": "<!-- title: 未完成的草稿（不该出现在任何列表里） -->\n<!-- date: 2026-03-02 23:59 -->\n<!-- slug: draft-wip -->\n<!-- tags: 测试,草稿 -->\n<!-- summary: 这是一篇草稿。 -->\n<!-- category: Tech -->\n<!-- status: draft -->\n<!DOCTYPE html>\n<html><body>\n<div class=\"post-content\"><p>旧正文占位：真实正文在同名 .md 里。</p></div>\n</body></html>\n",
-   "pages/article/2026-03-02-draft-wip.md": "## 草稿\n\n如果编排层漏了草稿过滤，它会以最新日期出现在列表首页第一项。\n\n### 小节：格式\n\n这一节用来钉住行内语法：**粗体**、*斜体*、`行内代码`，以及一个[外链](https://example.org/a?b=1&c=2)。\n\n#### 四级标题（不进 TOC）\n\n四级标题落在 `build_toc_html(2, 3)` 的过滤范围之外。\n\n> 引用块：一行也要能渲染成 blockquote。\n\n- 列表项甲\n- 列表项乙\n- 列表项丙\n",
+   "pages/article/2026-03-02-draft-wip.md": "## 草稿\n\n如果编排层漏了草稿过滤，它会以最新日期出现在列表首页第一项。\n\n### 小节：格式\n\n这一节用来钉住行内语法：**粗体**、*斜体*、`行内代码`，以及一个[外链](https://example.org/a?b=1&c=2)。\n\n转义与编码边界：`x<y&z\"q` 与 `it's`，以及一个[中文链接](/article/中文.html)。\n\n#### 四级标题（不进 TOC）\n\n四级标题落在 `build_toc_html(2, 3)` 的过滤范围之外。\n\n> 引用块：一行也要能渲染成 blockquote。\n\n- 列表项甲\n- 列表项乙\n- 列表项丙\n",
    "pages/standalone/about.html": "<!-- title: 关于本站 -->\n<!-- summary: 这个站点是干什么的。 -->\n<!DOCTYPE html>\n<html><body>\n<div class=\"post-content\">关于本站。这里是一份用于端到端对照的合成语料，不是真实站点。</div>\n</body></html>\n",
    "pages/standalone/colophon-long-title.html": "<!-- title: 版权与致谢以及一份特意写长了的独立页标题用来钉住导航里的二十码点截断 -->\n<!-- summary: 致谢与版权说明。 -->\n<!DOCTYPE html>\n<html><body>\n<div class=\"post-content\">致谢。构建编排层的对齐工作参考了真 Python 的生成顺序，因此这份语料的产物可以逐字节比较。</div>\n</body></html>\n",
    "themes/default/theme.css": "/* 语料主题 —— 只求确定性，不求好看 */\n:root { --fg: #222; --bg: #fff; }\nbody { color: var(--fg); background: var(--bg); margin: 0; }\n.post-title { font-size: 1.5rem; }\n",
@@ -82,134 +82,134 @@
  },
  "expected": {
   "article/2026-01-05-site-launch.html": {
-   "sha256": "0c22f0f17e7310f9b1455a473eb608db8e573c5f00362bf9f84d8f4ed5188625",
-   "chars": 4917,
-   "bytes": 5772
+   "sha256": "ffe59485a789f5405a1fccf4a0c96ef8c67945a7a3f670f8c9e35384aa33b72e",
+   "chars": 5042,
+   "bytes": 5935
   },
   "article/2026-01-05-site-launch.md": {
-   "sha256": "87348e173ee27ea985aae17cffcd1d97dba1f6da77d91d301d2fd14886fa44e5",
-   "chars": 395,
-   "bytes": 701
+   "sha256": "03f33a9e012a05855515cfb91c5f401b5d869ed556292784d5aa2875f0b4ad64",
+   "chars": 453,
+   "bytes": 801
   },
   "article/2026-01-09-markdown-notes.html": {
-   "sha256": "0823e2089a31eea1344c19cee02983fb3adcc7a4d7de23da9de5386f53b72e66",
-   "chars": 5221,
-   "bytes": 6110
+   "sha256": "f59d20285f0df9ad7249e8175fd5c67d8a34053550dd3c3b6aa917671a5708d9",
+   "chars": 5346,
+   "bytes": 6273
   },
   "article/2026-01-09-markdown-notes.md": {
-   "sha256": "1963ad7da2839e34c08c0448251aa344d5a2ac888865654b09a387bba664d63d",
-   "chars": 317,
-   "bytes": 643
+   "sha256": "d6e46decc433683df9b2d33204fa626bbe73e8a6850fb0c94a1ef987d90f0da7",
+   "chars": 375,
+   "bytes": 743
   },
   "article/2026-01-12-wikilink-garden.html": {
-   "sha256": "318b9fbff1292fb588324344392a6d9e226d722578216edebabc523bd4a79bf5",
-   "chars": 5234,
-   "bytes": 6243
+   "sha256": "7a77153ff0061e07cb09af6c840a96c0b2ec61a741337ff2fa4b7a5bdc1aa101",
+   "chars": 5359,
+   "bytes": 6406
   },
   "article/2026-01-12-wikilink-garden.md": {
-   "sha256": "f448a7c108b26eb7fedc6082bb65957c2adec0cc5b2fbe1d5e295328627ad966",
-   "chars": 290,
-   "bytes": 566
+   "sha256": "364553ee49d73fb09bc289ca1203cda9d6b4daaaf7cc4f703ea097731fdbb15d",
+   "chars": 348,
+   "bytes": 666
   },
   "article/2026-01-16-long-title.html": {
-   "sha256": "0342182f99c1c31f9c25494c06718f7737252a08759e7137dd98921c07e6cc48",
-   "chars": 5180,
-   "bytes": 7025
+   "sha256": "124e23a99d6fb35be30d602d517a88888b65a8d66c11671349041d07ede0ab44",
+   "chars": 5305,
+   "bytes": 7188
   },
   "article/2026-01-16-long-title.md": {
-   "sha256": "549f628197654a9ed270ee8f9127dc28c945c14a6de82bfc68c93ac1b581f340",
-   "chars": 246,
-   "bytes": 452
+   "sha256": "bc1ce5ce3cb09d142d1a265d3aceacbb3166cd52799d5f21a4e4766c9d0d535a",
+   "chars": 304,
+   "bytes": 552
   },
   "article/2026-01-20-css-grid.html": {
-   "sha256": "0f643d7199d0d8f60f03eaa17eb78bb9389aa65de6ae3fe55aada49a97f55aaa",
-   "chars": 4962,
-   "bytes": 5591
+   "sha256": "3344148cae448ce9e77e9e574ae558e1fd69d5dfc98600c134dd84b16a5b1737",
+   "chars": 5087,
+   "bytes": 5754
   },
   "article/2026-01-20-css-grid.md": {
-   "sha256": "2d80f9e2bd05797e3ca185dd829043680515f7303c7b12a71ddaf9011dfe4420",
-   "chars": 217,
-   "bytes": 409
+   "sha256": "a6a2853e125413aceb068886185a98f3a9a864c6bd333670336fa0a04fb16fd4",
+   "chars": 275,
+   "bytes": 509
   },
   "article/2026-01-24-life-notes.html": {
-   "sha256": "0d9bd989fb4d2e68e5354303818b8dd464e751f1c9ccd81c9491cf1115dc491c",
-   "chars": 4552,
-   "bytes": 5319
+   "sha256": "de3fbfd74b1ab4f561713fde8825d3cbe1647919b48c6cb29e25d59f9afb24ef",
+   "chars": 4677,
+   "bytes": 5482
   },
   "article/2026-01-24-life-notes.md": {
-   "sha256": "c4584453a49d102f3c231fde633e82741dff4494cd4f3ced27bd8a4f408f7626",
-   "chars": 221,
-   "bytes": 429
+   "sha256": "7d25339854c67f532edb3f71c9d2343b43450c4249f4ba3bcbcb4921edef2f0f",
+   "chars": 279,
+   "bytes": 529
   },
   "article/2026-02-01-no-tags.html": {
-   "sha256": "bedcfab7fb920836cb2a2d13519913478d1e7e0852c37fa1775eabfdbb63c26a",
-   "chars": 4110,
-   "bytes": 4853
+   "sha256": "5c531736c72cf1b6531b9ee6c1512c788ba3a0047c29808030fb0801e22fd217",
+   "chars": 4235,
+   "bytes": 5016
   },
   "article/2026-02-01-no-tags.md": {
-   "sha256": "f50d899191e567507c96427e83a9f9b5ad51e6de3fe95328fed005cdc76f445d",
-   "chars": 247,
-   "bytes": 489
+   "sha256": "2dcca440838eb30af7325afd0fd48785f67dc58471e558a42d43420a279be889",
+   "chars": 305,
+   "bytes": 589
   },
   "article/2026-02-04-footnotes-deep.html": {
-   "sha256": "3cbd4c883928f5a7bbfdfe93aa5b840f384e21ddf8128686c67690f4eedcde82",
-   "chars": 5091,
-   "bytes": 5942
+   "sha256": "2c221aea7c5830c809831f3dd5a279248697321e37a6cb998c59ab92a4636e6b",
+   "chars": 5216,
+   "bytes": 6105
   },
   "article/2026-02-04-footnotes-deep.md": {
-   "sha256": "23035606a572fc30c9761a19305aec5aea4f74579ad400e0ab4f01aa9d79b452",
-   "chars": 288,
-   "bytes": 564
+   "sha256": "1c06cdd1ba4a2c46cce3d807334f5549c070144ecbcbe036e7203ab14652d75c",
+   "chars": 346,
+   "bytes": 664
   },
   "article/2026-02-08-search-design.html": {
-   "sha256": "d143867c4ce9bb3b8d9523d1dfadfec6cf3deb36191377aaaeefbd19fd51073d",
-   "chars": 5144,
-   "bytes": 5905
+   "sha256": "de598d99f38e227e5f198c140fc78a968dc549b1bda18d5299a2f18bc0a8d9fe",
+   "chars": 5269,
+   "bytes": 6068
   },
   "article/2026-02-08-search-design.md": {
-   "sha256": "37528fcd250b780eeeee6737ff9631d5206d76dc7345efbda5964d5818965245",
-   "chars": 282,
-   "bytes": 476
+   "sha256": "f137834e7a1d413d8de2921e566ac6c39ab47a42ebcabe4c8b4c0164c831f955",
+   "chars": 340,
+   "bytes": 576
   },
   "article/2026-02-12-theme-dark.html": {
-   "sha256": "7d91c36a68c0a41c52f4748576757a5f5a336a833ce6c90e52f9af0e32a31f37",
-   "chars": 5066,
-   "bytes": 5815
+   "sha256": "c76b349f9d9d008abbe657bfad82cfda95f47f68b41c561e93cd1c62ec35add6",
+   "chars": 5191,
+   "bytes": 5978
   },
   "article/2026-02-12-theme-dark.md": {
-   "sha256": "b2bc3e8613b2f976b45cd450764be585c798f76f2da6d8ea02bb693aa6bf2b75",
-   "chars": 277,
-   "bytes": 493
+   "sha256": "37d765e3837ed6d1b0977a1678ef8ca2b2aa41553c8f2c277e072a26832e748c",
+   "chars": 335,
+   "bytes": 593
   },
   "article/2026-02-16-writing-habit.html": {
-   "sha256": "1f14cb09876588f95336eb8ad3d864cca3c177acaaa7a049af0d7448f3366a6b",
-   "chars": 4574,
-   "bytes": 5309
+   "sha256": "21c9aa6477e09707e2a9dbc6eb4d13a42a4cbb44e48d66a20edae5317f94d9ad",
+   "chars": 4699,
+   "bytes": 5472
   },
   "article/2026-02-16-writing-habit.md": {
-   "sha256": "798ac8e6e3326cc2774c86594d533caaeb168ee8c9f5b7c4bd8b7fa8567f316e",
-   "chars": 226,
-   "bytes": 444
+   "sha256": "3f9ca7a6f7d3bf825660406569d77238c5fe590a518dc20323ef5f18b71d5b76",
+   "chars": 284,
+   "bytes": 544
   },
   "article/2026-02-20-robots.html": {
-   "sha256": "5b68bd3a3faa69f38af01b20d342a84816aab860fbc6db13be0e471de9b10b53",
-   "chars": 4754,
-   "bytes": 5367
+   "sha256": "2e10cb1fd19db96a4705bde6b8c7cf735d4dfc4d1f9bdd6b698862c80bb869d6",
+   "chars": 4879,
+   "bytes": 5530
   },
   "article/2026-02-20-robots.md": {
-   "sha256": "17b2e8eac7bb128aecfa032205b5b392cebc31d257980944e0301afe23d8f566",
-   "chars": 249,
-   "bytes": 449
+   "sha256": "da89c189ac97c38b504007ef46790ac6c55ed52aef9532e3f954b3c658335ef2",
+   "chars": 307,
+   "bytes": 549
   },
   "article/2026-02-24-pagination.html": {
-   "sha256": "18dd822eb803b442fa9996d29799bea50d26258c8a965d71ac766ed4bda78e70",
-   "chars": 5639,
-   "bytes": 6586
+   "sha256": "bbf6e6fcd9bde371e777c2e1f1510bc628a3f8d03d2da24857782aa5d9967d1b",
+   "chars": 5764,
+   "bytes": 6749
   },
   "article/2026-02-24-pagination.md": {
-   "sha256": "b0545f04f13c42d454176058c9f981bd0d3e9764d9cc1899af1fe835bea5092d",
-   "chars": 282,
-   "bytes": 512
+   "sha256": "a7f8b757419fd084f59dd74c3fa3ff96124413e3f1ab85b1b8f9603a901571fd",
+   "chars": 340,
+   "bytes": 612
   },
   "article/2026-03-02-draft-wip.html": {
    "sha256": "155c1d3f24be5f76a84d8e4cf4f6b2d24bfb3319423c0e048b8b56cff392bcfa",
@@ -217,9 +217,9 @@
    "bytes": 378
   },
   "article/2026-03-02-draft-wip.md": {
-   "sha256": "a894690928667abacb57bab1652dec89b967f7c1d9dcefe9779c353bdc866490",
-   "chars": 231,
-   "bytes": 459
+   "sha256": "9fb933058e5e2a1e23e1eb2dcf35bb9eae137f4d7fd057674128dcab46fba48c",
+   "chars": 289,
+   "bytes": 559
   },
   "category/Notes.html": {
    "sha256": "32953583792ce8b4002a5db5b874334cc3fa65b4a8fa64a9e0a479ea857eb6bb",

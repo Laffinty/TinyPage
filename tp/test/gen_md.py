@@ -57,7 +57,7 @@ def main():
     A('IMPORT("wlwl:std.str", ["SPLIT_LINES", "INDEX_OF", "CAT"]);')
     A('IMPORT("wlwl:std.sanitize", ["HTML_ESCAPE"]);')
     A('IMPORT("wlwl:std.regex", ["RE", "RE_TEST", "RE_FIND_ALL"]);')
-    A('IMPORT("./md_inline.wll", ["INLINE"]);')
+    A('IMPORT("./md_inline.wll", ["INLINE", "MD_ESCAPE"]);')
     A('')
 
     # ── 行级判定工具 ────────────────────────────────────────
@@ -216,7 +216,7 @@ def main():
               [C('IF', 'is_fence(line)',
                  [C('SET', 'out', 'CAT(out, "<pre><code", '
                         'IF(==(code_lang, ""), "", CAT(" class=\\"language-", code_lang, "\\"")), '
-                        '">", HTML_ESCAPE(code_buf), "</code></pre>\\n")'),
+                        '">", MD_ESCAPE(code_buf), "</code></pre>\\n")'),
                   C('SET', 'code_buf', '""'),
                   C('SET', 'in_code', 'FALSE')],
                  [C('SET', 'code_buf', 'CAT(code_buf, line, "\\n")')])],
@@ -266,7 +266,7 @@ def main():
         C('IF', 'in_code',
           [C('SET', 'out', 'CAT(out, "<pre><code", '
                  'IF(==(code_lang, ""), "", CAT(" class=\\"language-", code_lang, "\\"")), '
-                 '">", HTML_ESCAPE(code_buf), "</code></pre>\\n")')],
+                 '">", MD_ESCAPE(code_buf), "</code></pre>\\n")')],
           'NULL'),
         'out',
     ], '// 渲染块级 Markdown（对齐 mistune escape=True 的输出）')

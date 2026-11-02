@@ -1,0 +1,16 @@
+// 探针 S2-md：URL quoting 所需的运行期能力形状。
+IMPORT("wlwl:std.encode", ["UTF8_ENCODE", "UTF8_DECODE"]);
+IMPORT("wlwl:std.sanitize", ["HTML_ESCAPE", "HTML_UNESCAPE"]);
+IMPORT("wlwl:std.regex", ["RE", "RE_REPLACE"]);
+
+LET(bs, UTF8_ENCODE("A中"));
+PRINT("UTF8_ENCODE type=", TYPE(bs), " len=", LEN(bs));
+PRINT("bytes: ", bs);
+PRINT("elem type: ", TYPE(AT(bs, 0, NULL)));
+PRINT("decode back: ", UTF8_DECODE(bs));
+
+PRINT("--- escape round trip ---");
+PRINT("HTML_ESCAPE(\"it's\"): ", HTML_ESCAPE("it's"));
+PRINT("undo: ", RE_REPLACE(RE("&#39;"), HTML_ESCAPE("it's"), "'"));
+PRINT("HTML_UNESCAPE(/x&amp;y): ", HTML_UNESCAPE("/x&amp;y"));
+PRINT("HTML_UNESCAPE(/x&#x27;y): ", HTML_UNESCAPE("/x&#x27;y"));

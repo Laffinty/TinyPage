@@ -54,9 +54,64 @@ def main():
     A('//   IS_SAFE_URL(url)                   -> BOOLEAN  协议白名单判定')
     A('//   WIKILINK_TARGET(link_text, map)    -> STRING  wikilink 的目标 URL')
     A('')
-    A('IMPORT("wlwl:std.sanitize", ["HTML_ESCAPE"]);')
+    A('IMPORT("wlwl:std.sanitize", ["HTML_ESCAPE", "HTML_UNESCAPE"]);')
     A('IMPORT("wlwl:std.str", ["INDEX_OF", "CAT"]);')
     A('IMPORT("wlwl:std.text", ["TO_LOWER"]);')
+    A('IMPORT("wlwl:std.regex", ["RE", "RE_REPLACE"]);')
+    A('IMPORT("wlwl:std.encode", ["UTF8_ENCODE", "UTF8_DECODE"]);')
+    A('')
+
+    # ── 与 mistune 一致的 HTML 转义 ─────────────────────────────
+    # ⚠ **mistune 不转义单引号**（实测：`it's` → `it's`、`<code>x'y</code>`），
+    #   而 WLWL 内建 `HTML_ESCAPE` 会把 `'` 转成 `&#39;`（等价 Python 的 quote=True）。
+    #   ⇒ 用内建做完再**把 `&#39;` 还原成 `'`**（一次 RE_REPLACE，比逐字符手写稳）。
+    A('// ── 与 mistune 一致的 HTML 转义（不转单引号）────────────────')
+    A('// ⚠ 实测 mistune 3.2.1 对文本与代码**都**只转义 & < > "，**不转** 单引号；')
+    A('//   而内建 HTML_ESCAPE 会转成 &#39;（= Python html.escape(quote=True)）')
+    A('//   ⇒ 借内建做完，再把 &#39; 还原成 \'（输入里的字面 &#39; 会先被转成')
+    A('//   &amp;#39; ⇒ 不会被这条误伤）。')
+    src += fn('MD_ESCAPE', 's', [
+        'RE_REPLACE(RE("&#39;"), HTML_ESCAPE(s), "\'")',
+    ], '// 对齐 mistune 的转义：& < > " 转，单引号不转')
+
+    # ── URL 百分号编码 ─────────────────────────────────────────
+    # 对齐 mistune.util.escape_url：
+    #   quote(html.unescape(link), safe=":/?#@!$&()*+,;=%")
+    # 即：先解 HTML 实体，再按 RFC3986 的「未保留字符 + 这些安全字符」保留，其余转 %XX。
+    A('// 安全字符集（对齐 mistune 的 safe= 参数 + RFC3986 unreserved）：')
+    A('//   unreserved: A-Z a-z 0-9 - . _ ~')
+    A('//   safe      : : / ? # @ ! $ & ( ) * + , ; = %')
+    A('LET(URL_SAFE, "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789-._~:/?#@!$&()*+,;=%");')
+    A('// 十六进制数字表（WLWL 没有 ORD/CHR，只能查表）')
+    A('LET(HEX_DIGITS, ["0", "1", "2", "3", "4", "5", "6", "7",')
+    A('                   "8", "9", "A", "B", "C", "D", "E", "F"]);')
+    A('')
+    src += fn('URL_QUOTE', 'url', [
+        '// 对齐 mistune.util.escape_url：quote(html.unescape(url), safe=...)',
+        '// ⚠ 必须先 html.unescape：调用点传进来的 url 已被 MD_ESCAPE 转过（& 变 &amp;），',
+        '//   而 mistune 是在**未转义**的原文上做 quote、之后才做属性转义 ⇒ 顺序必须还原。',
+        'LET(raw, HTML_UNESCAPE(url))',
+        'LET(bs, UTF8_ENCODE(raw))',
+        'LET MUT(out, "")',
+        'LET MUT(i, 0)',
+        'LET(n, LEN(bs))',
+        C('WHILE', '<(i, n)', [
+            'LET(b, AT(bs, i, 0))',
+            # b < 128 才可能落在安全集里；>=128 一律 %XX
+            C('IF', '<(b, 128)', [
+                'LET(ch, UTF8_DECODE([b]))',
+                C('IF', '>(INDEX_OF(URL_SAFE, ch), -1)', [
+                    'SET(out, CAT(out, ch))',
+                ], [
+                    'SET(out, CAT(out, "%", AT(HEX_DIGITS, /(b, 16), "0"), AT(HEX_DIGITS, %(b, 16), "0")))',
+                ]),
+            ], [
+                'SET(out, CAT(out, "%", AT(HEX_DIGITS, /(b, 16), "0"), AT(HEX_DIGITS, %(b, 16), "0")))',
+            ]),
+            'SET(i, +(i, 1))',
+        ]),
+        'out',
+    ], '// URL 百分号编码（对齐 mistune.util.escape_url）')
     A('')
 
     # ── 协议白名单 ─────────────────────────────────────────
@@ -168,7 +223,7 @@ def main():
         C('WHILE', '<(i, LEN(codes))', [
             'LET(at, INDEX_OF(out, CODE_PH))',
             C('IF', '>=(at, 0)',
-              [C('LET', 'rep', 'CAT("<code>", codes[i], "</code>")'),
+              [C('LET', 'rep', 'CAT("<code>", MD_ESCAPE(codes[i]), "</code>")'),
                C('SET', 'out', 'replace_span(out, at, +(at, LEN(CODE_PH)), rep)')],
               'NULL'),
             C('SET', 'i', '+(i, 1)'),
@@ -270,8 +325,9 @@ def main():
             'LET(url, SUB(out, +(close, 2), -(paren, +(close, 2))))',
             C('LET', 'rep', [
                 C('IF', 'IS_SAFE_URL(url)',
-                  # ⚠ 逐字节对齐 mistune 3.2.1：不加 rel 属性
-                  'CAT("<a href=\\"", url, "\\">", text, "</a>")',
+                  # ⚠ 逐字节对齐 mistune 3.2.1：不加 rel 属性；
+                  #   href 先按 escape_url 做百分号编码，再做属性转义。
+                  'CAT("<a href=\\"", MD_ESCAPE(URL_QUOTE(url)), "\\">", text, "</a>")',
                   'CAT("[", text, "](", url, ")")'),
             ]),
             C('IF', '<(paren, 0)',
@@ -289,7 +345,7 @@ def main():
         'LET(ec, extract_code(text))',
         'LET(s0, ec[0])',
         'LET(codes, ec[1])',
-        'LET(s1, HTML_ESCAPE(s0))',
+        'LET(s1, MD_ESCAPE(s0))',
         'LET(s2, replace_wikilinks(s1, article_map))',
         'LET(s3, replace_links(s2))',
         'LET(s4, replace_pairs(s3, "**", "<strong>", "</strong>"))',
@@ -299,7 +355,7 @@ def main():
 
     A('LET(INLINE, FUN((text), INLINE_WITH_MAP(text, NULL)));')
     A('')
-    A('EXPORT(["INLINE", "INLINE_WITH_MAP", "IS_SAFE_URL", "WIKILINK_TARGET"]);')
+    A('EXPORT(["INLINE", "INLINE_WITH_MAP", "IS_SAFE_URL", "MD_ESCAPE", "URL_QUOTE", "WIKILINK_TARGET"]);')
 
     chars, lines = write(OUT, src)
     print(f'wrote {OUT} ({chars} chars, {lines} lines)')

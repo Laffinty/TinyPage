@@ -23,6 +23,14 @@ LET(want_code_fence_lang, "<pre><code class=\"language-python\">x = 1\n</code></
 LET(src_code_fence_nolang, "```\nplain\n```\n");
 LET(want_code_fence_nolang, "<pre><code>plain\n</code></pre>\n");
 
+// code_fence_quote_lang
+LET(src_code_fence_quote_lang, "```js\na'b\n```\n");
+LET(want_code_fence_quote_lang, "<pre><code class=\"language-js\">a'b\n</code></pre>\n");
+
+// code_fence_quotes
+LET(src_code_fence_quotes, "```\nx'y\"z<w>&v\n```\n");
+LET(want_code_fence_quotes, "<pre><code>x'y&quot;z&lt;w&gt;&amp;v\n</code></pre>\n");
+
 // empty
 LET(src_empty, "");
 LET(want_empty, "");
@@ -120,6 +128,12 @@ TEST("md/code_fence_lang", FUN(() ,
     TRUE));
 TEST("md/code_fence_nolang", FUN(() ,
     (ASSERT_EQ(RENDER_MD(src_code_fence_nolang), want_code_fence_nolang));
+    TRUE));
+TEST("md/code_fence_quote_lang", FUN(() ,
+    (ASSERT_EQ(RENDER_MD(src_code_fence_quote_lang), want_code_fence_quote_lang));
+    TRUE));
+TEST("md/code_fence_quotes", FUN(() ,
+    (ASSERT_EQ(RENDER_MD(src_code_fence_quotes), want_code_fence_quotes));
     TRUE));
 TEST("md/empty", FUN(() ,
     (ASSERT_EQ(RENDER_MD(src_empty), want_empty));

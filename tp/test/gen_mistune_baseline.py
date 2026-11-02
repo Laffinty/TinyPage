@@ -31,6 +31,10 @@ CASES = {
     'ol_paren': '1) one\n2) two\n',
     'code_fence_lang': '```python\nx = 1\n```\n',
     'code_fence_nolang': '```\nplain\n```\n',
+    # ⚠ 2026-11-02 加：围栏代码里的 `'` **不得**被转义（mistune 只转 & < > "），
+    #   而 WLWL 内建 HTML_ESCAPE 会转成 &#39; ⇒ md.wll 必须用 MD_ESCAPE。
+    'code_fence_quotes': '```\nx\'y"z<w>&v\n```\n',
+    'code_fence_quote_lang': '```js\na\'b\n```\n',
     'blockquote': '> quoted\n',
     'hr': '---\n',
     'hr_star': '***\n',

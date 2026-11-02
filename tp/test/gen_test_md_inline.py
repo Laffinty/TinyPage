@@ -48,6 +48,40 @@ CASES = [
         'ASSERT_EQ(INLINE("[t](https://a.b/c)"), '
         '"<a href=\\"https://a.b/c\\">t</a>")',
     ]),
+    # ── D 组：三处曾经漏掉的 mistune 口径（2026-11-02 修，期望值均为 mistune 实测）──
+    # ⚠ 1) 代码段内容**必须转义**（此前原样输出 ⇒ `x<y&z"q` 直接进了 HTML）
+    ('inline/code_escape', [
+        'ASSERT_EQ(INLINE("a `x<y&z\\"q` b"), '
+        '"a <code>x&lt;y&amp;z&quot;q</code> b")',
+    ]),
+    # ⚠ 2) mistune **不转义单引号**（文本与代码都是）⇒ MD_ESCAPE 要把 &#39; 还原
+    ('inline/code_apostrophe', [
+        "ASSERT_EQ(INLINE(\"a `x'y` b\"), \"a <code>x'y</code> b\")",
+    ]),
+    ('inline/text_apostrophe', [
+        "ASSERT_EQ(INLINE(\"it's a 'test'\"), \"it's a 'test'\")",
+    ]),
+    # ⚠ 3) 链接目标要按 mistune.util.escape_url 做百分号编码
+    ('inline/link_cjk', [
+        'ASSERT_EQ(INLINE("[a](/article/中文.html)"), '
+        '"<a href=\\"/article/%E4%B8%AD%E6%96%87.html\\">a</a>")',
+    ]),
+    ('inline/link_apostrophe', [
+        "ASSERT_EQ(INLINE(\"[a](/x'y)\"), "
+        "\"<a href=\\\"/x%27y\\\">a</a>\")",
+    ]),
+    ('inline/link_amp', [
+        'ASSERT_EQ(INLINE("[a](/x?y=1&z=2)"), '
+        '"<a href=\\"/x?y=1&amp;z=2\\">a</a>")',
+    ]),
+    ('inline/link_pct_kept', [
+        'ASSERT_EQ(INLINE("[a](/x%20y)"), '
+        '"<a href=\\"/x%20y\\">a</a>")',
+    ]),
+    ('inline/link_umlaut', [
+        'ASSERT_EQ(INLINE("[a](https://ex.com/ü)"), '
+        '"<a href=\\"https://ex.com/%C3%BC\\">a</a>")',
+    ]),
     ('inline/wikilink', [
         'ASSERT_EQ(INLINE("[[Page]]"), '
         '"<a class=\\"wikilink\\" href=\\"/article/page.html\\">Page</a>")',
