@@ -1,0 +1,639 @@
+// tp/lib/ai.wll —— 五个 AI 能力与降级（卡 S5-2）
+//
+// ⚠ 本文件由 tp/test/gen_ai.py 生成 —— 请勿手改。
+//
+// 权威实现：tinypage/core/ai_assistance.py（AIAssistance + build_ai_assistance），
+//   端点形状取自 tinypage/admin/actions.py:296-329。
+//
+// 分层（传输层**不在**这里 —— 请求报文/响应解析/TLS 全在 tp/lib/http_client_tls.wll）：
+//   BUILD_MESSAGES        纯函数：能力名 + 文本 ⇒ system/user 两条消息 + temperature + model
+//   EXTRACT_CONTENT       纯函数：响应 JSON ⇒ choices[0].message.content
+//   FINISH                纯函数：能力相关的后处理（strip / 摘要截断 / 标签解析）
+//   FALLBACK_SUGGEST_TAGS 纯函数：词频降级（脱网可测）
+//   ENDPOINT_PARTS        纯函数：provider 缺省端点 + URL 拆 host/port/path
+//   JSON_ENVELOPE         纯函数：**错误也要是 JSON**（卡 S5-2 的反向守卫）
+//   IS_ENABLED            纯函数：build_ai_assistance 的「未配置 ⇒ 不构建」
+//   COMPLETE / POLISH / TRANSLATE / SUMMARIZE / SUGGEST_TAGS
+//                         建消息 → HTTPS_POST_JSON（卡 S5-1）→ 解析 → 后处理
+//
+// 导出 → 权威源码行号
+//   IS_ENABLED            ai_assistance.py:273-276
+//   BUILD_MESSAGES        :103-110 / :127-136 / :154-163 / :181-190 / :213-222（messages）
+//                         + :112 / :138 / :165 / :192 / :225（temperature）
+//   EXTRACT_CONTENT       :77-81
+//   FINISH                :113 / :139 / :166（strip）、:193-196（摘要截断）、:226-235（标签解析）
+//   FALLBACK_SUGGEST_TAGS :240-261（词频 + 停用词表 :245-250）
+//   ENDPOINT_PARTS        :45-48（_get_default_endpoint）+ :60（url 拼接）
+//   JSON_ENVELOPE         admin/actions.py:304-329
+//   COMPLETE              :90-113
+//   POLISH                :115-139
+//   TRANSLATE             :141-166（+ admin/actions.py:313-314 的 en/ja 映射）
+//   SUMMARIZE             :168-198
+//   SUGGEST_TAGS          :200-238
+//
+// 六处刻意语义（登记在夹具 meta.divergences，不是沉默偏离）
+//   ① content 缺字段 / 不是字符串 ⇒ ok:FALSE（Python `.get(..., "")` 静默给 ""）
+//   ② 端点结尾的 / 先剥再拼（Python 拼出 `//chat/completions`）
+//   ③ 只接受 https://（传输层 TLS-only；明文 http 明确失败）
+//   ④ JSON 出参保留原字符（Python json.dumps 默认写 \uXXXX）
+//   ⑤ 请求体按 STRINGIFY 口径（紧凑 + 键名字典序），与 json.dumps 字节不同
+//   ⑥ ai_enabled 只认布尔 TRUE（Python 认任意真值）
+//
+// ⚠ 选项名有两套来源（枚举在 AI_OPT 上）：构造器名优先、配置名兜底
+//   api_key ↔ ai_api_key、model ↔ ai_model、provider ↔ ai_provider、endpoint ↔ ai_endpoint
+//
+// ⚠ 源码里**没有** max_tokens（:61-65 的 payload 只有 model/messages/temperature）
+//   ⇒ 本模块不发明该字段，即使卡面提到「等」。
+//
+// ⚠ 顶层绑定跨模块共享（tp/README 坑 52）⇒ 私有名一律 AI_ 前缀；
+//   下面 12 个导出名是本卡的公共面，别处不得再用作顶层绑定。
+
+IMPORT("wlwl:std.str", ["CAT", "JOIN", "INDEX_OF"]);
+IMPORT("wlwl:std.text", ["TO_LOWER", "TO_INT"]);
+IMPORT("wlwl:std.encode", ["UTF8_DECODE"]);
+IMPORT("wlwl:std.regex", ["RE", "RE_FIND_ALL", "RE_REPLACE"]);
+IMPORT("wlwl:std.json", ["JSON_VALIDATE", "PARSE", "STRINGIFY"]);
+IMPORT("./http_client_tls.wll", ["HTTPS_POST_JSON"]);
+
+// ── 常量（全部对齐 Python 的缺省值）────────────────────────────────
+LET(AI_DEFAULT_MODEL, "gpt-3.5-turbo");
+LET(AI_EP_OPENAI, "https://api.openai.com/v1");
+LET(AI_EP_DEEPSEEK, "https://api.deepseek.com/v1");
+// 非流式 + timeout=30（ai_assistance.py:76）：显式透传给传输层，与 Python 的 timeout=30 同义
+LET(AI_TIMEOUT_MS, 30000);
+// suggest_tags 的正文上限（:220 的 `text[:2000]`）
+LET(AI_TAGS_TEXT_MAX, 2000);
+LET(AI_MAX_LENGTH_DEFAULT, 160);
+LET(AI_MAX_TAGS_DEFAULT, 5);
+
+// 切词模式：`[a-zA-Z\u4e00-\u9fff]{2,}`（:252）。
+// ⚠ 正则不认 `\uXXXX`（坑 20/26）⇒ 区间必须写**字面**字符 `一-龥`。
+// ⚠ 中英**在同一个字符类里** ⇒ `abc中文` 是**一个** token（与「先按脚本切」不同）。
+LET(AI_TOKEN_RE, RE("[a-zA-Z一-龥]{2,}"));
+// 标签围栏（:229-230）：`^```(?:json)?\s*` 与 `\s*```$`
+// ⚠ 源码里是 `\s`；WLWL 字符串里 `\s` 不是合法转义（E0001）⇒ 正则里要写 `\\s`。
+LET(AI_FENCE_HEAD_RE, RE("^```(?:json)?\\s*"));
+LET(AI_FENCE_TAIL_RE, RE("\\s*```\$"));
+
+// // 取 STRING 选项
+     LET(AI_STR, FUN((opts, key, d), (
+               // 取一个「必须是 STRING」的选项;
+               LET(v, AT_K(opts, key, d));
+               IF(==(TYPE(v), "STRING"), v, d)
+     )));
+
+// // 取一个有两个来源的字符串选项
+     LET(AI_OPT, FUN((opts, primary, alias, d), (
+               // 同名选项的两个来源：构造器名（ai_assistance.py:33-39）优先，配置名（config.py:63-68）兜底。;
+               // 例：api_key ↔ ai_api_key、model ↔ ai_model、provider ↔ ai_provider、endpoint ↔ ai_endpoint;
+               AI_STR(opts, primary, AI_STR(opts, alias, d))
+     )));
+
+// // 宽松取整数
+     LET(AI_INT_OR, FUN((v, d), (
+               // 「可能是整数 / 数字串 / 垃圾」→ 整数（失败取缺省）。;
+               // ⚠ TO_INT 失败返 ERR ⇒ 不能先绑定（坑 25）;
+               IF(!=(TYPE(v), "STRING"), IF(==(TYPE(v), "INTEGER"), v, d), IF(IS_ERR(TO_INT(v)), d, TO_INT(v)))
+     )));
+
+// // 摘要长度上限
+     LET(AI_MAX_LENGTH, FUN((opts), (
+               // summarize 的 max_length（缺省 160，:168）;
+               AI_INT_OR(AT_K(opts, "max_length", AI_MAX_LENGTH_DEFAULT), AI_MAX_LENGTH_DEFAULT)
+     )));
+
+// // 标签个数上限
+     LET(AI_MAX_TAGS, FUN((opts), (
+               // suggest_tags 的 max_tags（缺省 5，:200）;
+               AI_INT_OR(AT_K(opts, "max_tags", AI_MAX_TAGS_DEFAULT), AI_MAX_TAGS_DEFAULT)
+     )));
+
+// // Python 的空白字符集合
+     LET(AI_PY_WS, FUN((), (
+               // Python str.isspace() 全集（29 个字符）。⚠ UTF8_DECODE 的实参是**字节**（0-255）；;
+               // 内建 TRIM 只剥 ASCII 空白（坑 41）⇒ 别用 TRIM 代替 AI_STRIP。;
+               UTF8_DECODE([9, 10, 11, 12, 13, 28, 29, 30, 31, 32, 194, 133, 194, 160, 225, 154, 128, 226, 128, 128, 226, 128, 129, 226, 128, 130, 226, 128, 131, 226, 128, 132, 226, 128, 133, 226, 128, 134, 226, 128, 135, 226, 128, 136, 226, 128, 137, 226, 128, 138, 226, 128, 168, 226, 128, 169, 226, 128, 175, 226, 129, 159, 227, 128, 128])
+     )));
+
+// 首尾空白模式（运行期用上面的集合拼出来 —— 字符类是**字面**字符，无转义问题）
+LET(AI_WS_LEAD_RE, RE(CAT("^[", AI_PY_WS(), "]+")));
+// ⚠ 结尾锚 `$` 要写 `\$`（裸 `$` 在字面量里是插值）
+LET(AI_WS_TRAIL_RE, RE(CAT("[", AI_PY_WS(), "]+\$")));
+
+// // Python str.strip()
+     LET(AI_STRIP, FUN((s), (
+               // Python `s.strip()`：两侧都按 29 字符集合剥（:113/:139/:166 都是 .strip()）;
+               IF(!=(TYPE(s), "STRING"), "", RE_REPLACE(AI_WS_TRAIL_RE, RE_REPLACE(AI_WS_LEAD_RE, s, ""), ""))
+     )));
+
+// // 取前 n 个码点
+     LET(AI_HEAD, FUN((s, n), (
+               // 前 n 个码点（n<0 / 不越界都安全）;
+               IF(<(n, 0), "", IF(>(LEN(s), n), SUB(s, 0, n), s))
+     )));
+
+// // 去掉结尾的 /
+     LET(AI_RSTRIP_SLASH, FUN((s), (
+               // 去掉结尾所有 /（对齐 rstrip("/")；本模块用它把端点尾斜杠归一）;
+               LET MUT(n, LEN(s));
+               WHILE(&&(>(n, 0), ==(SUB(s, -(n, 1), 1), "/")), SET(n, -(n, 1)));
+               SUB(s, 0, n)
+     )));
+
+// // 失败结果
+     LET(AI_FAIL, FUN((status, message), (
+               // 全模块统一的失败形状：{ok:FALSE, status, error};
+               INDEX_SET(INDEX_SET(INDEX_SET(DICT(), "ok", FALSE), "status", status), "error", message)
+     )));
+
+// // 文本成功结果
+     LET(AI_OK_TEXT, FUN((status, content), (
+               // 文本类成功：{ok:TRUE, status, content};
+               INDEX_SET(INDEX_SET(INDEX_SET(DICT(), "ok", TRUE), "status", status), "content", content)
+     )));
+
+// // 标签成功结果
+     LET(AI_TAGS_RESULT, FUN((tags, fb), (
+               // 标签类成功：{ok:TRUE, tags, fallback}（fallback 说明是否走了词频降级）;
+               INDEX_SET(INDEX_SET(INDEX_SET(DICT(), "ok", TRUE), "tags", tags), "fallback", fb)
+     )));
+
+// // 能力 → 温度表
+     LET(AI_TEMPS, FUN((), (
+               INDEX_SET(INDEX_SET(INDEX_SET(INDEX_SET(INDEX_SET(DICT(), "complete", 0.8), "polish", 0.5), "translate", 0.3), "summarize", 0.3), "suggest_tags", 0.3)
+     )));
+
+// // 能力 → 温度（未知 ⇒ NULL）
+     LET(AI_CAP_TEMP, FUN((cap), (
+               // 未知能力 ⇒ NULL;
+               AT_K(AI_TEMPS(), cap, NULL)
+     )));
+
+// // lang 码 → 语言名
+     LET(AI_LANG_NAME, FUN((code), (
+               // 目标语言**硬编码** en/ja（admin/actions.py:313-314 的 lang_map）；未知码回落 English;
+               IF(==(code, "ja"), "Japanese", "English")
+     )));
+
+// // 目标语言名
+     LET(AI_TARGET_NAME, FUN((opts), (
+               // target_lang 显式给了就用它（ai_assistance.py:141 的具名参数），否则按 lang 码映射;
+               LET(t, AI_STR(opts, "target_lang", ""));
+               IF(!=(t, ""), t, AI_LANG_NAME(AI_STR(opts, "lang", "en")))
+     )));
+
+// // 一条 messages 项
+     LET(AI_MSG, FUN((role, content), (
+               // 一条消息（键序 role → content，与 Python 的字典字面量同序）;
+               INDEX_SET(INDEX_SET(DICT(), "role", role), "content", content)
+     )));
+
+// // complete 的 system 提示词
+     LET(AI_COMPLETE_SYSTEM, FUN((hint), (
+               // :103-105：有 hint 就在 system 末尾**追加**（不是替换）;
+               IF(==(hint, ""), "You are a helpful writing assistant. Continue the user's text naturally and coherently.", CAT("You are a helpful writing assistant. Continue the user's text naturally and coherently.", " The user wants to focus on: ", hint))
+     )));
+
+// // 能力 → system 消息
+     LET(AI_SYSTEM, FUN((cap, opts), (
+               IF(==(cap, "complete"), AI_COMPLETE_SYSTEM(AI_STR(opts, "prompt_hint", "")), IF(==(cap, "polish"), "You are a professional editor. Improve the text for clarity, flow, and style while keeping the original meaning. Only return the improved text, no explanations.", IF(==(cap, "translate"), CAT("You are a professional translator. Translate the text to ", AI_TARGET_NAME(opts), " accurately and naturally. Only return the translated text, no explanations."), IF(==(cap, "summarize"), CAT("You are a content summarizer. Create a concise summary in no more than ", STR(AI_MAX_LENGTH(opts)), " characters. The summary should capture the main points. Only return the summary, no labels."), CAT("You are a content analyst. Suggest exactly ", STR(AI_MAX_TAGS(opts)), " relevant tags for this article. Tags should be short (1-3 words), lowercase, and relevant to the main topics. Return ONLY a JSON array of tag strings, like [\"python\", \"web\", \"tutorial\"]. No explanations.")))))
+     )));
+
+// // 能力 → user 消息
+     LET(AI_USER, FUN((cap, opts), (
+               LET(text, AI_STR(opts, "text", ""));
+               IF(==(cap, "complete"), CAT("Continue this text:\n\n", text), IF(==(cap, "polish"), CAT("Polish this text:\n\n", text), IF(==(cap, "translate"), CAT("Translate to ", AI_TARGET_NAME(opts), ":\n\n", text), IF(==(cap, "summarize"), CAT("Summarize this text:\n\n", text), CAT("Suggest tags for:\n\n", AI_HEAD(text, AI_TAGS_TEXT_MAX))))))
+     )));
+
+// // 消息构造结果
+     LET(AI_BUILT, FUN((cap, model, temp, msgs, skip), (
+               // BUILD_MESSAGES 的形状（键集合固定，调用方可以安全地 AT_K）;
+               INDEX_SET(INDEX_SET(INDEX_SET(INDEX_SET(INDEX_SET(INDEX_SET(DICT(), "ok", TRUE), "capability", cap), "model", model), "temperature", temp), "messages", msgs), "skip", skip)
+     )));
+
+// // 消息构造（纯函数）
+     LET(BUILD_MESSAGES, FUN((opts), (
+               // 纯函数：给定 **文本 + 能力名**，产出要发给 API 的两条消息与三要素。;
+               // opts：capability（complete/polish/translate/summarize/suggest_tags）;
+               //       text / prompt_hint / target_lang / lang / max_length / max_tags / model;
+               // ⚠ 空文本 ⇒ skip:TRUE + messages:[]（Python :100/:124/:151/:178/:210 直接返回，不构建）;
+               LET(cap, AI_STR(opts, "capability", "complete"));
+               LET(temp, AI_CAP_TEMP(cap));
+               IF(==(temp, NULL), (
+                    AI_FAIL(NULL, CAT("unknown capability: ", cap))
+               ), (
+                    LET(model, AI_OPT(opts, "model", "ai_model", AI_DEFAULT_MODEL));
+                    IF(==(AI_STR(opts, "text", ""), ""), (
+                         // 空文本 ⇒ 没有消息、也没有温度（Python 根本没构造请求）;
+                         AI_BUILT(cap, model, NULL, [], TRUE)
+                    ), (
+                         AI_BUILT(cap, model, temp, [AI_MSG("system", AI_SYSTEM(cap, opts)), AI_MSG("user", AI_USER(cap, opts))], FALSE)
+                    ))
+               ))
+     )));
+
+// // 最后一个空格的下标
+     LET(AI_LAST_SPACE, FUN((s), (
+               // s 里**最后一个**空格的下标（没有 ⇒ -1）—— 对齐 `rsplit(" ", 1)[0]`;
+               LET MUT(i, -1);
+               LET MUT(j, 0);
+               WHILE(<(j, LEN(s)), (IF(==(SUB(s, j, 1), " "), SET(i, j), NULL); SET(j, +(j, 1))));
+               i
+     )));
+
+// // 截断超长摘要
+     LET(AI_TRIM_OVER, FUN((s, max_length), (
+               // 超长摘要的截断：前 max_length 码点里**最后一个空格之前** + "..."（:196）;
+               LET(head, AI_HEAD(s, max_length));
+               LET(i, AI_LAST_SPACE(head));
+               CAT(IF(<(i, 0), head, SUB(head, 0, i)), "...")
+     )));
+
+// // summarize 的长度截断
+     LET(AI_TRIM_SUMMARY, FUN((s, max_length), (
+               // 判定是 `>`（等于上限**不**截断，:195）;
+               IF(!(>(LEN(s), max_length)), s, AI_TRIM_OVER(s, max_length))
+     )));
+
+// // 元素全是字符串
+     LET(AI_ALL_STR, FUN((arr), (
+               // 数组元素全是 STRING？(:233 的 `all(isinstance(t, str) …)`）;
+               LET MUT(ok, TRUE);
+               FOR(x, arr, IF(!=(TYPE(x), "STRING"), SET(ok, FALSE), NULL));
+               ok
+     )));
+
+// // 取前 n 个元素
+     LET(AI_TAKE, FUN((arr, n), (
+               // 前 n 个元素（`tags[:max_tags]`）；n<=0 ⇒ [];
+               LET MUT(out, []);
+               LET MUT(i, 0);
+               WHILE(&&(<(i, n), <(i, LEN(arr))), (SET(out, PUSH(out, AT(arr, i, ""))); SET(i, +(i, 1))));
+               out
+     )));
+
+// // 标签解析成功
+     LET(AI_TAGS_OK, FUN((tags), (
+               // 解析成功且形状合法;
+               INDEX_SET(INDEX_SET(INDEX_SET(DICT(), "ok", TRUE), "tags", tags), "valid_shape", TRUE)
+     )));
+
+// // 标签形状非法
+     LET(AI_TAGS_BAD_SHAPE, FUN((), (
+               // 解析成功但**形状非法** ⇒ Python 返回 [] 且**不**降级（:233-235）;
+               INDEX_SET(INDEX_SET(INDEX_SET(DICT(), "ok", TRUE), "tags", []), "valid_shape", FALSE)
+     )));
+
+// // 解析 AI 返回的标签数组
+     LET(AI_PARSE_TAGS, FUN((s, max_tags), (
+               // :226-235：剥围栏 → JSON 解析 → 必须是「字符串数组」;
+               // ⚠ `std.json::PARSE` 失败是 **E0070 中止**（坑 47）⇒ 先 JSON_VALIDATE;
+               LET(t, IF(==(SUB(s, 0, 3), "```"), RE_REPLACE(AI_FENCE_TAIL_RE, RE_REPLACE(AI_FENCE_HEAD_RE, s, ""), ""), s));
+               IF(IS_ERR(JSON_VALIDATE(t)), (
+                    AI_FAIL(NULL, "tags payload is not valid JSON")
+               ), (
+                    LET(arr, PARSE(t));
+                    IF(!=(TYPE(arr), "ARRAY"), (
+                         AI_TAGS_BAD_SHAPE()
+                    ), (
+                         IF(AI_ALL_STR(arr), (
+                              AI_TAGS_OK(AI_TAKE(arr, max_tags))
+                         ), (
+                              AI_TAGS_BAD_SHAPE()
+                         ))
+                    ))
+               ))
+     )));
+
+// // FINISH 的选项
+     LET(AI_FIN_OPTS, FUN((opts, cap, content), (
+               // 交给 FINISH 的选项（把 capability / content 与两个上限聚在一起）;
+               INDEX_SET(INDEX_SET(INDEX_SET(INDEX_SET(DICT(), "capability", cap), "content", content), "max_length", AI_MAX_LENGTH(opts)), "max_tags", AI_MAX_TAGS(opts))
+     )));
+
+// // 能力相关的后处理（纯函数）
+     LET(FINISH, FUN((opts), (
+               // 纯函数：能力相关的**后处理**（Python 里散在五个方法尾部的那几行）。;
+               // opts：capability / content / max_length / max_tags;
+               // ⚠ summarize 先 strip 再截断（:193-196 的顺序）;
+               LET(cap, AI_STR(opts, "capability", "complete"));
+               LET(content, AI_STR(opts, "content", ""));
+               IF(||(==(cap, "complete"), ||(==(cap, "polish"), ==(cap, "translate"))), (
+                    AI_OK_TEXT(NULL, AI_STRIP(content))
+               ), (
+                    IF(==(cap, "summarize"), (
+                         AI_OK_TEXT(NULL, AI_TRIM_SUMMARY(AI_STRIP(content), AI_MAX_LENGTH(opts)))
+                    ), (
+                         IF(==(cap, "suggest_tags"), (
+                              AI_PARSE_TAGS(AI_STRIP(content), AI_MAX_TAGS(opts))
+                         ), (
+                              AI_FAIL(NULL, CAT("unknown capability: ", cap))
+                         ))
+                    ))
+               ))
+     )));
+
+// // 停用词表
+     LET(AI_STOPWORDS, FUN((), (
+               // 中英停用词表（:245-250，逐字）;
+               INDEX_SET(INDEX_SET(INDEX_SET(INDEX_SET(INDEX_SET(INDEX_SET(INDEX_SET(INDEX_SET(INDEX_SET(INDEX_SET(INDEX_SET(INDEX_SET(INDEX_SET(INDEX_SET(INDEX_SET(INDEX_SET(INDEX_SET(INDEX_SET(INDEX_SET(INDEX_SET(INDEX_SET(INDEX_SET(INDEX_SET(INDEX_SET(INDEX_SET(INDEX_SET(INDEX_SET(INDEX_SET(INDEX_SET(INDEX_SET(INDEX_SET(INDEX_SET(INDEX_SET(INDEX_SET(INDEX_SET(INDEX_SET(DICT(), "的", TRUE), "了", TRUE), "是", TRUE), "在", TRUE), "和", TRUE), "与", TRUE), "或", TRUE), "这", TRUE), "那", TRUE), "也", TRUE), "都", TRUE), "the", TRUE), "a", TRUE), "an", TRUE), "is", TRUE), "are", TRUE), "was", TRUE), "were", TRUE), "be", TRUE), "been", TRUE), "and", TRUE), "or", TRUE), "but", TRUE), "in", TRUE), "on", TRUE), "at", TRUE), "to", TRUE), "for", TRUE), "of", TRUE), "with", TRUE), "by", TRUE), "from", TRUE), "as", TRUE), "that", TRUE), "this", TRUE), "it", TRUE)
+     )));
+
+// // 词频降级（纯函数）
+     LET(FALLBACK_SUGGEST_TAGS, FUN((opts), (
+               // 纯函数：词频降级（:240-261）。返回值是**数组**（与 Python 同名函数一致）。;
+               // opts：text / max_tags;
+               // 步骤：lower → 切词 {2,} → 去停用词 → 计数 → 按次数降序（同频按**首次出现**）;
+               // ⚠ 两道门槛叠加：切词要求 {2,}，计数前还有 `len(word) > 2`（:255）;
+               //    ⇒ **两字**的词（含中文两字词）一律取不到；这是源码行为，不是我们的取舍;
+               LET(text, AI_STR(opts, "text", ""));
+               LET(mt, AI_MAX_TAGS(opts));
+               IF(||(==(text, ""), <(mt, 1)), (
+                    []
+               ), (
+                    LET(stop, AI_STOPWORDS());
+                    LET MUT(freq, DICT());
+                    FOR(t, RE_FIND_ALL(AI_TOKEN_RE, TO_LOWER(text)), (
+                         LET(w, AT_K(t, "matched", ""));
+                         IF(>(LEN(w), 2), (
+                              IF(!HAS(stop, w), (
+                                   SET(freq, INDEX_SET(freq, w, +(AT_K(freq, w, 0), 1)))
+                              ), (
+                                   NULL
+                              ))
+                         ), (
+                              NULL
+                         ))
+                    ));
+                    // 选 top-N：每轮扫一遍（按**插入序**取第一个最大计数 ⇒ 等价于 Python 的稳定排序）;
+                    LET MUT(used, DICT());
+                    LET MUT(out, []);
+                    LET MUT(k, 0);
+                    WHILE(<(k, mt), (
+                         LET MUT(best, "");
+                         LET MUT(bc, -1);
+                         FOR(w, KEYS(freq), (
+                              IF(!HAS(used, w), (
+                                   IF(>(AT_K(freq, w, 0), bc), (
+                                        SET(best, w);
+                                        SET(bc, AT_K(freq, w, 0))
+                                   ), (
+                                        NULL
+                                   ))
+                              ), (
+                                   NULL
+                              ))
+                         ));
+                         IF(==(best, ""), (
+                              SET(k, mt)
+                         ), (
+                              SET(out, PUSH(out, best));
+                              SET(used, INDEX_SET(used, best, TRUE));
+                              SET(k, +(k, 1))
+                         ))
+                    ));
+                    out
+               ))
+     )));
+
+// // 是否构建 AI（纯函数）
+     LET(IS_ENABLED, FUN((opts), (
+               // 对齐 build_ai_assistance（:273-276）：**未启用**或**没有 key** ⇒ 不构建。;
+               // ⚠ ai_enabled 只认布尔 TRUE（Python 认任意真值）—— 登记为刻意语义;
+               &&(==(AT_K(opts, "ai_enabled", FALSE), TRUE), !=(AI_STR(opts, "ai_api_key", ""), ""))
+     )));
+
+// // 端点拆分结果
+     LET(AI_EP_OK, FUN((endpoint, scheme, host, port, path), (
+               // ENDPOINT_PARTS 的成功形状;
+               INDEX_SET(INDEX_SET(INDEX_SET(INDEX_SET(INDEX_SET(INDEX_SET(DICT(), "ok", TRUE), "endpoint", endpoint), "scheme", scheme), "host", host), "port", port), "path", path)
+     )));
+
+// // 端点 → host/port/path（纯函数）
+     LET(ENDPOINT_PARTS, FUN((opts), (
+               // 纯函数：provider 缺省端点（:45-48）+ URL 拆成 host/port/path（:60 的拼接）。;
+               // opts：provider（缺省 openai）/ endpoint（空 ⇒ 按 provider 取缺省）;
+               // ⚠ 只接受 https：本模块的传输层是 TLS-only，静默把 http 走成 TLS 就是撒谎;
+               LET(ep0, AI_OPT(opts, "endpoint", "ai_endpoint", ""));
+               LET(ep, IF(!=(ep0, ""), ep0, IF(==(TO_LOWER(AI_OPT(opts, "provider", "ai_provider", "openai")), "deepseek"), AI_EP_DEEPSEEK, AI_EP_OPENAI)));
+               LET(i, INDEX_OF(ep, "://"));
+               IF(<(i, 0), (
+                    AI_FAIL(NULL, "endpoint must be an absolute URL (scheme://host)")
+               ), (
+                    LET(scheme, TO_LOWER(SUB(ep, 0, i)));
+                    LET(rest, SUB(ep, +(i, 3)));
+                    LET(ip, INDEX_OF(rest, "/"));
+                    LET(auth, IF(<(ip, 0), rest, SUB(rest, 0, ip)));
+                    LET(pfx, IF(<(ip, 0), "", SUB(rest, +(ip, 1))));
+                    LET(ic, INDEX_OF(auth, ":"));
+                    LET(host, IF(<(ic, 0), auth, SUB(auth, 0, ic)));
+                    LET(ptxt, IF(<(ic, 0), "", SUB(auth, +(ic, 1))));
+                    IF(!=(scheme, "https"), (
+                         AI_FAIL(NULL, CAT("only https endpoints are supported, got: ", scheme))
+                    ), (
+                         IF(==(host, ""), (
+                              AI_FAIL(NULL, "endpoint has no host")
+                         ), (
+                              LET(port, IF(==(ptxt, ""), 443, AI_INT_OR(ptxt, -1)));
+                              IF(||(<(port, 1), >(port, 65535)), (
+                                   AI_FAIL(NULL, CAT("endpoint has an invalid port: ", ptxt))
+                              ), (
+                                   LET(p, AI_RSTRIP_SLASH(pfx));
+                                   AI_EP_OK(ep, scheme, host, port, IF(==(p, ""), "/chat/completions", CAT("/", p, "/chat/completions")))
+                              ))
+                         ))
+                    ))
+               ))
+     )));
+
+// // 响应 JSON → content（纯函数）
+     LET(EXTRACT_CONTENT, FUN((opts), (
+               // 纯函数：响应 JSON → choices[0].message.content（:77-81）。;
+               // opts：body（STRING）/ status（原样回带）;
+               // ⚠ 每一层都先判 TYPE：AT_K 对 NULL 基值是 E0030（坑 35）;
+               // ⚠「缺字段」与「空串」分开：空串是合法结果，缺字段是 ok:FALSE（刻意语义 ①）;
+               LET(body, AI_STR(opts, "body", ""));
+               LET(st, AT_K(opts, "status", NULL));
+               IF(IS_ERR(JSON_VALIDATE(body)), (
+                    AI_FAIL(st, "response body is not valid JSON")
+               ), (
+                    LET(doc, PARSE(body));
+                    IF(!=(TYPE(doc), "DICT"), (
+                         AI_FAIL(st, "response JSON is not an object")
+                    ), (
+                         LET(choices, AT_K(doc, "choices", NULL));
+                         IF(!=(TYPE(choices), "ARRAY"), (
+                              AI_FAIL(st, "No response from AI: choices is not an array")
+                         ), (
+                              IF(==(LEN(choices), 0), (
+                                   AI_FAIL(st, "No response from AI: choices is empty")
+                              ), (
+                                   LET(c0, AT(choices, 0, NULL));
+                                   IF(!=(TYPE(c0), "DICT"), (
+                                        AI_FAIL(st, "choices[0] is not an object")
+                                   ), (
+                                        LET(msg, AT_K(c0, "message", NULL));
+                                        IF(!=(TYPE(msg), "DICT"), (
+                                             AI_FAIL(st, "choices[0].message is missing")
+                                        ), (
+                                             LET(content, AT_K(msg, "content", NULL));
+                                             IF(!=(TYPE(content), "STRING"), (
+                                                  AI_FAIL(st, "choices[0].message.content is missing or not a string")
+                                             ), (
+                                                  AI_OK_TEXT(st, content)
+                                             ))
+                                        ))
+                                   ))
+                              ))
+                         ))
+                    ))
+               ))
+     )));
+
+// // 请求体 JSON
+     LET(AI_PAYLOAD, FUN((model, msgs, temp), (
+               STRINGIFY(INDEX_SET(INDEX_SET(INDEX_SET(DICT(), "model", model), "messages", msgs), "temperature", temp))
+     )));
+
+// // 一次 AI 调用（建 → 传 → 取）
+     LET(AI_RUN, FUN((opts, cap), (
+               // 一次调用：建消息 → 端点 → 请求体 → HTTPS_POST_JSON（卡 S5-1）→ 取 content。;
+               // ⚠ 传输层要 api_key（:57-58）：空 ⇒ 明确失败，且**在碰传输之前**返回。;
+               LET(key, AI_STR(opts, "api_key", AI_OPT(opts, "ai_api_key", "key", "")));
+               IF(==(key, ""), (
+                    AI_FAIL(NULL, "API key not configured")
+               ), (
+                    LET(ep, ENDPOINT_PARTS(opts));
+                    IF(!AT_K(ep, "ok", FALSE), (
+                         AI_FAIL(NULL, AT_K(ep, "error", "invalid endpoint"))
+                    ), (
+                         LET(spec, BUILD_MESSAGES(INDEX_SET(opts, "capability", cap)));
+                         IF(!AT_K(spec, "ok", FALSE), (
+                              AI_FAIL(NULL, AT_K(spec, "error", "cannot build messages"))
+                         ), (
+                              IF(AT_K(spec, "skip", FALSE), (
+                                   AI_OK_TEXT(NULL, "")
+                              ), (
+                                   LET(body, AI_PAYLOAD(AT_K(spec, "model", AI_DEFAULT_MODEL), AT_K(spec, "messages", []), AT_K(spec, "temperature", 0.3)));
+                                   // 传输层（卡 S5-1）只认 `api_key`：配置名 `ai_api_key` 在这里换成它;
+                                   LET(o, INDEX_SET(INDEX_SET(INDEX_SET(INDEX_SET(INDEX_SET(INDEX_SET(opts, "host", AT_K(ep, "host", "")), "port", AT_K(ep, "port", 443)), "path", AT_K(ep, "path", "/chat/completions")), "body", body), "timeout_ms", AI_INT_OR(AT_K(opts, "timeout_ms", AI_TIMEOUT_MS), AI_TIMEOUT_MS)), "api_key", key));
+                                   LET(r, HTTPS_POST_JSON(o));
+                                   IF(!AT_K(r, "ok", FALSE), (
+                                        AI_FAIL(AT_K(r, "status", NULL), AT_K(r, "error", "transport failed"))
+                                   ), (
+                                        EXTRACT_CONTENT(INDEX_SET(INDEX_SET(DICT(), "body", AT_K(r, "body", "")), "status", AT_K(r, "status", NULL)))
+                                   ))
+                              ))
+                         ))
+                    ))
+               ))
+     )));
+
+// // 文本能力编排
+     LET(AI_CAPABILITY, FUN((opts, cap), (
+               // 五个文本能力共用的编排：未配置 → 调用 → 后处理;
+               // ⚠ 未配置 ⇒ **明确失败**（Python 的 build_ai_assistance 返回 None，调用方报错）;
+               IF(!IS_ENABLED(opts), (
+                    AI_FAIL(NULL, "AI not configured (ai_enabled / ai_api_key)")
+               ), (
+                    LET(raw, AI_RUN(opts, cap));
+                    IF(!AT_K(raw, "ok", FALSE), (
+                         AI_FAIL(AT_K(raw, "status", NULL), AT_K(raw, "error", "request failed"))
+                    ), (
+                         LET(fin, FINISH(AI_FIN_OPTS(opts, cap, AT_K(raw, "content", ""))));
+                         IF(!AT_K(fin, "ok", FALSE), (
+                              AI_FAIL(AT_K(raw, "status", NULL), AT_K(fin, "error", "post-process failed"))
+                         ), (
+                              AI_OK_TEXT(AT_K(raw, "status", NULL), AT_K(fin, "content", ""))
+                         ))
+                    ))
+               ))
+     )));
+
+// // 续写
+     LET(COMPLETE, FUN((opts), (
+               // :90-113 —— 续写（temperature 0.8，五个能力里最高）;
+               // opts：ai_enabled / ai_api_key / text / prompt_hint / model / provider / endpoint;
+               //       + 传输项（ca / verify / timeout_ms / exchange）原样透传;
+               AI_CAPABILITY(opts, "complete")
+     )));
+
+// // 润色
+     LET(POLISH, FUN((opts), (
+               // :115-139 —— 润色（temperature 0.5）;
+               AI_CAPABILITY(opts, "polish")
+     )));
+
+// // 翻译
+     LET(TRANSLATE, FUN((opts), (
+               // :141-166 —— 翻译（temperature 0.3）。lang 码 en/ja 硬编码（admin/actions.py:313-314）;
+               AI_CAPABILITY(opts, "translate")
+     )));
+
+// // 摘要
+     LET(SUMMARIZE, FUN((opts), (
+               // :168-198 —— 摘要（temperature 0.3；max_length 既进 system 也做截断）;
+               AI_CAPABILITY(opts, "summarize")
+     )));
+
+// // 标签推荐（含词频降级）
+     LET(SUGGEST_TAGS, FUN((opts), (
+               // :200-238 —— 标签（temperature 0.3；失败/非 JSON ⇒ 词频降级）;
+               // ⚠ 三种结局要分清（与 Python 逐条对齐）：;
+               //   ① 未配置 ⇒ ok:FALSE（**不**降级；Python 的 build_ai_assistance 返回 None）;
+               //   ② 空文本 ⇒ {tags: []}，不发请求（:210）;
+               //   ③ 请求失败 / 内容不是 JSON ⇒ 降级（:236-238）；;
+               //      解析成功但**形状非法** ⇒ []（**不**降级，:233-235）;
+               IF(!IS_ENABLED(opts), (
+                    AI_FAIL(NULL, "AI not configured (ai_enabled / ai_api_key)")
+               ), (
+                    LET(text, AI_STR(opts, "text", ""));
+                    IF(==(text, ""), (
+                         AI_TAGS_RESULT([], FALSE)
+                    ), (
+                         LET(raw, AI_RUN(opts, "suggest_tags"));
+                         IF(!AT_K(raw, "ok", FALSE), (
+                              AI_TAGS_RESULT(FALLBACK_SUGGEST_TAGS(opts), TRUE)
+                         ), (
+                              LET(fin, FINISH(AI_FIN_OPTS(opts, "suggest_tags", AT_K(raw, "content", ""))));
+                              IF(!AT_K(fin, "ok", FALSE), (
+                                   AI_TAGS_RESULT(FALLBACK_SUGGEST_TAGS(opts), TRUE)
+                              ), (
+                                   AI_TAGS_RESULT(AT_K(fin, "tags", []), FALSE)
+                              ))
+                         ))
+                    ))
+               ))
+     )));
+
+// // 一个 JSON 值
+     LET(AI_JSON_VALUE, FUN((v), (
+               // 一个 JSON 值：标量交给 STRINGIFY；数组要手工拼（STRINGIFY 的数组是 `["a","b"]`，;
+               // Python 的 json.dumps 是 `["a", "b"]` ⇒ 分隔符必须自己写才能逐字节对齐）;
+               IF(==(TYPE(v), "ARRAY"), (
+                    LET MUT(parts, []);
+                    FOR(x, v, SET(parts, PUSH(parts, STRINGIFY(x))));
+                    CAT("[", JOIN(parts, ", "), "]")
+               ), (
+                    STRINGIFY(v)
+               ))
+     )));
+
+// // 出参 JSON（纯函数）
+     LET(JSON_ENVELOPE, FUN((opts), (
+               // 纯函数：**后端错误也必须是 JSON**（卡 S5-2 的反向守卫）。;
+               // 对齐 admin/actions.py:304-329：始终 200 + application/json，;
+               //   成功 {"result": ...}，失败 {"error": ...}。;
+               // opts：ok（缺省 TRUE）/ content（STRING）/ tags（ARRAY）/ error（STRING）;
+               // ⚠ 非 ASCII 不转义（Python 的 json.dumps 默认 ensure_ascii=True ⇒ 刻意语义 ④）;
+               IF(!AT_K(opts, "ok", TRUE), (
+                    CAT("{\"error\": ", STRINGIFY(AI_STR(opts, "error", "")), "}")
+               ), (
+                    LET(v, IF(==(TYPE(AT_K(opts, "tags", NULL)), "ARRAY"), AT_K(opts, "tags", []), AI_STR(opts, "content", "")));
+                    CAT("{\"result\": ", AI_JSON_VALUE(v), "}")
+               ))
+     )));
+
+EXPORT(["IS_ENABLED", "BUILD_MESSAGES", "EXTRACT_CONTENT", "FINISH",
+        "FALLBACK_SUGGEST_TAGS", "ENDPOINT_PARTS", "JSON_ENVELOPE",
+        "COMPLETE", "POLISH", "TRANSLATE", "SUMMARIZE", "SUGGEST_TAGS"]);

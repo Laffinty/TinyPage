@@ -1,0 +1,1784 @@
+{
+  "meta": {
+    "card": "S5-2",
+    "generator": "tp/test/gen_ai_baseline.py",
+    "sources": [
+      "tinypage/core/ai_assistance.py:30-307（AIAssistance 与 build_ai_assistance / fallback_summarize）",
+      "tinypage/admin/actions.py:296-329（/ai-assist 的 JSON 形状与 lang_map）",
+      "tinypage/content.py:794-808（翻译：lang_map + summarize(…, 200)）",
+      "tinypage/config.py:63-68（ai_provider / ai_api_key / ai_model / ai_endpoint / ai_enabled）",
+      "卡 S5-2（docs/plans/tinypage-wlwl-rewrite-plan.md:1407-1421）"
+    ],
+    "conventions": [
+      "messages 用例的 want.temperature 为 None ⇔ skip（Python 没构建消息，也就没有温度）",
+      "pipeline 用例的 want.wire_body 用 STRINGIFY 口径（sort_keys + 紧凑 + 不转义非 ASCII）复现",
+      "extract 用例的 want.error_contains 只钉「错误里必须出现的词」，不钉整句（错误文案来自我们自己的分层）",
+      "finish 的 tags 用例里 want.ok=FALSE ⇔ Python 的 json.loads 失败（⇒ 走词频降级）"
+    ],
+    "divergences": [
+      {
+        "id": "D-AI-CONTENT-LENIENT",
+        "ours": "choices[0].message.content 缺字段 / 不是字符串 ⇒ ok:FALSE",
+        "python": "`.get(\"message\", {}).get(\"content\", \"\")` ⇒ 静默给出 \"\"（或 123 / None）",
+        "why": "卡 S5-2 的「形状不对 ⇒ ok:FALSE」；静默空串会把协议错误当成空答案",
+        "evidence": "ai_assistance.py:81 + fixtures/extract 的 no_message / content_number / content_null"
+      },
+      {
+        "id": "D-AI-ENDPOINT-SLASH",
+        "ours": "端点结尾的 / 先剥掉再拼 path",
+        "python": "f\"{endpoint}/chat/completions\" ⇒ \"…/v1//chat/completions\"",
+        "why": "双斜杠会被部分服务端当成另一个路径；语义不变、形状更稳",
+        "evidence": "ai_assistance.py:60 + fixtures/endpoint.trailing_slash"
+      },
+      {
+        "id": "D-AI-HTTPS-ONLY",
+        "ours": "http:// 端点 ⇒ ok:FALSE",
+        "python": "urllib 真的发明文 HTTP",
+        "why": "本模块的传输层（卡 S5-1）是 TLS-only；静默走 TLS 才是撒谎",
+        "evidence": "ai_assistance.py:60、卡 S5-1 的 HTTP_CLIENT 只做 HTTPS"
+      },
+      {
+        "id": "D-AI-JSON-ASCII",
+        "ours": "JSON 出参保留原字符（中文原样）",
+        "python": "json.dumps 默认 ensure_ascii=True ⇒ 写 \\uXXXX",
+        "why": "语义等价；ASCII 载荷下逐字节一致，非 ASCII 的差异登记在此",
+        "evidence": "admin/actions.py:329 + fixtures/envelope.error_unknown_action"
+      },
+      {
+        "id": "D-AI-BODY-ORDER",
+        "ours": "请求体 = STRINGIFY（紧凑、键名排序）",
+        "python": "json.dumps（\", \" / \": \" 分隔、插入序）",
+        "why": "与卡 S5-1 的 HC_PAYLOAD 同一口径；服务端按 JSON 语义解析，不看字节序",
+        "evidence": "fixtures/pipeline[].want.wire_body vs python_body"
+      },
+      {
+        "id": "D-AI-ENABLED-TYPE",
+        "ours": "ai_enabled 必须是布尔 TRUE 才启用",
+        "python": "任意真值（1、\"yes\"）都算启用",
+        "why": "配置来自 WLWL 字典；非布尔值传进来是调用方的错，fail closed 更安全",
+        "evidence": "ai_assistance.py:273（`if not getattr(...)`）"
+      }
+    ]
+  },
+  "messages": [
+    {
+      "name": "complete_basic",
+      "note": "complete：system 一条 + user 一条，温度 0.8",
+      "source": "ai_assistance.py:103-112（complete_text）",
+      "opts": {
+        "capability": "complete",
+        "text": "Hello world"
+      },
+      "want": {
+        "ok": true,
+        "capability": "complete",
+        "model": "gpt-3.5-turbo",
+        "temperature": 0.8,
+        "skip": false,
+        "messages": [
+          {
+            "role": "system",
+            "content": "You are a helpful writing assistant. Continue the user's text naturally and coherently."
+          },
+          {
+            "role": "user",
+            "content": "Continue this text:\n\nHello world"
+          }
+        ]
+      },
+      "python_result": "continued text",
+      "python_endpoint": "https://api.openai.com/v1"
+    },
+    {
+      "name": "complete_hint",
+      "note": "complete + prompt_hint ⇒ system 末尾**追加** ` The user wants to focus on: …`",
+      "source": "ai_assistance.py:104-105",
+      "opts": {
+        "capability": "complete",
+        "text": "Hello",
+        "prompt_hint": "tone: friendly"
+      },
+      "want": {
+        "ok": true,
+        "capability": "complete",
+        "model": "gpt-3.5-turbo",
+        "temperature": 0.8,
+        "skip": false,
+        "messages": [
+          {
+            "role": "system",
+            "content": "You are a helpful writing assistant. Continue the user's text naturally and coherently. The user wants to focus on: tone: friendly"
+          },
+          {
+            "role": "user",
+            "content": "Continue this text:\n\nHello"
+          }
+        ]
+      },
+      "python_result": "x",
+      "python_endpoint": "https://api.openai.com/v1"
+    },
+    {
+      "name": "complete_empty",
+      "note": "空文本 ⇒ Python 直接返回 \"\"，**不构建消息、不发请求**（skip）",
+      "source": "ai_assistance.py:100-101",
+      "opts": {
+        "capability": "complete",
+        "text": ""
+      },
+      "want": {
+        "ok": true,
+        "capability": "complete",
+        "model": "gpt-3.5-turbo",
+        "temperature": null,
+        "skip": true,
+        "messages": []
+      },
+      "python_result": "",
+      "python_endpoint": "https://api.openai.com/v1"
+    },
+    {
+      "name": "complete_spaces_only",
+      "note": "只有空格**不是**空文本（Python 的 `if not text` 只判真空串）⇒ 仍要发请求",
+      "source": "ai_assistance.py:100（`if not text` 的空值判定）",
+      "opts": {
+        "capability": "complete",
+        "text": "   "
+      },
+      "want": {
+        "ok": true,
+        "capability": "complete",
+        "model": "gpt-3.5-turbo",
+        "temperature": 0.8,
+        "skip": false,
+        "messages": [
+          {
+            "role": "system",
+            "content": "You are a helpful writing assistant. Continue the user's text naturally and coherently."
+          },
+          {
+            "role": "user",
+            "content": "Continue this text:\n\n   "
+          }
+        ]
+      },
+      "python_result": "x",
+      "python_endpoint": "https://api.openai.com/v1"
+    },
+    {
+      "name": "polish_basic",
+      "note": "polish：温度 0.5；text **原样**进入 user 消息（不 strip）",
+      "source": "ai_assistance.py:127-138",
+      "opts": {
+        "capability": "polish",
+        "text": "  some rough text  "
+      },
+      "want": {
+        "ok": true,
+        "capability": "polish",
+        "model": "gpt-3.5-turbo",
+        "temperature": 0.5,
+        "skip": false,
+        "messages": [
+          {
+            "role": "system",
+            "content": "You are a professional editor. Improve the text for clarity, flow, and style while keeping the original meaning. Only return the improved text, no explanations."
+          },
+          {
+            "role": "user",
+            "content": "Polish this text:\n\n  some rough text  "
+          }
+        ]
+      },
+      "python_result": "x",
+      "python_endpoint": "https://api.openai.com/v1"
+    },
+    {
+      "name": "translate_default",
+      "note": "translate 不给 target_lang ⇒ Python 默认 \"English\"",
+      "source": "ai_assistance.py:141（签名默认值 \"English\"）",
+      "opts": {
+        "capability": "translate",
+        "text": "你好"
+      },
+      "want": {
+        "ok": true,
+        "capability": "translate",
+        "model": "gpt-3.5-turbo",
+        "temperature": 0.3,
+        "skip": false,
+        "messages": [
+          {
+            "role": "system",
+            "content": "You are a professional translator. Translate the text to English accurately and naturally. Only return the translated text, no explanations."
+          },
+          {
+            "role": "user",
+            "content": "Translate to English:\n\n你好"
+          }
+        ]
+      },
+      "python_result": "x",
+      "python_endpoint": "https://api.openai.com/v1"
+    },
+    {
+      "name": "translate_ja",
+      "note": "translate → Japanese（lang 码 \"ja\" 经 lang_map 得到的就是这个名字）",
+      "source": "ai_assistance.py:154-163 + admin/actions.py:313-315（lang_map）",
+      "opts": {
+        "capability": "translate",
+        "text": "你好",
+        "target_lang": "Japanese",
+        "lang": "ja"
+      },
+      "want": {
+        "ok": true,
+        "capability": "translate",
+        "model": "gpt-3.5-turbo",
+        "temperature": 0.3,
+        "skip": false,
+        "messages": [
+          {
+            "role": "system",
+            "content": "You are a professional translator. Translate the text to Japanese accurately and naturally. Only return the translated text, no explanations."
+          },
+          {
+            "role": "user",
+            "content": "Translate to Japanese:\n\n你好"
+          }
+        ]
+      },
+      "python_result": "x",
+      "python_endpoint": "https://api.openai.com/v1"
+    },
+    {
+      "name": "translate_en_code",
+      "note": "lang 码 \"en\" ⇒ English（硬编码映射，不认其它码）",
+      "source": "admin/actions.py:313-314（{\"en\": \"English\", \"ja\": \"Japanese\"}）",
+      "opts": {
+        "capability": "translate",
+        "text": "你好",
+        "target_lang": "English",
+        "lang": "en"
+      },
+      "want": {
+        "ok": true,
+        "capability": "translate",
+        "model": "gpt-3.5-turbo",
+        "temperature": 0.3,
+        "skip": false,
+        "messages": [
+          {
+            "role": "system",
+            "content": "You are a professional translator. Translate the text to English accurately and naturally. Only return the translated text, no explanations."
+          },
+          {
+            "role": "user",
+            "content": "Translate to English:\n\n你好"
+          }
+        ]
+      },
+      "python_result": "x",
+      "python_endpoint": "https://api.openai.com/v1"
+    },
+    {
+      "name": "translate_unknown_code",
+      "note": "未知 lang 码 ⇒ 回落 English（`lang_map.get(lang, \"English\")`）",
+      "source": "admin/actions.py:314（get 的缺省 \"English\"）",
+      "opts": {
+        "capability": "translate",
+        "text": "你好",
+        "target_lang": "English",
+        "lang": "fr"
+      },
+      "want": {
+        "ok": true,
+        "capability": "translate",
+        "model": "gpt-3.5-turbo",
+        "temperature": 0.3,
+        "skip": false,
+        "messages": [
+          {
+            "role": "system",
+            "content": "You are a professional translator. Translate the text to English accurately and naturally. Only return the translated text, no explanations."
+          },
+          {
+            "role": "user",
+            "content": "Translate to English:\n\n你好"
+          }
+        ]
+      },
+      "python_result": "x",
+      "python_endpoint": "https://api.openai.com/v1"
+    },
+    {
+      "name": "summarize_default",
+      "note": "summarize：温度 0.3；max_length 缺省 160 写进 system",
+      "source": "ai_assistance.py:168-192",
+      "opts": {
+        "capability": "summarize",
+        "text": "long text"
+      },
+      "want": {
+        "ok": true,
+        "capability": "summarize",
+        "model": "gpt-3.5-turbo",
+        "temperature": 0.3,
+        "skip": false,
+        "messages": [
+          {
+            "role": "system",
+            "content": "You are a content summarizer. Create a concise summary in no more than 160 characters. The summary should capture the main points. Only return the summary, no labels."
+          },
+          {
+            "role": "user",
+            "content": "Summarize this text:\n\nlong text"
+          }
+        ]
+      },
+      "python_result": "x",
+      "python_endpoint": "https://api.openai.com/v1"
+    },
+    {
+      "name": "summarize_200",
+      "note": "max_length=200（content.py:806 的调用就是这么传的）",
+      "source": "content.py:806（`ai.summarize(translated_content, 200)`）",
+      "opts": {
+        "capability": "summarize",
+        "text": "long text",
+        "max_length": 200
+      },
+      "want": {
+        "ok": true,
+        "capability": "summarize",
+        "model": "gpt-3.5-turbo",
+        "temperature": 0.3,
+        "skip": false,
+        "messages": [
+          {
+            "role": "system",
+            "content": "You are a content summarizer. Create a concise summary in no more than 200 characters. The summary should capture the main points. Only return the summary, no labels."
+          },
+          {
+            "role": "user",
+            "content": "Summarize this text:\n\nlong text"
+          }
+        ]
+      },
+      "python_result": "x",
+      "python_endpoint": "https://api.openai.com/v1"
+    },
+    {
+      "name": "tags_default",
+      "note": "suggest_tags：温度 0.3；max_tags 缺省 5 写进 system",
+      "source": "ai_assistance.py:213-225",
+      "opts": {
+        "capability": "suggest_tags",
+        "text": "short text"
+      },
+      "want": {
+        "ok": true,
+        "capability": "suggest_tags",
+        "model": "gpt-3.5-turbo",
+        "temperature": 0.3,
+        "skip": false,
+        "messages": [
+          {
+            "role": "system",
+            "content": "You are a content analyst. Suggest exactly 5 relevant tags for this article. Tags should be short (1-3 words), lowercase, and relevant to the main topics. Return ONLY a JSON array of tag strings, like [\"python\", \"web\", \"tutorial\"]. No explanations."
+          },
+          {
+            "role": "user",
+            "content": "Suggest tags for:\n\nshort text"
+          }
+        ]
+      },
+      "python_result": [
+        "a",
+        "b"
+      ],
+      "python_endpoint": "https://api.openai.com/v1"
+    },
+    {
+      "name": "tags_max3",
+      "note": "max_tags=3 ⇒ system 里是 \"exactly 3\"",
+      "source": "ai_assistance.py:216",
+      "opts": {
+        "capability": "suggest_tags",
+        "text": "short text",
+        "max_tags": 3
+      },
+      "want": {
+        "ok": true,
+        "capability": "suggest_tags",
+        "model": "gpt-3.5-turbo",
+        "temperature": 0.3,
+        "skip": false,
+        "messages": [
+          {
+            "role": "system",
+            "content": "You are a content analyst. Suggest exactly 3 relevant tags for this article. Tags should be short (1-3 words), lowercase, and relevant to the main topics. Return ONLY a JSON array of tag strings, like [\"python\", \"web\", \"tutorial\"]. No explanations."
+          },
+          {
+            "role": "user",
+            "content": "Suggest tags for:\n\nshort text"
+          }
+        ]
+      },
+      "python_result": [
+        "a",
+        "b",
+        "c"
+      ],
+      "python_endpoint": "https://api.openai.com/v1"
+    },
+    {
+      "name": "tags_long_text",
+      "note": "user 消息里的正文被截到**前 2000 码点**（`text[:2000]`）",
+      "source": "ai_assistance.py:220（`text[:2000]`）",
+      "opts": {
+        "capability": "suggest_tags",
+        "text": "abbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb"
+      },
+      "want": {
+        "ok": true,
+        "capability": "suggest_tags",
+        "model": "gpt-3.5-turbo",
+        "temperature": 0.3,
+        "skip": false,
+        "messages": [
+          {
+            "role": "system",
+            "content": "You are a content analyst. Suggest exactly 5 relevant tags for this article. Tags should be short (1-3 words), lowercase, and relevant to the main topics. Return ONLY a JSON array of tag strings, like [\"python\", \"web\", \"tutorial\"]. No explanations."
+          },
+          {
+            "role": "user",
+            "content": "Suggest tags for:\n\nabbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb"
+          }
+        ]
+      },
+      "python_result": [
+        "a"
+      ],
+      "python_endpoint": "https://api.openai.com/v1"
+    },
+    {
+      "name": "tags_empty",
+      "note": "空文本 ⇒ Python 返回 []，不构建消息",
+      "source": "ai_assistance.py:210-211",
+      "opts": {
+        "capability": "suggest_tags",
+        "text": ""
+      },
+      "want": {
+        "ok": true,
+        "capability": "suggest_tags",
+        "model": "gpt-3.5-turbo",
+        "temperature": null,
+        "skip": true,
+        "messages": []
+      },
+      "python_result": [],
+      "python_endpoint": "https://api.openai.com/v1"
+    }
+  ],
+  "extract": [
+    {
+      "name": "normal",
+      "note": "正常：取 choices[0].message.content",
+      "source": "ai_assistance.py:77-81",
+      "body": "{\"choices\": [{\"message\": {\"role\": \"assistant\", \"content\": \"Hello there\"}}]}",
+      "status": 200,
+      "python": {
+        "ok": true,
+        "value": "Hello there",
+        "value_type": "str"
+      },
+      "want": {
+        "ok": true,
+        "content": "Hello there"
+      },
+      "diverges": false
+    },
+    {
+      "name": "unicode_content",
+      "note": "中文内容原样取回（转义 \\u4e2d 由 JSON 解析处理）",
+      "source": "ai_assistance.py:77-81",
+      "body": "{\"choices\": [{\"message\": {\"content\": \"中文内容\"}}]}",
+      "status": 200,
+      "python": {
+        "ok": true,
+        "value": "中文内容",
+        "value_type": "str"
+      },
+      "want": {
+        "ok": true,
+        "content": "中文内容"
+      },
+      "diverges": false
+    },
+    {
+      "name": "escaped_newline",
+      "note": "内容里的转义换行要还原成真换行",
+      "source": "ai_assistance.py:77-81",
+      "body": "{\"choices\": [{\"message\": {\"content\": \"line1\\nline2\"}}]}",
+      "status": 200,
+      "python": {
+        "ok": true,
+        "value": "line1\nline2",
+        "value_type": "str"
+      },
+      "want": {
+        "ok": true,
+        "content": "line1\nline2"
+      },
+      "diverges": false
+    },
+    {
+      "name": "empty_content",
+      "note": "空串 content 是**合法**结果（不是缺字段）",
+      "source": "ai_assistance.py:81",
+      "body": "{\"choices\": [{\"message\": {\"content\": \"\"}}]}",
+      "status": 200,
+      "python": {
+        "ok": true,
+        "value": "",
+        "value_type": "str"
+      },
+      "want": {
+        "ok": true,
+        "content": ""
+      },
+      "diverges": false
+    },
+    {
+      "name": "extra_fields",
+      "note": "多余字段不影响",
+      "source": "ai_assistance.py:78-81",
+      "body": "{\"id\": \"x\", \"choices\": [{\"index\": 0, \"message\": {\"content\": \"ok\"}, \"finish_reason\": \"stop\"}]}",
+      "status": 200,
+      "python": {
+        "ok": true,
+        "value": "ok",
+        "value_type": "str"
+      },
+      "want": {
+        "ok": true,
+        "content": "ok"
+      },
+      "diverges": false
+    },
+    {
+      "name": "empty_choices",
+      "note": "choices 空 ⇒ Python 抛 \"No response from AI\"；我们 ok:FALSE",
+      "source": "ai_assistance.py:78-80",
+      "body": "{\"choices\": []}",
+      "status": 200,
+      "python": {
+        "ok": false,
+        "error": "AIAssistanceError: No response from AI"
+      },
+      "want": {
+        "ok": false,
+        "error_contains": "No response"
+      },
+      "diverges": false
+    },
+    {
+      "name": "no_choices",
+      "note": "没有 choices 键 ⇒ 同「空」",
+      "source": "ai_assistance.py:78-80",
+      "body": "{\"id\": \"x\"}",
+      "status": 200,
+      "python": {
+        "ok": false,
+        "error": "AIAssistanceError: No response from AI"
+      },
+      "want": {
+        "ok": false,
+        "error_contains": "No response"
+      },
+      "diverges": false
+    },
+    {
+      "name": "choices_not_array",
+      "note": "choices 不是数组 ⇒ 我们 ok:FALSE；Python 会 `choices[0]` 崩成 KeyError/TypeError",
+      "source": "ai_assistance.py:78-81",
+      "body": "{\"choices\": {\"message\": {\"content\": \"x\"}}}",
+      "status": 200,
+      "python": {
+        "ok": false,
+        "error": "KeyError: 0"
+      },
+      "want": {
+        "ok": false,
+        "error_contains": "choices"
+      },
+      "diverges": true
+    },
+    {
+      "name": "no_message",
+      "note": "缺 message ⇒ Python **静默返回 \"\"**（`.get(\"message\", {}).get(\"content\", \"\")`）；我们 ok:FALSE",
+      "source": "ai_assistance.py:81",
+      "body": "{\"choices\": [{\"index\": 0}]}",
+      "status": 200,
+      "python": {
+        "ok": true,
+        "value": "",
+        "value_type": "str"
+      },
+      "want": {
+        "ok": false,
+        "error_contains": "message is missing"
+      },
+      "diverges": true
+    },
+    {
+      "name": "content_number",
+      "note": "content 不是字符串 ⇒ Python 返回 int 123（后续 .strip() 会崩）；我们 ok:FALSE",
+      "source": "ai_assistance.py:81",
+      "body": "{\"choices\": [{\"message\": {\"content\": 123}}]}",
+      "status": 200,
+      "python": {
+        "ok": true,
+        "value": 123,
+        "value_type": "int"
+      },
+      "want": {
+        "ok": false,
+        "error_contains": "content is missing"
+      },
+      "diverges": true
+    },
+    {
+      "name": "content_null",
+      "note": "content 是 null ⇒ Python 返回 None；我们 ok:FALSE",
+      "source": "ai_assistance.py:81",
+      "body": "{\"choices\": [{\"message\": {\"content\": null}}]}",
+      "status": 200,
+      "python": {
+        "ok": true,
+        "value": null,
+        "value_type": "NoneType"
+      },
+      "want": {
+        "ok": false,
+        "error_contains": "content is missing"
+      },
+      "diverges": true
+    },
+    {
+      "name": "not_json",
+      "note": "不是 JSON ⇒ ok:FALSE（先 JSON_VALIDATE，别让 PARSE 以 E0070 中止）",
+      "source": "ai_assistance.py:77（json.loads 抛 JSONDecodeError）",
+      "body": "<html>502 Bad Gateway</html>",
+      "status": 502,
+      "python": {
+        "ok": false,
+        "error": "JSONDecodeError: Expecting value: line 1 column 1 (char 0)"
+      },
+      "want": {
+        "ok": false,
+        "error_contains": "not valid JSON"
+      },
+      "diverges": false
+    },
+    {
+      "name": "json_array_root",
+      "note": "根是数组 ⇒ ok:FALSE",
+      "source": "ai_assistance.py:78（`result.get` 会 AttributeError）",
+      "body": "[\"choices\"]",
+      "status": 200,
+      "python": {
+        "ok": false,
+        "error": "AttributeError: 'list' object has no attribute 'get'"
+      },
+      "want": {
+        "ok": false,
+        "error_contains": "not an object"
+      },
+      "diverges": false
+    },
+    {
+      "name": "status_echo",
+      "note": "status 原样回带（不参与判定）",
+      "source": "卡 S5-1 的形状：{ok, status, content}",
+      "body": "{\"choices\": [{\"message\": {\"content\": \"ok\"}}]}",
+      "status": 201,
+      "python": {
+        "ok": true,
+        "value": "ok",
+        "value_type": "str"
+      },
+      "want": {
+        "ok": true,
+        "content": "ok"
+      },
+      "diverges": false
+    }
+  ],
+  "finish": [
+    {
+      "name": "complete_strip",
+      "note": "complete 的返回值过 `.strip()`",
+      "source": "ai_assistance.py:113（`result.strip()`）",
+      "capability": "complete",
+      "content": "  Text with spaces. \n",
+      "want": {
+        "ok": true,
+        "content": "Text with spaces."
+      }
+    },
+    {
+      "name": "complete_ideographic_space",
+      "note": "Python 的 strip 去掉 U+3000；内建 TRIM **只去 ASCII 空白** ⇒ 必须用 PY_WS 集合",
+      "source": "ai_assistance.py:113 + tp/README 坑 41",
+      "capability": "complete",
+      "content": "　全角空白　",
+      "want": {
+        "ok": true,
+        "content": "全角空白"
+      }
+    },
+    {
+      "name": "complete_nbsp",
+      "note": "NBSP（U+00A0）同样要剥",
+      "source": "ai_assistance.py:113 + Python str.isspace()",
+      "capability": "complete",
+      "content": " nbsp text ",
+      "want": {
+        "ok": true,
+        "content": "nbsp text"
+      }
+    },
+    {
+      "name": "polish_strip",
+      "note": "polish 也 strip",
+      "source": "ai_assistance.py:139",
+      "capability": "polish",
+      "content": "\n\nPolished.\n",
+      "want": {
+        "ok": true,
+        "content": "Polished."
+      }
+    },
+    {
+      "name": "translate_strip",
+      "note": "translate 也 strip",
+      "source": "ai_assistance.py:166",
+      "capability": "translate",
+      "content": " 翻訳 ",
+      "want": {
+        "ok": true,
+        "content": "翻訳"
+      }
+    },
+    {
+      "name": "summarize_short",
+      "note": "不超过上限 ⇒ 原样",
+      "source": "ai_assistance.py:195-196",
+      "capability": "summarize",
+      "content": "Short.",
+      "want": {
+        "ok": true,
+        "content": "Short."
+      },
+      "max_length": 160
+    },
+    {
+      "name": "summarize_exact_160",
+      "note": "**恰好** 160 ⇒ 不截断（判定是 `>`，不是 `>=`）",
+      "source": "ai_assistance.py:195",
+      "capability": "summarize",
+      "content": "zzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzz",
+      "want": {
+        "ok": true,
+        "content": "zzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzz"
+      },
+      "max_length": 160
+    },
+    {
+      "name": "summarize_over_spaces",
+      "note": "超长且有空格 ⇒ 前 160 码点里**最后一个空格**之前 + \"...\"（`rsplit(\" \", 1)[0]`）",
+      "source": "ai_assistance.py:196",
+      "capability": "summarize",
+      "content": "word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word ",
+      "want": {
+        "ok": true,
+        "content": "word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word..."
+      },
+      "max_length": 160
+    },
+    {
+      "name": "summarize_over_nospace",
+      "note": "超长且**没有**空格 ⇒ 前 160 码点原样 + \"...\"",
+      "source": "ai_assistance.py:196（rsplit 无空格时只剩整段）",
+      "capability": "summarize",
+      "content": "yyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyy",
+      "want": {
+        "ok": true,
+        "content": "yyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyy..."
+      },
+      "max_length": 160
+    },
+    {
+      "name": "summarize_cjk",
+      "note": "中文没有空格 ⇒ 按**码点**截到 160（不是字节）",
+      "source": "ai_assistance.py:195-196",
+      "capability": "summarize",
+      "content": "中中中中中中中中中中中中中中中中中中中中中中中中中中中中中中中中中中中中中中中中中中中中中中中中中中中中中中中中中中中中中中中中中中中中中中中中中中中中中中中中中中中中中中中中中中中中中中中中中中中中中中中中中中中中中中中中中中中中中中中中中中中中中中中中中中中中中中中中中中中中中中中中中中中中中中中中中中中中中中中中中中中中中中中中中中中中中中中中中中中中中中中中中中中中中中中中中中中中中中中中",
+      "want": {
+        "ok": true,
+        "content": "中中中中中中中中中中中中中中中中中中中中中中中中中中中中中中中中中中中中中中中中中中中中中中中中中中中中中中中中中中中中中中中中中中中中中中中中中中中中中中中中中中中中中中中中中中中中中中中中中中中中中中中中中中中中中中中中中中中中中中中中中中中中中中中中中中中中中中中中中中中中中中中中中中中中中中中中中中中中中中中中..."
+      },
+      "max_length": 160
+    },
+    {
+      "name": "summarize_max200",
+      "note": "180 < 200 ⇒ 不截断（max_length 是参数，不是常量 160）",
+      "source": "ai_assistance.py:168,195",
+      "capability": "summarize",
+      "content": "qqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqq",
+      "want": {
+        "ok": true,
+        "content": "qqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqq"
+      },
+      "max_length": 200
+    },
+    {
+      "name": "tags_plain_array",
+      "note": "纯 JSON 数组",
+      "source": "ai_assistance.py:232-234",
+      "capability": "suggest_tags",
+      "content": "[\"python\", \"web\"]",
+      "max_tags": 5,
+      "want": {
+        "ok": true,
+        "valid_shape": true,
+        "tags": [
+          "python",
+          "web"
+        ]
+      },
+      "python_final_tags": [
+        "python",
+        "web"
+      ],
+      "python_fallback_tags": [
+        "python",
+        "web"
+      ]
+    },
+    {
+      "name": "tags_fenced_json",
+      "note": "```json 围栏",
+      "source": "ai_assistance.py:228-230",
+      "capability": "suggest_tags",
+      "content": "```json\n[\"python\", \"web\"]\n```",
+      "max_tags": 5,
+      "want": {
+        "ok": true,
+        "valid_shape": true,
+        "tags": [
+          "python",
+          "web"
+        ]
+      },
+      "python_final_tags": [
+        "python",
+        "web"
+      ],
+      "python_fallback_tags": [
+        "python",
+        "web"
+      ]
+    },
+    {
+      "name": "tags_fenced_plain",
+      "note": "``` 无语言标记",
+      "source": "ai_assistance.py:229（`(?:json)?` 可选）",
+      "capability": "suggest_tags",
+      "content": "```\n[\"python\"]\n```",
+      "max_tags": 5,
+      "want": {
+        "ok": true,
+        "valid_shape": true,
+        "tags": [
+          "python"
+        ]
+      },
+      "python_final_tags": [
+        "python"
+      ],
+      "python_fallback_tags": [
+        "python",
+        "web"
+      ]
+    },
+    {
+      "name": "tags_fenced_upper_json",
+      "note": "```JSON 大写**不**被 `(?:json)?` 吃掉 ⇒ 解析失败 ⇒ 走词频降级",
+      "source": "ai_assistance.py:229（正则区分大小写）",
+      "capability": "suggest_tags",
+      "content": "```JSON\n[\"python\"]\n```",
+      "max_tags": 5,
+      "want": {
+        "ok": false,
+        "valid_shape": false,
+        "tags": null
+      },
+      "python_final_tags": [
+        "python",
+        "web"
+      ],
+      "python_fallback_tags": [
+        "python",
+        "web"
+      ]
+    },
+    {
+      "name": "tags_fenced_spaces",
+      "note": "先 strip，再剥围栏与围栏后的空白",
+      "source": "ai_assistance.py:226-230",
+      "capability": "suggest_tags",
+      "content": "  ```json\n  [\"a\", \"b\"]  \n```  ",
+      "max_tags": 5,
+      "want": {
+        "ok": true,
+        "valid_shape": true,
+        "tags": [
+          "a",
+          "b"
+        ]
+      },
+      "python_final_tags": [
+        "a",
+        "b"
+      ],
+      "python_fallback_tags": [
+        "python",
+        "web"
+      ]
+    },
+    {
+      "name": "tags_with_numbers",
+      "note": "数组里有非字符串 ⇒ Python 返回 **[]**（**不**降级）",
+      "source": "ai_assistance.py:233-235",
+      "capability": "suggest_tags",
+      "content": "[\"a\", 1]",
+      "max_tags": 5,
+      "want": {
+        "ok": true,
+        "valid_shape": false,
+        "tags": []
+      },
+      "python_final_tags": [],
+      "python_fallback_tags": [
+        "python",
+        "web"
+      ]
+    },
+    {
+      "name": "tags_object_root",
+      "note": "根不是数组 ⇒ []",
+      "source": "ai_assistance.py:233-235",
+      "capability": "suggest_tags",
+      "content": "{\"tags\": [\"a\"]}",
+      "max_tags": 5,
+      "want": {
+        "ok": true,
+        "valid_shape": false,
+        "tags": []
+      },
+      "python_final_tags": [],
+      "python_fallback_tags": [
+        "python",
+        "web"
+      ]
+    },
+    {
+      "name": "tags_string_root",
+      "note": "根是字符串 ⇒ []",
+      "source": "ai_assistance.py:233-235",
+      "capability": "suggest_tags",
+      "content": "\"just text\"",
+      "max_tags": 5,
+      "want": {
+        "ok": true,
+        "valid_shape": false,
+        "tags": []
+      },
+      "python_final_tags": [],
+      "python_fallback_tags": [
+        "python",
+        "web"
+      ]
+    },
+    {
+      "name": "tags_empty_array",
+      "note": "空数组 ⇒ [] 且**形状合法**（与「解析失败」要能分开）",
+      "source": "ai_assistance.py:233-234",
+      "capability": "suggest_tags",
+      "content": "[]",
+      "max_tags": 5,
+      "want": {
+        "ok": true,
+        "valid_shape": true,
+        "tags": []
+      },
+      "python_final_tags": [],
+      "python_fallback_tags": [
+        "python",
+        "web"
+      ]
+    },
+    {
+      "name": "tags_not_json",
+      "note": "不是 JSON ⇒ JSONDecodeError ⇒ 走词频降级",
+      "source": "ai_assistance.py:236-238",
+      "capability": "suggest_tags",
+      "content": "Sure! Here are tags: python, web",
+      "max_tags": 5,
+      "want": {
+        "ok": false,
+        "valid_shape": false,
+        "tags": null
+      },
+      "python_final_tags": [
+        "python",
+        "web"
+      ],
+      "python_fallback_tags": [
+        "python",
+        "web"
+      ]
+    },
+    {
+      "name": "tags_too_many",
+      "note": "超过 max_tags ⇒ 只取前 N 个",
+      "source": "ai_assistance.py:234（`tags[:max_tags]`）",
+      "capability": "suggest_tags",
+      "content": "[\"a\", \"b\", \"c\", \"d\", \"e\"]",
+      "max_tags": 3,
+      "want": {
+        "ok": true,
+        "valid_shape": true,
+        "tags": [
+          "a",
+          "b",
+          "c"
+        ]
+      },
+      "python_final_tags": [
+        "a",
+        "b",
+        "c"
+      ],
+      "python_fallback_tags": [
+        "python",
+        "web"
+      ]
+    },
+    {
+      "name": "tags_nested_array",
+      "note": "元素是数组 ⇒ 形状非法 ⇒ []",
+      "source": "ai_assistance.py:233",
+      "capability": "suggest_tags",
+      "content": "[[\"a\"], \"b\"]",
+      "max_tags": 5,
+      "want": {
+        "ok": true,
+        "valid_shape": false,
+        "tags": []
+      },
+      "python_final_tags": [],
+      "python_fallback_tags": [
+        "python",
+        "web"
+      ]
+    }
+  ],
+  "fallback": [
+    {
+      "name": "english_repeat",
+      "note": "按词频降序；同频按**首次出现**顺序（sorted 是稳定排序）",
+      "source": "ai_assistance.py:252-259",
+      "text": "python python web python web tutorial",
+      "max_tags": 5,
+      "want": [
+        "python",
+        "web",
+        "tutorial"
+      ]
+    },
+    {
+      "name": "cjk_repeat",
+      "note": "两字词**全被丢**：切词要求 {2,}，但计数前还有 `len(word) > 2` ⇒ 中文两字词取不到",
+      "source": "ai_assistance.py:252,255（两个门槛叠加）",
+      "text": "中文 文章 中文 文章 测试",
+      "max_tags": 5,
+      "want": []
+    },
+    {
+      "name": "cjk_run_no_space",
+      "note": "**没有空格**的中文是一个整串（Python 的 `{2,}` 是贪心连续匹配），不是分词",
+      "source": "ai_assistance.py:252",
+      "text": "中文文章测试",
+      "max_tags": 5,
+      "want": [
+        "中文文章测试"
+      ]
+    },
+    {
+      "name": "stopwords_only",
+      "note": "全是停用词 ⇒ []",
+      "source": "ai_assistance.py:245-250（停用词表）",
+      "text": "the and of to in is are be been",
+      "max_tags": 5,
+      "want": []
+    },
+    {
+      "name": "short_words",
+      "note": "切词要求 {2,}，但**计数前**还要求 `len(word) > 2` ⇒ 两字符的词全被丢",
+      "source": "ai_assistance.py:255（`len(word) > 2`）",
+      "text": "ab cd ef gh",
+      "max_tags": 5,
+      "want": []
+    },
+    {
+      "name": "ties",
+      "note": "同频 ⇒ 取**先出现**的两个（稳定排序）",
+      "source": "ai_assistance.py:258-259",
+      "text": "alpha beta gamma delta",
+      "max_tags": 2,
+      "want": [
+        "alpha",
+        "beta"
+      ]
+    },
+    {
+      "name": "punctuation",
+      "note": "`-` `_` `!` `.` 都不是词内字符 ⇒ 各切成两段",
+      "source": "ai_assistance.py:252",
+      "text": "test-tag foo_bar hey! end.",
+      "max_tags": 5,
+      "want": [
+        "test",
+        "tag",
+        "foo",
+        "bar",
+        "hey"
+      ]
+    },
+    {
+      "name": "numbers",
+      "note": "数字不是词内字符 ⇒ \"abc\"/\"def\" 留下，纯数字段**不匹配**",
+      "source": "ai_assistance.py:252",
+      "text": "abc123 def456 7 89",
+      "max_tags": 5,
+      "want": [
+        "abc",
+        "def"
+      ]
+    },
+    {
+      "name": "mixed_script_run",
+      "note": "中英混排**在同一个字符类里** ⇒ \"abc中文\" 是**一个**词（与「先按脚本切」不同）",
+      "source": "ai_assistance.py:252",
+      "text": "abc中文 def",
+      "max_tags": 5,
+      "want": [
+        "abc中文",
+        "def"
+      ]
+    },
+    {
+      "name": "uppercase_fold",
+      "note": "先 `.lower()` 再切词 ⇒ 三次都落到 python",
+      "source": "ai_assistance.py:252（`text.lower()`）",
+      "text": "Python PYTHON python",
+      "max_tags": 5,
+      "want": [
+        "python"
+      ]
+    },
+    {
+      "name": "max_tags_zero",
+      "note": "max_tags=0 ⇒ []",
+      "source": "ai_assistance.py:259（`[:0]`）",
+      "text": "python python web",
+      "max_tags": 0,
+      "want": []
+    },
+    {
+      "name": "max_tags_one",
+      "note": "只取最高频的一个",
+      "source": "ai_assistance.py:259",
+      "text": "python web web",
+      "max_tags": 1,
+      "want": [
+        "web"
+      ]
+    },
+    {
+      "name": "empty_text",
+      "note": "空文本 ⇒ []",
+      "source": "ai_assistance.py:242-243",
+      "text": "",
+      "max_tags": 5,
+      "want": []
+    },
+    {
+      "name": "ordering_by_count",
+      "note": "ccc=3 在前，bbb=2 次之，aaa=1 最后（不是字典序）",
+      "source": "ai_assistance.py:258",
+      "text": "ccc bbb aaa ccc bbb ccc",
+      "max_tags": 3,
+      "want": [
+        "ccc",
+        "bbb",
+        "aaa"
+      ]
+    }
+  ],
+  "enabled": [
+    {
+      "name": "both_set",
+      "note": "两项都满足 ⇒ 构建",
+      "source": "ai_assistance.py:273-283",
+      "cfg": {
+        "ai_enabled": true,
+        "ai_api_key": "sk-x"
+      },
+      "want": true
+    },
+    {
+      "name": "no_key",
+      "note": "enabled 但没 key ⇒ 不构建",
+      "source": "ai_assistance.py:275-276",
+      "cfg": {
+        "ai_enabled": true,
+        "ai_api_key": ""
+      },
+      "want": false
+    },
+    {
+      "name": "disabled",
+      "note": "有 key 但没启用 ⇒ 不构建",
+      "source": "ai_assistance.py:273-274",
+      "cfg": {
+        "ai_enabled": false,
+        "ai_api_key": "sk-x"
+      },
+      "want": false
+    },
+    {
+      "name": "nothing_set",
+      "note": "都没设 ⇒ 不构建（getattr 缺省 FALSE / \"\"）",
+      "source": "ai_assistance.py:273-276",
+      "cfg": {},
+      "want": false
+    }
+  ],
+  "endpoint": [
+    {
+      "name": "openai_default",
+      "note": "缺省 provider ⇒ OpenAI 端点",
+      "source": "ai_assistance.py:45-48",
+      "provider": "openai",
+      "endpoint": "",
+      "python_url": "https://api.openai.com/v1/chat/completions",
+      "python_endpoint": "https://api.openai.com/v1",
+      "want": {
+        "ok": true,
+        "host": "api.openai.com",
+        "port": 443,
+        "path": "/v1/chat/completions"
+      }
+    },
+    {
+      "name": "deepseek_default",
+      "note": "provider=deepseek ⇒ api.deepseek.com/v1",
+      "source": "ai_assistance.py:46-47",
+      "provider": "deepseek",
+      "endpoint": "",
+      "python_url": "https://api.deepseek.com/v1/chat/completions",
+      "python_endpoint": "https://api.deepseek.com/v1",
+      "want": {
+        "ok": true,
+        "host": "api.deepseek.com",
+        "port": 443,
+        "path": "/v1/chat/completions"
+      }
+    },
+    {
+      "name": "provider_case",
+      "note": "provider 先 `.lower()`（大小写不敏感）",
+      "source": "ai_assistance.py:42",
+      "provider": "DeepSeek",
+      "endpoint": "",
+      "python_url": "https://api.deepseek.com/v1/chat/completions",
+      "python_endpoint": "https://api.deepseek.com/v1",
+      "want": {
+        "ok": true,
+        "host": "api.deepseek.com",
+        "port": 443,
+        "path": "/v1/chat/completions"
+      }
+    },
+    {
+      "name": "explicit",
+      "note": "显式端点 ⇒ host/path 从它拆",
+      "source": "ai_assistance.py:43,60",
+      "provider": "openai",
+      "endpoint": "https://example.com/custom/v1",
+      "python_url": "https://example.com/custom/v1/chat/completions",
+      "python_endpoint": "https://example.com/custom/v1",
+      "want": {
+        "ok": true,
+        "host": "example.com",
+        "port": 443,
+        "path": "/custom/v1/chat/completions"
+      }
+    },
+    {
+      "name": "explicit_port",
+      "note": "端点带端口 ⇒ Host/port 都要带",
+      "source": "ai_assistance.py:60 + urllib 的 URL 拆分",
+      "provider": "openai",
+      "endpoint": "https://example.com:8443/v1",
+      "python_url": "https://example.com:8443/v1/chat/completions",
+      "python_endpoint": "https://example.com:8443/v1",
+      "want": {
+        "ok": true,
+        "host": "example.com",
+        "port": 8443,
+        "path": "/v1/chat/completions"
+      }
+    },
+    {
+      "name": "trailing_slash",
+      "note": "端点以 / 结尾：Python 拼出 `//chat/completions`；我们先剥尾斜杠（**已登记偏离**）",
+      "source": "ai_assistance.py:60（f\"{endpoint}/chat/completions\"）",
+      "provider": "openai",
+      "endpoint": "https://example.com/v1/",
+      "python_url": "https://example.com/v1//chat/completions",
+      "python_endpoint": "https://example.com/v1/",
+      "want": {
+        "ok": true,
+        "host": "example.com",
+        "port": 443,
+        "path": "/v1/chat/completions"
+      }
+    },
+    {
+      "name": "no_path",
+      "note": "端点没有路径 ⇒ 补一个斜杠再拼（Python 同样只有一个 /）",
+      "source": "ai_assistance.py:60",
+      "provider": "openai",
+      "endpoint": "https://example.com",
+      "python_url": "https://example.com/chat/completions",
+      "python_endpoint": "https://example.com",
+      "want": {
+        "ok": true,
+        "host": "example.com",
+        "port": 443,
+        "path": "/chat/completions"
+      }
+    },
+    {
+      "name": "http_scheme",
+      "note": "明文 http：Python 会发明文请求；我们**明确失败**（传输层是 TLS-only，**已登记偏离**）",
+      "source": "ai_assistance.py:60 + 卡 S5-1（传输层只做 HTTPS）",
+      "provider": "openai",
+      "endpoint": "http://example.com/v1",
+      "python_url": "http://example.com/v1/chat/completions",
+      "python_endpoint": "http://example.com/v1",
+      "want": {
+        "ok": false,
+        "error_contains": "https"
+      }
+    },
+    {
+      "name": "no_scheme",
+      "note": "没有 scheme：urllib 抛 `unknown url type`；我们明确失败",
+      "source": "urllib.request.Request 的 URL 校验",
+      "provider": "openai",
+      "endpoint": "example.com/v1",
+      "python_url": "example.com/v1/chat/completions",
+      "python_endpoint": "example.com/v1",
+      "want": {
+        "ok": false,
+        "error_contains": "absolute URL"
+      }
+    }
+  ],
+  "envelope": [
+    {
+      "name": "error_ascii",
+      "note": "`json.dumps({\"error\": …})` —— admin 侧 200 + application/json",
+      "source": "admin/actions.py:322-329",
+      "ok": false,
+      "error": "API key not configured",
+      "content": null,
+      "tags": null,
+      "python_dumps": "{\"error\": \"API key not configured\"}",
+      "want": "{\"error\": \"API key not configured\"}"
+    },
+    {
+      "name": "error_unknown_action",
+      "note": "中文错误消息：Python 写 \\uXXXX（ensure_ascii=True），我们保留原字符（**已登记偏离**）",
+      "source": "admin/actions.py:304,321",
+      "ok": false,
+      "error": "未知操作: frobnicate",
+      "content": null,
+      "tags": null,
+      "python_dumps": "{\"error\": \"\\u672a\\u77e5\\u64cd\\u4f5c: frobnicate\"}",
+      "want": "{\"error\": \"未知操作: frobnicate\"}"
+    },
+    {
+      "name": "result_ascii",
+      "note": "`{\"result\": ...}`",
+      "source": "admin/actions.py:308,329",
+      "ok": true,
+      "error": null,
+      "content": "Polished text.",
+      "tags": null,
+      "python_dumps": "{\"result\": \"Polished text.\"}",
+      "want": "{\"result\": \"Polished text.\"}"
+    },
+    {
+      "name": "result_quotes",
+      "note": "引号 / 反斜杠 / 换行的转义要与 json.dumps 逐字节一致",
+      "source": "admin/actions.py:329（json.dumps）",
+      "ok": true,
+      "error": null,
+      "content": "He said \"hi\"\\nbye",
+      "tags": null,
+      "python_dumps": "{\"result\": \"He said \\\"hi\\\"\\\\nbye\"}",
+      "want": "{\"result\": \"He said \\\"hi\\\"\\\\nbye\"}"
+    },
+    {
+      "name": "result_tags",
+      "note": "标签是数组 ⇒ `{\"result\": [\"a\", \"b\"]}`（`\", \"` 分隔）",
+      "source": "admin/actions.py:317,329",
+      "ok": true,
+      "error": null,
+      "content": null,
+      "tags": [
+        "python",
+        "web",
+        "tutorial"
+      ],
+      "python_dumps": "{\"result\": [\"python\", \"web\", \"tutorial\"]}",
+      "want": "{\"result\": [\"python\", \"web\", \"tutorial\"]}"
+    },
+    {
+      "name": "result_empty_tags",
+      "note": "空数组 ⇒ `{\"result\": []}`",
+      "source": "admin/actions.py:317,329",
+      "ok": true,
+      "error": null,
+      "content": null,
+      "tags": [],
+      "python_dumps": "{\"result\": []}",
+      "want": "{\"result\": []}"
+    }
+  ],
+  "pipeline": [
+    {
+      "name": "complete_ok",
+      "note": "整条链：建消息 → 建请求 → （假传输）→ 解析 → 取 content → strip",
+      "source": "ai_assistance.py:100-113 + 卡 S5-1 的 exchange 测试缝",
+      "capability": "complete",
+      "opts": {
+        "ai_enabled": true,
+        "ai_api_key": "sk-test",
+        "text": "Hello"
+      },
+      "status": 200,
+      "reply_content": "  continued words.  ",
+      "raw": "HTTP/1.1 200 OK\r\nContent-Type: application/json\r\nContent-Length: 84\r\n\r\n{\"choices\": [{\"message\": {\"role\": \"assistant\", \"content\": \"  continued words.  \"}}]}",
+      "transport_called": true,
+      "python_result": "continued words.",
+      "want": {
+        "transport_called": true,
+        "wire_body": "{\"messages\":[{\"content\":\"You are a helpful writing assistant. Continue the user's text naturally and coherently.\",\"role\":\"system\"},{\"content\":\"Continue this text:\\n\\nHello\",\"role\":\"user\"}],\"model\":\"gpt-3.5-turbo\",\"temperature\":0.8}",
+        "python_body": "{\"model\": \"gpt-3.5-turbo\", \"messages\": [{\"role\": \"system\", \"content\": \"You are a helpful writing assistant. Continue the user's text naturally and coherently.\"}, {\"role\": \"user\", \"content\": \"Continue this text:\\n\\nHello\"}], \"temperature\": 0.8}",
+        "ok": true,
+        "status": 200,
+        "content": "continued words."
+      }
+    },
+    {
+      "name": "polish_ok",
+      "note": "polish 全链路（温度 0.5 进请求体）",
+      "source": "ai_assistance.py:115-139",
+      "capability": "polish",
+      "opts": {
+        "ai_enabled": true,
+        "ai_api_key": "sk-test",
+        "text": "rough  text"
+      },
+      "status": 200,
+      "reply_content": "Polished text.",
+      "raw": "HTTP/1.1 200 OK\r\nContent-Type: application/json\r\nContent-Length: 78\r\n\r\n{\"choices\": [{\"message\": {\"role\": \"assistant\", \"content\": \"Polished text.\"}}]}",
+      "transport_called": true,
+      "python_result": "Polished text.",
+      "want": {
+        "transport_called": true,
+        "wire_body": "{\"messages\":[{\"content\":\"You are a professional editor. Improve the text for clarity, flow, and style while keeping the original meaning. Only return the improved text, no explanations.\",\"role\":\"system\"},{\"content\":\"Polish this text:\\n\\nrough  text\",\"role\":\"user\"}],\"model\":\"gpt-3.5-turbo\",\"temperature\":0.5}",
+        "python_body": "{\"model\": \"gpt-3.5-turbo\", \"messages\": [{\"role\": \"system\", \"content\": \"You are a professional editor. Improve the text for clarity, flow, and style while keeping the original meaning. Only return the improved text, no explanations.\"}, {\"role\": \"user\", \"content\": \"Polish this text:\\n\\nrough  text\"}], \"temperature\": 0.5}",
+        "ok": true,
+        "status": 200,
+        "content": "Polished text."
+      }
+    },
+    {
+      "name": "summarize_ok",
+      "note": "summarize 全链路：max_length 既进 system 也做截断",
+      "source": "ai_assistance.py:168-198",
+      "capability": "summarize",
+      "opts": {
+        "ai_enabled": true,
+        "ai_api_key": "sk-test",
+        "text": "long text",
+        "max_length": 20
+      },
+      "status": 200,
+      "reply_content": "This is a very long summary that should be cut down.",
+      "raw": "HTTP/1.1 200 OK\r\nContent-Type: application/json\r\nContent-Length: 116\r\n\r\n{\"choices\": [{\"message\": {\"role\": \"assistant\", \"content\": \"This is a very long summary that should be cut down.\"}}]}",
+      "transport_called": true,
+      "python_result": "This is a very long...",
+      "want": {
+        "transport_called": true,
+        "wire_body": "{\"messages\":[{\"content\":\"You are a content summarizer. Create a concise summary in no more than 20 characters. The summary should capture the main points. Only return the summary, no labels.\",\"role\":\"system\"},{\"content\":\"Summarize this text:\\n\\nlong text\",\"role\":\"user\"}],\"model\":\"gpt-3.5-turbo\",\"temperature\":0.3}",
+        "python_body": "{\"model\": \"gpt-3.5-turbo\", \"messages\": [{\"role\": \"system\", \"content\": \"You are a content summarizer. Create a concise summary in no more than 20 characters. The summary should capture the main points. Only return the summary, no labels.\"}, {\"role\": \"user\", \"content\": \"Summarize this text:\\n\\nlong text\"}], \"temperature\": 0.3}",
+        "ok": true,
+        "status": 200,
+        "content": "This is a very long..."
+      }
+    },
+    {
+      "name": "translate_ja_ok",
+      "note": "lang=ja ⇒ 消息里是 Japanese，内容原样（strip 后）",
+      "source": "ai_assistance.py:141-166 + admin/actions.py:313-314",
+      "capability": "translate",
+      "opts": {
+        "ai_enabled": true,
+        "ai_api_key": "sk-test",
+        "text": "你好",
+        "lang": "ja"
+      },
+      "status": 200,
+      "reply_content": "こんにちは",
+      "raw": "HTTP/1.1 200 OK\r\nContent-Type: application/json\r\nContent-Length: 79\r\n\r\n{\"choices\": [{\"message\": {\"role\": \"assistant\", \"content\": \"こんにちは\"}}]}",
+      "transport_called": true,
+      "python_result": "こんにちは",
+      "want": {
+        "transport_called": true,
+        "wire_body": "{\"messages\":[{\"content\":\"You are a professional translator. Translate the text to Japanese accurately and naturally. Only return the translated text, no explanations.\",\"role\":\"system\"},{\"content\":\"Translate to Japanese:\\n\\n你好\",\"role\":\"user\"}],\"model\":\"gpt-3.5-turbo\",\"temperature\":0.3}",
+        "python_body": "{\"model\": \"gpt-3.5-turbo\", \"messages\": [{\"role\": \"system\", \"content\": \"You are a professional translator. Translate the text to Japanese accurately and naturally. Only return the translated text, no explanations.\"}, {\"role\": \"user\", \"content\": \"Translate to Japanese:\\n\\n\\u4f60\\u597d\"}], \"temperature\": 0.3}",
+        "ok": true,
+        "status": 200,
+        "content": "こんにちは"
+      }
+    },
+    {
+      "name": "complete_http_401",
+      "note": "4xx ⇒ ok:FALSE（**不得**当正常结果）；错误里头要能看见 401",
+      "source": "卡 S5-1 反向守卫 + 卡 S5-2「错误必须是 JSON」",
+      "capability": "complete",
+      "opts": {
+        "ai_enabled": true,
+        "ai_api_key": "sk-bad",
+        "text": "Hello"
+      },
+      "status": 401,
+      "reply_content": "{\"error\": {\"message\": \"Incorrect API key provided\"}}",
+      "raw": "HTTP/1.1 401 Unauthorized\r\nContent-Type: application/json\r\nContent-Length: 122\r\n\r\n{\"choices\": [{\"message\": {\"role\": \"assistant\", \"content\": \"{\\\"error\\\": {\\\"message\\\": \\\"Incorrect API key provided\\\"}}\"}}]}",
+      "transport_called": true,
+      "python_result": "{\"error\": {\"message\": \"Incorrect API key provided\"}}",
+      "want": {
+        "transport_called": true,
+        "ok": false,
+        "status": 401,
+        "error_contains": "401"
+      }
+    },
+    {
+      "name": "no_api_key",
+      "note": "没有 key ⇒ 明确失败，且**根本不碰传输**",
+      "source": "ai_assistance.py:57-58 + 卡 S5-1 反向守卫",
+      "capability": "complete",
+      "opts": {
+        "ai_enabled": true,
+        "text": "Hello"
+      },
+      "status": 200,
+      "reply_content": "never sent",
+      "raw": "HTTP/1.1 200 OK\r\nContent-Type: application/json\r\nContent-Length: 74\r\n\r\n{\"choices\": [{\"message\": {\"role\": \"assistant\", \"content\": \"never sent\"}}]}",
+      "transport_called": true,
+      "python_result": "never sent",
+      "want": {
+        "ok": false,
+        "status_is_null": true,
+        "transport_called": false,
+        "error_contains": "not configured"
+      }
+    },
+    {
+      "name": "disabled",
+      "note": "未启用 ⇒ 不构建 AI（错误，而不是静默空串）",
+      "source": "ai_assistance.py:273-276 + admin/actions.py:302-304",
+      "capability": "complete",
+      "opts": {
+        "ai_enabled": false,
+        "ai_api_key": "sk-test",
+        "text": "Hello"
+      },
+      "status": 200,
+      "reply_content": "never sent",
+      "raw": "HTTP/1.1 200 OK\r\nContent-Type: application/json\r\nContent-Length: 74\r\n\r\n{\"choices\": [{\"message\": {\"role\": \"assistant\", \"content\": \"never sent\"}}]}",
+      "transport_called": true,
+      "python_result": "never sent",
+      "want": {
+        "ok": false,
+        "status_is_null": true,
+        "transport_called": false,
+        "error_contains": "not configured"
+      }
+    },
+    {
+      "name": "tags_ok",
+      "note": "标签全链路：解析成功 ⇒ fallback=FALSE",
+      "source": "ai_assistance.py:200-238",
+      "capability": "suggest_tags",
+      "opts": {
+        "ai_enabled": true,
+        "ai_api_key": "sk-test",
+        "text": "python web python"
+      },
+      "status": 200,
+      "reply_content": "[\"python\", \"tutorial\"]",
+      "raw": "HTTP/1.1 200 OK\r\nContent-Type: application/json\r\nContent-Length: 90\r\n\r\n{\"choices\": [{\"message\": {\"role\": \"assistant\", \"content\": \"[\\\"python\\\", \\\"tutorial\\\"]\"}}]}",
+      "transport_called": true,
+      "python_result": [
+        "python",
+        "tutorial"
+      ],
+      "want": {
+        "transport_called": true,
+        "wire_body": "{\"messages\":[{\"content\":\"You are a content analyst. Suggest exactly 5 relevant tags for this article. Tags should be short (1-3 words), lowercase, and relevant to the main topics. Return ONLY a JSON array of tag strings, like [\\\"python\\\", \\\"web\\\", \\\"tutorial\\\"]. No explanations.\",\"role\":\"system\"},{\"content\":\"Suggest tags for:\\n\\npython web python\",\"role\":\"user\"}],\"model\":\"gpt-3.5-turbo\",\"temperature\":0.3}",
+        "python_body": "{\"model\": \"gpt-3.5-turbo\", \"messages\": [{\"role\": \"system\", \"content\": \"You are a content analyst. Suggest exactly 5 relevant tags for this article. Tags should be short (1-3 words), lowercase, and relevant to the main topics. Return ONLY a JSON array of tag strings, like [\\\"python\\\", \\\"web\\\", \\\"tutorial\\\"]. No explanations.\"}, {\"role\": \"user\", \"content\": \"Suggest tags for:\\n\\npython web python\"}], \"temperature\": 0.3}",
+        "ok": true,
+        "tags": [
+          "python",
+          "tutorial"
+        ],
+        "fallback": false
+      }
+    },
+    {
+      "name": "tags_shape_bad",
+      "note": "形状非法 ⇒ **[]**（Python 此时**不**降级）",
+      "source": "ai_assistance.py:233-235",
+      "capability": "suggest_tags",
+      "opts": {
+        "ai_enabled": true,
+        "ai_api_key": "sk-test",
+        "text": "python web python"
+      },
+      "status": 200,
+      "reply_content": "[\"python\", 1]",
+      "raw": "HTTP/1.1 200 OK\r\nContent-Type: application/json\r\nContent-Length: 79\r\n\r\n{\"choices\": [{\"message\": {\"role\": \"assistant\", \"content\": \"[\\\"python\\\", 1]\"}}]}",
+      "transport_called": true,
+      "python_result": [],
+      "want": {
+        "transport_called": true,
+        "wire_body": "{\"messages\":[{\"content\":\"You are a content analyst. Suggest exactly 5 relevant tags for this article. Tags should be short (1-3 words), lowercase, and relevant to the main topics. Return ONLY a JSON array of tag strings, like [\\\"python\\\", \\\"web\\\", \\\"tutorial\\\"]. No explanations.\",\"role\":\"system\"},{\"content\":\"Suggest tags for:\\n\\npython web python\",\"role\":\"user\"}],\"model\":\"gpt-3.5-turbo\",\"temperature\":0.3}",
+        "python_body": "{\"model\": \"gpt-3.5-turbo\", \"messages\": [{\"role\": \"system\", \"content\": \"You are a content analyst. Suggest exactly 5 relevant tags for this article. Tags should be short (1-3 words), lowercase, and relevant to the main topics. Return ONLY a JSON array of tag strings, like [\\\"python\\\", \\\"web\\\", \\\"tutorial\\\"]. No explanations.\"}, {\"role\": \"user\", \"content\": \"Suggest tags for:\\n\\npython web python\"}], \"temperature\": 0.3}",
+        "ok": true,
+        "tags": [],
+        "fallback": false
+      }
+    },
+    {
+      "name": "tags_not_json",
+      "note": "不是 JSON ⇒ 词频降级（与形状非法要分开）",
+      "source": "ai_assistance.py:236-238",
+      "capability": "suggest_tags",
+      "opts": {
+        "ai_enabled": true,
+        "ai_api_key": "sk-test",
+        "text": "python web python"
+      },
+      "status": 200,
+      "reply_content": "Here you go: python, web",
+      "raw": "HTTP/1.1 200 OK\r\nContent-Type: application/json\r\nContent-Length: 88\r\n\r\n{\"choices\": [{\"message\": {\"role\": \"assistant\", \"content\": \"Here you go: python, web\"}}]}",
+      "transport_called": true,
+      "python_result": [
+        "python",
+        "web"
+      ],
+      "want": {
+        "transport_called": true,
+        "wire_body": "{\"messages\":[{\"content\":\"You are a content analyst. Suggest exactly 5 relevant tags for this article. Tags should be short (1-3 words), lowercase, and relevant to the main topics. Return ONLY a JSON array of tag strings, like [\\\"python\\\", \\\"web\\\", \\\"tutorial\\\"]. No explanations.\",\"role\":\"system\"},{\"content\":\"Suggest tags for:\\n\\npython web python\",\"role\":\"user\"}],\"model\":\"gpt-3.5-turbo\",\"temperature\":0.3}",
+        "python_body": "{\"model\": \"gpt-3.5-turbo\", \"messages\": [{\"role\": \"system\", \"content\": \"You are a content analyst. Suggest exactly 5 relevant tags for this article. Tags should be short (1-3 words), lowercase, and relevant to the main topics. Return ONLY a JSON array of tag strings, like [\\\"python\\\", \\\"web\\\", \\\"tutorial\\\"]. No explanations.\"}, {\"role\": \"user\", \"content\": \"Suggest tags for:\\n\\npython web python\"}], \"temperature\": 0.3}",
+        "ok": true,
+        "tags": [
+          "python",
+          "web"
+        ],
+        "fallback": true
+      }
+    },
+    {
+      "name": "tags_http_500",
+      "note": "后端错误 ⇒ 降级词频（AIAssistanceError 分支）",
+      "source": "ai_assistance.py:236-238（`except (JSONDecodeError, AIAssistanceError)`）",
+      "capability": "suggest_tags",
+      "opts": {
+        "ai_enabled": true,
+        "ai_api_key": "sk-test",
+        "text": "python web python"
+      },
+      "status": 500,
+      "reply_content": "{\"error\": \"server exploded\"}",
+      "raw": "HTTP/1.1 500 Internal Server Error\r\nContent-Type: application/json\r\nContent-Length: 96\r\n\r\n{\"choices\": [{\"message\": {\"role\": \"assistant\", \"content\": \"{\\\"error\\\": \\\"server exploded\\\"}\"}}]}",
+      "transport_called": true,
+      "python_result": [],
+      "want": {
+        "transport_called": true,
+        "ok": true,
+        "tags": [
+          "python",
+          "web"
+        ],
+        "fallback": true
+      }
+    },
+    {
+      "name": "complete_empty_text",
+      "note": "空文本 ⇒ \"\"，且**不发请求**（transport_called=FALSE）",
+      "source": "ai_assistance.py:100-101",
+      "capability": "complete",
+      "opts": {
+        "ai_enabled": true,
+        "ai_api_key": "sk-test",
+        "text": ""
+      },
+      "status": 200,
+      "reply_content": "never sent",
+      "raw": "HTTP/1.1 200 OK\r\nContent-Type: application/json\r\nContent-Length: 74\r\n\r\n{\"choices\": [{\"message\": {\"role\": \"assistant\", \"content\": \"never sent\"}}]}",
+      "transport_called": false,
+      "python_result": "",
+      "want": {
+        "ok": true,
+        "status_is_null": true,
+        "transport_called": false,
+        "result": ""
+      }
+    }
+  ]
+}

@@ -54,16 +54,24 @@ jobs:
       # PINNED: the baseline fixture is a byte-exact snapshot of mistune's
       # output, so an unpinned upgrade would silently rewrite the fixture and
       # hide a real regression behind "just re-run the generator".
-      - name: Install baseline dependencies (mistune, pygments)
+      #
+      # argon2-cffi (2026-11-02): gen_security_baseline.py calls the real
+      # argon2.low_level.hash_secret_raw to produce HASH_PASSWORD expectations
+      # (S4-2 requires argon2id, not a SHA256 stand-in). Without it the
+      # regenerate step dies with ImportError. Also pinned for the same reason:
+      # the encoded hash string is a byte-exact fixture value.
+      - name: Install baseline dependencies (mistune, pygments, argon2-cffi)
         shell: pwsh
         run: |
           $ErrorActionPreference = 'Stop'
-          python -m pip install --disable-pip-version-check mistune==3.2.1 pygments==2.20.0
+          python -m pip install --disable-pip-version-check mistune==3.2.1 pygments==2.20.0 argon2-cffi==25.1.0
           $m = python -c "import mistune; print(mistune.__version__)"
           $p = python -c "import pygments; print(pygments.__version__)"
+          $a = python -c "import importlib.metadata as m; print(m.version('argon2-cffi'))"
           if ($m -ne '3.2.1') { Write-Error "unexpected mistune version: $m"; exit 1 }
           if ($p -ne '2.20.0') { Write-Error "unexpected pygments version: $p"; exit 1 }
-          Write-Host "mistune $m / pygments $p"
+          if ($a -ne '25.1.0') { Write-Error "unexpected argon2-cffi version: $a"; exit 1 }
+          Write-Host "mistune $m / pygments $p / argon2-cffi $a"
 
       # --- 1) fetch the WLWL compiler ---
       - name: Download WLWL 0.12.1 (Windows x86_64)
