@@ -1,0 +1,488 @@
+{
+  "_meta": {
+    "generated_by": "tp/test/gen_page_common_baseline.py",
+    "aligned_to": {
+      "json_ld": "tinypage/generator.py:18 build_json_ld",
+      "nav_links": "tinypage/generator.py:66 _nav_links",
+      "common_context": "tinypage/generator.py:79 _build_common_context"
+    },
+    "note": "json_ld 的 site_url 为空时 want 记空串（对齐 generator.py:207 的调用方门控）"
+  },
+  "cases": {
+    "json_ld": {
+      "j01_with_tags": {
+        "input": {
+          "title": "标题 & \"引号\"",
+          "description": "描述",
+          "date": "2026-01-02T10:00",
+          "slug": "2026-01-01-x",
+          "tags": [
+            "wlwl",
+            "静态站点"
+          ],
+          "site_url": "https://example.com/",
+          "author": ""
+        },
+        "python": "<script type=\"application/ld+json\">{\"@context\": \"https://schema.org\", \"@type\": \"Article\", \"headline\": \"标题 & \\\"引号\\\"\", \"description\": \"描述\", \"url\": \"https://example.com/article/2026-01-01-x.html\", \"datePublished\": \"2026-01-02T10:00\", \"author\": {\"@type\": \"Person\", \"name\": \"Anonymous\"}, \"publisher\": {\"@type\": \"Organization\", \"name\": \"https://example.com/\"}, \"keywords\": \"wlwl, 静态站点\"}</script>",
+        "want": "<script type=\"application/ld+json\">{\"@context\": \"https://schema.org\", \"@type\": \"Article\", \"headline\": \"标题 & \\\"引号\\\"\", \"description\": \"描述\", \"url\": \"https://example.com/article/2026-01-01-x.html\", \"datePublished\": \"2026-01-02T10:00\", \"author\": {\"@type\": \"Person\", \"name\": \"Anonymous\"}, \"publisher\": {\"@type\": \"Organization\", \"name\": \"https://example.com/\"}, \"keywords\": \"wlwl, 静态站点\"}</script>",
+        "note": null
+      },
+      "j02_no_tags_author": {
+        "input": {
+          "title": "T",
+          "description": "D",
+          "date": "2026-01-02T10:00",
+          "slug": "s",
+          "tags": [],
+          "site_url": "https://example.com",
+          "author": "张三"
+        },
+        "python": "<script type=\"application/ld+json\">{\"@context\": \"https://schema.org\", \"@type\": \"Article\", \"headline\": \"T\", \"description\": \"D\", \"url\": \"https://example.com/article/s.html\", \"datePublished\": \"2026-01-02T10:00\", \"author\": {\"@type\": \"Person\", \"name\": \"张三\"}, \"publisher\": {\"@type\": \"Organization\", \"name\": \"https://example.com\"}}</script>",
+        "want": "<script type=\"application/ld+json\">{\"@context\": \"https://schema.org\", \"@type\": \"Article\", \"headline\": \"T\", \"description\": \"D\", \"url\": \"https://example.com/article/s.html\", \"datePublished\": \"2026-01-02T10:00\", \"author\": {\"@type\": \"Person\", \"name\": \"张三\"}, \"publisher\": {\"@type\": \"Organization\", \"name\": \"https://example.com\"}}</script>",
+        "note": null
+      },
+      "j03_empty_site_url": {
+        "input": {
+          "title": "T",
+          "description": "D",
+          "date": "2026-01-02T10:00",
+          "slug": "s",
+          "tags": [
+            "a"
+          ],
+          "site_url": "",
+          "author": ""
+        },
+        "python": "<script type=\"application/ld+json\">{\"@context\": \"https://schema.org\", \"@type\": \"Article\", \"headline\": \"T\", \"description\": \"D\", \"url\": \"/article/s.html\", \"datePublished\": \"2026-01-02T10:00\", \"author\": {\"@type\": \"Person\", \"name\": \"Anonymous\"}, \"publisher\": {\"@type\": \"Organization\", \"name\": \"\"}, \"keywords\": \"a\"}</script>",
+        "want": "",
+        "note": "`site_url` 为空 ⇒ 整段不输出（对齐 generator.py:207 的 `if cfg.site_url:` 门控）"
+      },
+      "j04_trailing_slashes": {
+        "input": {
+          "title": "T",
+          "description": "D",
+          "date": "2026-01-02T10:00",
+          "slug": "s",
+          "tags": [],
+          "site_url": "https://example.com///",
+          "author": ""
+        },
+        "python": "<script type=\"application/ld+json\">{\"@context\": \"https://schema.org\", \"@type\": \"Article\", \"headline\": \"T\", \"description\": \"D\", \"url\": \"https://example.com/article/s.html\", \"datePublished\": \"2026-01-02T10:00\", \"author\": {\"@type\": \"Person\", \"name\": \"Anonymous\"}, \"publisher\": {\"@type\": \"Organization\", \"name\": \"https://example.com///\"}}</script>",
+        "want": "<script type=\"application/ld+json\">{\"@context\": \"https://schema.org\", \"@type\": \"Article\", \"headline\": \"T\", \"description\": \"D\", \"url\": \"https://example.com/article/s.html\", \"datePublished\": \"2026-01-02T10:00\", \"author\": {\"@type\": \"Person\", \"name\": \"Anonymous\"}, \"publisher\": {\"@type\": \"Organization\", \"name\": \"https://example.com///\"}}</script>",
+        "note": "`site_url` 结尾多个 `/` 都要被 rstrip 掉"
+      },
+      "j05_special_chars": {
+        "input": {
+          "title": "a\\b\"c",
+          "description": "换行\n制表\t结束",
+          "date": "2026-01-02T10:00",
+          "slug": "x",
+          "tags": [
+            "t\"1"
+          ],
+          "site_url": "https://e.com",
+          "author": "o\\p"
+        },
+        "python": "<script type=\"application/ld+json\">{\"@context\": \"https://schema.org\", \"@type\": \"Article\", \"headline\": \"a\\\\b\\\"c\", \"description\": \"换行\\n制表\\t结束\", \"url\": \"https://e.com/article/x.html\", \"datePublished\": \"2026-01-02T10:00\", \"author\": {\"@type\": \"Person\", \"name\": \"o\\\\p\"}, \"publisher\": {\"@type\": \"Organization\", \"name\": \"https://e.com\"}, \"keywords\": \"t\\\"1\"}</script>",
+        "want": "<script type=\"application/ld+json\">{\"@context\": \"https://schema.org\", \"@type\": \"Article\", \"headline\": \"a\\\\b\\\"c\", \"description\": \"换行\\n制表\\t结束\", \"url\": \"https://e.com/article/x.html\", \"datePublished\": \"2026-01-02T10:00\", \"author\": {\"@type\": \"Person\", \"name\": \"o\\\\p\"}, \"publisher\": {\"@type\": \"Organization\", \"name\": \"https://e.com\"}, \"keywords\": \"t\\\"1\"}</script>",
+        "note": null
+      }
+    },
+    "nav_links": {
+      "n01_no_standalones": {
+        "input": {
+          "cfg": {
+            "site_title": "TinyPage",
+            "site_description": "A modern static blog",
+            "site_url": "",
+            "site_author": "",
+            "footer_text": "Powered by TinyPage",
+            "lang": "zh-CN",
+            "theme_name": "default",
+            "page_size": 10,
+            "enable_pwa": true,
+            "enable_dark_mode": true,
+            "enable_search": true,
+            "enable_rss": true,
+            "enable_sitemap": true,
+            "enable_view_transitions": true,
+            "pwa_short_name": "TinyPage",
+            "pwa_theme_color": "#2c3e50",
+            "pwa_bg_color": "#ffffff"
+          },
+          "standalones": [],
+          "current_path": ""
+        },
+        "python": "<a href=\"/\">首页</a>\n      <a href=\"/search.html\">搜索</a>",
+        "want": "<a href=\"/\">首页</a>\n      <a href=\"/search.html\">搜索</a>",
+        "note": null
+      },
+      "n02_with_standalones": {
+        "input": {
+          "cfg": {
+            "site_title": "TinyPage",
+            "site_description": "A modern static blog",
+            "site_url": "",
+            "site_author": "",
+            "footer_text": "Powered by TinyPage",
+            "lang": "zh-CN",
+            "theme_name": "default",
+            "page_size": 10,
+            "enable_pwa": true,
+            "enable_dark_mode": true,
+            "enable_search": true,
+            "enable_rss": true,
+            "enable_sitemap": true,
+            "enable_view_transitions": true,
+            "pwa_short_name": "TinyPage",
+            "pwa_theme_color": "#2c3e50",
+            "pwa_bg_color": "#ffffff"
+          },
+          "standalones": [
+            {
+              "title": "关于",
+              "file": "about.html"
+            },
+            {
+              "title": "联系",
+              "file": "contact.html"
+            }
+          ],
+          "current_path": ""
+        },
+        "python": "<a href=\"/\">首页</a>\n      <a href=\"/standalone/about.html\">关于</a>\n      <a href=\"/standalone/contact.html\">联系</a>\n      <a href=\"/search.html\">搜索</a>",
+        "want": "<a href=\"/\">首页</a>\n      <a href=\"/standalone/about.html\">关于</a>\n      <a href=\"/standalone/contact.html\">联系</a>\n      <a href=\"/search.html\">搜索</a>",
+        "note": null
+      },
+      "n03_active_standalone": {
+        "input": {
+          "cfg": {
+            "site_title": "TinyPage",
+            "site_description": "A modern static blog",
+            "site_url": "",
+            "site_author": "",
+            "footer_text": "Powered by TinyPage",
+            "lang": "zh-CN",
+            "theme_name": "default",
+            "page_size": 10,
+            "enable_pwa": true,
+            "enable_dark_mode": true,
+            "enable_search": true,
+            "enable_rss": true,
+            "enable_sitemap": true,
+            "enable_view_transitions": true,
+            "pwa_short_name": "TinyPage",
+            "pwa_theme_color": "#2c3e50",
+            "pwa_bg_color": "#ffffff"
+          },
+          "standalones": [
+            {
+              "title": "关于",
+              "file": "about.html"
+            },
+            {
+              "title": "联系",
+              "file": "contact.html"
+            }
+          ],
+          "current_path": "/standalone/about.html"
+        },
+        "python": "<a href=\"/\">首页</a>\n      <a href=\"/standalone/about.html\" aria-current=\"page\">关于</a>\n      <a href=\"/standalone/contact.html\">联系</a>\n      <a href=\"/search.html\">搜索</a>",
+        "want": "<a href=\"/\">首页</a>\n      <a href=\"/standalone/about.html\" aria-current=\"page\">关于</a>\n      <a href=\"/standalone/contact.html\">联系</a>\n      <a href=\"/search.html\">搜索</a>",
+        "note": null
+      },
+      "n04_active_search": {
+        "input": {
+          "cfg": {
+            "site_title": "TinyPage",
+            "site_description": "A modern static blog",
+            "site_url": "",
+            "site_author": "",
+            "footer_text": "Powered by TinyPage",
+            "lang": "zh-CN",
+            "theme_name": "default",
+            "page_size": 10,
+            "enable_pwa": true,
+            "enable_dark_mode": true,
+            "enable_search": true,
+            "enable_rss": true,
+            "enable_sitemap": true,
+            "enable_view_transitions": true,
+            "pwa_short_name": "TinyPage",
+            "pwa_theme_color": "#2c3e50",
+            "pwa_bg_color": "#ffffff"
+          },
+          "standalones": [
+            {
+              "title": "关于",
+              "file": "about.html"
+            }
+          ],
+          "current_path": "/search.html"
+        },
+        "python": "<a href=\"/\">首页</a>\n      <a href=\"/standalone/about.html\">关于</a>\n      <a href=\"/search.html\" aria-current=\"page\">搜索</a>",
+        "want": "<a href=\"/\">首页</a>\n      <a href=\"/standalone/about.html\">关于</a>\n      <a href=\"/search.html\" aria-current=\"page\">搜索</a>",
+        "note": null
+      },
+      "n05_search_disabled": {
+        "input": {
+          "cfg": {
+            "site_title": "TinyPage",
+            "site_description": "A modern static blog",
+            "site_url": "",
+            "site_author": "",
+            "footer_text": "Powered by TinyPage",
+            "lang": "zh-CN",
+            "theme_name": "default",
+            "page_size": 10,
+            "enable_pwa": true,
+            "enable_dark_mode": true,
+            "enable_search": false,
+            "enable_rss": true,
+            "enable_sitemap": true,
+            "enable_view_transitions": true,
+            "pwa_short_name": "TinyPage",
+            "pwa_theme_color": "#2c3e50",
+            "pwa_bg_color": "#ffffff"
+          },
+          "standalones": [
+            {
+              "title": "关于",
+              "file": "about.html"
+            }
+          ],
+          "current_path": ""
+        },
+        "python": "<a href=\"/\">首页</a>\n      <a href=\"/standalone/about.html\">关于</a>",
+        "want": "<a href=\"/\">首页</a>\n      <a href=\"/standalone/about.html\">关于</a>",
+        "note": null
+      },
+      "n06_title_truncated": {
+        "input": {
+          "cfg": {
+            "site_title": "TinyPage",
+            "site_description": "A modern static blog",
+            "site_url": "",
+            "site_author": "",
+            "footer_text": "Powered by TinyPage",
+            "lang": "zh-CN",
+            "theme_name": "default",
+            "page_size": 10,
+            "enable_pwa": true,
+            "enable_dark_mode": true,
+            "enable_search": true,
+            "enable_rss": true,
+            "enable_sitemap": true,
+            "enable_view_transitions": true,
+            "pwa_short_name": "TinyPage",
+            "pwa_theme_color": "#2c3e50",
+            "pwa_bg_color": "#ffffff"
+          },
+          "standalones": [
+            {
+              "title": "一二三四五六七八九十一二三四五六七八九十多出来的部分",
+              "file": "long.html"
+            }
+          ],
+          "current_path": ""
+        },
+        "python": "<a href=\"/\">首页</a>\n      <a href=\"/standalone/long.html\">一二三四五六七八九十一二三四五六七八九十</a>\n      <a href=\"/search.html\">搜索</a>",
+        "want": "<a href=\"/\">首页</a>\n      <a href=\"/standalone/long.html\">一二三四五六七八九十一二三四五六七八九十</a>\n      <a href=\"/search.html\">搜索</a>",
+        "note": "标题取 `title[:20]`；超长要截断到 20 个码点"
+      },
+      "n07_empty_title_falls_back": {
+        "input": {
+          "cfg": {
+            "site_title": "TinyPage",
+            "site_description": "A modern static blog",
+            "site_url": "",
+            "site_author": "",
+            "footer_text": "Powered by TinyPage",
+            "lang": "zh-CN",
+            "theme_name": "default",
+            "page_size": 10,
+            "enable_pwa": true,
+            "enable_dark_mode": true,
+            "enable_search": true,
+            "enable_rss": true,
+            "enable_sitemap": true,
+            "enable_view_transitions": true,
+            "pwa_short_name": "TinyPage",
+            "pwa_theme_color": "#2c3e50",
+            "pwa_bg_color": "#ffffff"
+          },
+          "standalones": [
+            {
+              "title": "",
+              "file": "no-title.html"
+            }
+          ],
+          "current_path": ""
+        },
+        "python": "<a href=\"/\">首页</a>\n      <a href=\"/standalone/no-title.html\">no-title.html</a>\n      <a href=\"/search.html\">搜索</a>",
+        "want": "<a href=\"/\">首页</a>\n      <a href=\"/standalone/no-title.html\">no-title.html</a>\n      <a href=\"/search.html\">搜索</a>",
+        "note": "`title[:20] or file` —— 空标题**也**回落文件名（Python 的 or 对空串为假）"
+      }
+    },
+    "common_context": {
+      "c01_all_on": {
+        "input": {
+          "config": {
+            "site_title": "Tiny & Page",
+            "site_description": "A modern static blog",
+            "site_url": "",
+            "site_author": "",
+            "footer_text": "Powered by TinyPage",
+            "lang": "zh-CN",
+            "theme_name": "default",
+            "page_size": 10,
+            "enable_pwa": true,
+            "enable_dark_mode": true,
+            "enable_search": true,
+            "enable_rss": true,
+            "enable_sitemap": true,
+            "enable_view_transitions": true,
+            "pwa_short_name": "TinyPage",
+            "pwa_theme_color": "#2c3e50",
+            "pwa_bg_color": "#ffffff"
+          },
+          "theme_css": "CSS{1}",
+          "dark_css": "DARK{2}",
+          "has_dark": true,
+          "standalones": [
+            {
+              "title": "关于",
+              "file": "about.html"
+            }
+          ],
+          "current_path": "/standalone/about.html"
+        },
+        "python": {
+          "site_title": "Tiny &amp; Page",
+          "dark_mode_meta": "<meta name=\"color-scheme\" content=\"light dark\">",
+          "dark_mode_script": "<script>(function(){try{var m=localStorage.getItem('theme');if(m==='light'||(!m&&window.matchMedia('(prefers-color-scheme: light)').matches)){document.documentElement.classList.add('light')}}catch(e){}})();</script>",
+          "pwa_meta": "<meta name=\"theme-color\" content=\"#2c3e50\" media=\"(prefers-color-scheme: light)\"><meta name=\"theme-color\" content=\"#ffffff\" media=\"(prefers-color-scheme: dark)\">",
+          "pwa_manifest": "<link rel=\"manifest\" href=\"/manifest.json\">",
+          "vt_meta": "<meta name=\"view-transition\" content=\"same-origin\">",
+          "search_script": "<script src=\"/search.js\" defer></script>",
+          "nav": "<a href=\"/\">首页</a>\n      <a href=\"/standalone/about.html\" aria-current=\"page\">关于</a>\n      <a href=\"/search.html\">搜索</a>",
+          "theme_toggle": "<button class=\"theme-toggle\" aria-label=\"切换主题\" onclick=\"var d=document.documentElement;d.classList.toggle('light');try{localStorage.setItem('theme',d.classList.contains('light')?'light':'dark')}catch(e){}\">🌓</button>"
+        },
+        "want": {
+          "site_title": "Tiny &amp; Page",
+          "dark_mode_meta": "<meta name=\"color-scheme\" content=\"light dark\">",
+          "dark_mode_script": "<script>(function(){try{var m=localStorage.getItem('theme');if(m==='light'||(!m&&window.matchMedia('(prefers-color-scheme: light)').matches)){document.documentElement.classList.add('light')}}catch(e){}})();</script>",
+          "pwa_meta": "<meta name=\"theme-color\" content=\"#2c3e50\" media=\"(prefers-color-scheme: light)\"><meta name=\"theme-color\" content=\"#ffffff\" media=\"(prefers-color-scheme: dark)\">",
+          "pwa_manifest": "<link rel=\"manifest\" href=\"/manifest.json\">",
+          "vt_meta": "<meta name=\"view-transition\" content=\"same-origin\">",
+          "search_script": "<script src=\"/search.js\" defer></script>",
+          "nav": "<a href=\"/\">首页</a>\n      <a href=\"/standalone/about.html\" aria-current=\"page\">关于</a>\n      <a href=\"/search.html\">搜索</a>",
+          "theme_toggle": "<button class=\"theme-toggle\" aria-label=\"切换主题\" onclick=\"var d=document.documentElement;d.classList.toggle('light');try{localStorage.setItem('theme',d.classList.contains('light')?'light':'dark')}catch(e){}\">🌓</button>"
+        },
+        "note": null
+      },
+      "c02_all_off": {
+        "input": {
+          "config": {
+            "site_title": "TinyPage",
+            "site_description": "A modern static blog",
+            "site_url": "",
+            "site_author": "",
+            "footer_text": "Powered by TinyPage",
+            "lang": "zh-CN",
+            "theme_name": "default",
+            "page_size": 10,
+            "enable_pwa": false,
+            "enable_dark_mode": true,
+            "enable_search": false,
+            "enable_rss": true,
+            "enable_sitemap": true,
+            "enable_view_transitions": false,
+            "pwa_short_name": "TinyPage",
+            "pwa_theme_color": "#2c3e50",
+            "pwa_bg_color": "#ffffff"
+          },
+          "theme_css": "CSS",
+          "dark_css": "",
+          "has_dark": false,
+          "standalones": [],
+          "current_path": ""
+        },
+        "python": {
+          "site_title": "TinyPage",
+          "dark_mode_meta": "",
+          "dark_mode_script": "",
+          "pwa_meta": "",
+          "pwa_manifest": "",
+          "vt_meta": "",
+          "search_script": "",
+          "nav": "<a href=\"/\">首页</a>",
+          "theme_toggle": ""
+        },
+        "want": {
+          "site_title": "TinyPage",
+          "dark_mode_meta": "",
+          "dark_mode_script": "",
+          "pwa_meta": "",
+          "pwa_manifest": "",
+          "vt_meta": "",
+          "search_script": "",
+          "nav": "<a href=\"/\">首页</a>",
+          "theme_toggle": ""
+        },
+        "note": null
+      },
+      "c03_dark_off_has_css": {
+        "input": {
+          "config": {
+            "site_title": "TinyPage",
+            "site_description": "A modern static blog",
+            "site_url": "",
+            "site_author": "",
+            "footer_text": "Powered by TinyPage",
+            "lang": "zh-CN",
+            "theme_name": "default",
+            "page_size": 10,
+            "enable_pwa": true,
+            "enable_dark_mode": true,
+            "enable_search": true,
+            "enable_rss": true,
+            "enable_sitemap": true,
+            "enable_view_transitions": true,
+            "pwa_short_name": "TinyPage",
+            "pwa_theme_color": "#2c3e50",
+            "pwa_bg_color": "#ffffff"
+          },
+          "theme_css": "CSS",
+          "dark_css": "DARKCSS",
+          "has_dark": false,
+          "standalones": [],
+          "current_path": ""
+        },
+        "python": {
+          "site_title": "TinyPage",
+          "dark_mode_meta": "",
+          "dark_mode_script": "",
+          "pwa_meta": "<meta name=\"theme-color\" content=\"#2c3e50\" media=\"(prefers-color-scheme: light)\"><meta name=\"theme-color\" content=\"#ffffff\" media=\"(prefers-color-scheme: dark)\">",
+          "pwa_manifest": "<link rel=\"manifest\" href=\"/manifest.json\">",
+          "vt_meta": "<meta name=\"view-transition\" content=\"same-origin\">",
+          "search_script": "<script src=\"/search.js\" defer></script>",
+          "nav": "<a href=\"/\">首页</a>\n      <a href=\"/search.html\">搜索</a>",
+          "theme_toggle": ""
+        },
+        "want": {
+          "site_title": "TinyPage",
+          "dark_mode_meta": "",
+          "dark_mode_script": "",
+          "pwa_meta": "<meta name=\"theme-color\" content=\"#2c3e50\" media=\"(prefers-color-scheme: light)\"><meta name=\"theme-color\" content=\"#ffffff\" media=\"(prefers-color-scheme: dark)\">",
+          "pwa_manifest": "<link rel=\"manifest\" href=\"/manifest.json\">",
+          "vt_meta": "<meta name=\"view-transition\" content=\"same-origin\">",
+          "search_script": "<script src=\"/search.js\" defer></script>",
+          "nav": "<a href=\"/\">首页</a>\n      <a href=\"/search.html\">搜索</a>",
+          "theme_toggle": ""
+        },
+        "note": "`has_dark` 为假 ⇒ dark_mode_meta / dark_mode_script / theme_toggle 都是空串（即使 dark_css 非空也不输出那三块）"
+      }
+    }
+  }
+}

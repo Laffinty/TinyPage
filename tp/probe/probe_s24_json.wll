@@ -1,0 +1,23 @@
+// 探针 S2-4a：JSON-LD 序列化口径是否与 Python 的 json.dumps(ensure_ascii=False) 逐字节相同。
+// 用法：wlwl run tp/probe/probe_s24_json.wll
+IMPORT("wlwl:std.json", ["STRINGIFY", "PARSE"]);
+
+LET(d, INDEX_SET(INDEX_SET(INDEX_SET(INDEX_SET(DICT(),
+    "@context", "https://schema.org"), "@type", "Article"),
+    "headline", "标题 & \"引号\""), "author",
+    INDEX_SET(INDEX_SET(DICT(), "@type", "Person"), "name", "Anonymous")));
+
+PRINT("--- 1. STRINGIFY 的形状 ---");
+PRINT(STRINGIFY(d));
+PRINT("--- 2. 非 ASCII 是否原样（ensure_ascii=False 口径）---");
+PRINT(STRINGIFY(INDEX_SET(DICT(), "k", "中文")));
+PRINT("--- 3. 引号/反斜杠/换行 的转义 ---");
+PRINT(STRINGIFY(INDEX_SET(DICT(), "k", "a\"b\\c")));
+PRINT(STRINGIFY(INDEX_SET(DICT(), "k", "a\nb")));
+PRINT("--- 4. 空字典 / 空数组 / 布尔 / NULL ---");
+PRINT(STRINGIFY(DICT()));
+PRINT(STRINGIFY([]));
+PRINT(STRINGIFY(INDEX_SET(DICT(), "t", TRUE)));
+PRINT(STRINGIFY(INDEX_SET(DICT(), "n", NULL)));
+PRINT("--- 5. 嵌套两层 ---");
+PRINT(STRINGIFY(INDEX_SET(DICT(), "a", INDEX_SET(DICT(), "b", 1))));

@@ -1,0 +1,211 @@
+// tp/test/test_page_common.wll —— 页面公共上下文的逐字节对照测试
+//
+// ⚠ 本文件由 tp/test/gen_test_page_common.py 生成 —— 请勿手改。
+//
+// 验收方式：每个用例都与**真 Python** 的输出逐字节对照。
+// 基准：tp/test/fixtures/page_common_baseline.json
+//   （json_ld / nav_links / common_context 三组，全部直接 import 真 Python）
+//
+// ⚠ RUN_TESTS() 的失败**不影响退出码**（规范明载）⇒ 本文件自己把关。
+IMPORT("wlwl:std.test", ["TEST", "ASSERT", "ASSERT_EQ", "RUN_TESTS"]);
+IMPORT("./../lib/page_common.wll", ["COMMON_CONTEXT", "JSON_LD", "NAV_LINKS"]);
+
+LET(want_j01_with_tags, "<script type=\"application/ld+json\">{\"@context\": \"https://schema.org\", \"@type\": \"Article\", \"headline\": \"标题 & \\\"引号\\\"\", \"description\": \"描述\", \"url\": \"https://example.com/article/2026-01-01-x.html\", \"datePublished\": \"2026-01-02T10:00\", \"author\": {\"@type\": \"Person\", \"name\": \"Anonymous\"}, \"publisher\": {\"@type\": \"Organization\", \"name\": \"https://example.com/\"}, \"keywords\": \"wlwl, 静态站点\"}</script>");
+LET(want_j02_no_tags_author, "<script type=\"application/ld+json\">{\"@context\": \"https://schema.org\", \"@type\": \"Article\", \"headline\": \"T\", \"description\": \"D\", \"url\": \"https://example.com/article/s.html\", \"datePublished\": \"2026-01-02T10:00\", \"author\": {\"@type\": \"Person\", \"name\": \"张三\"}, \"publisher\": {\"@type\": \"Organization\", \"name\": \"https://example.com\"}}</script>");
+LET(want_j03_empty_site_url, "");
+LET(want_j04_trailing_slashes, "<script type=\"application/ld+json\">{\"@context\": \"https://schema.org\", \"@type\": \"Article\", \"headline\": \"T\", \"description\": \"D\", \"url\": \"https://example.com/article/s.html\", \"datePublished\": \"2026-01-02T10:00\", \"author\": {\"@type\": \"Person\", \"name\": \"Anonymous\"}, \"publisher\": {\"@type\": \"Organization\", \"name\": \"https://example.com///\"}}</script>");
+LET(want_j05_special_chars, "<script type=\"application/ld+json\">{\"@context\": \"https://schema.org\", \"@type\": \"Article\", \"headline\": \"a\\\\b\\\"c\", \"description\": \"换行\\n制表\\t结束\", \"url\": \"https://e.com/article/x.html\", \"datePublished\": \"2026-01-02T10:00\", \"author\": {\"@type\": \"Person\", \"name\": \"o\\\\p\"}, \"publisher\": {\"@type\": \"Organization\", \"name\": \"https://e.com\"}, \"keywords\": \"t\\\"1\"}</script>");
+
+TEST("json_ld/j01_with_tags", FUN(() ,
+    (ASSERT_EQ(JSON_LD(INDEX_SET(INDEX_SET(INDEX_SET(INDEX_SET(INDEX_SET(INDEX_SET(INDEX_SET(DICT(), "title", "标题 & \"引号\""), "description", "描述"), "date", "2026-01-02T10:00"), "slug", "2026-01-01-x"), "tags", ["wlwl", "静态站点"]), "site_url", "https://example.com/"), "author", "")), want_j01_with_tags));
+    TRUE));
+TEST("json_ld/j02_no_tags_author", FUN(() ,
+    (ASSERT_EQ(JSON_LD(INDEX_SET(INDEX_SET(INDEX_SET(INDEX_SET(INDEX_SET(INDEX_SET(INDEX_SET(DICT(), "title", "T"), "description", "D"), "date", "2026-01-02T10:00"), "slug", "s"), "tags", []), "site_url", "https://example.com"), "author", "张三")), want_j02_no_tags_author));
+    TRUE));
+// j03_empty_site_url：`site_url` 为空 ⇒ 整段不输出（对齐 generator.py:207 的 `if cfg.site_url:` 门控）
+TEST("json_ld/j03_empty_site_url", FUN(() ,
+    (ASSERT_EQ(JSON_LD(INDEX_SET(INDEX_SET(INDEX_SET(INDEX_SET(INDEX_SET(INDEX_SET(INDEX_SET(DICT(), "title", "T"), "description", "D"), "date", "2026-01-02T10:00"), "slug", "s"), "tags", ["a"]), "site_url", ""), "author", "")), want_j03_empty_site_url));
+    TRUE));
+// j04_trailing_slashes：`site_url` 结尾多个 `/` 都要被 rstrip 掉
+TEST("json_ld/j04_trailing_slashes", FUN(() ,
+    (ASSERT_EQ(JSON_LD(INDEX_SET(INDEX_SET(INDEX_SET(INDEX_SET(INDEX_SET(INDEX_SET(INDEX_SET(DICT(), "title", "T"), "description", "D"), "date", "2026-01-02T10:00"), "slug", "s"), "tags", []), "site_url", "https://example.com///"), "author", "")), want_j04_trailing_slashes));
+    TRUE));
+TEST("json_ld/j05_special_chars", FUN(() ,
+    (ASSERT_EQ(JSON_LD(INDEX_SET(INDEX_SET(INDEX_SET(INDEX_SET(INDEX_SET(INDEX_SET(INDEX_SET(DICT(), "title", "a\\b\"c"), "description", "换行\n制表\t结束"), "date", "2026-01-02T10:00"), "slug", "x"), "tags", ["t\"1"]), "site_url", "https://e.com"), "author", "o\\p")), want_j05_special_chars));
+    TRUE));
+
+LET(want_n01_no_standalones, "<a href=\"/\">首页</a>\n      <a href=\"/search.html\">搜索</a>");
+LET(want_n02_with_standalones, "<a href=\"/\">首页</a>\n      <a href=\"/standalone/about.html\">关于</a>\n      <a href=\"/standalone/contact.html\">联系</a>\n      <a href=\"/search.html\">搜索</a>");
+LET(want_n03_active_standalone, "<a href=\"/\">首页</a>\n      <a href=\"/standalone/about.html\" aria-current=\"page\">关于</a>\n      <a href=\"/standalone/contact.html\">联系</a>\n      <a href=\"/search.html\">搜索</a>");
+LET(want_n04_active_search, "<a href=\"/\">首页</a>\n      <a href=\"/standalone/about.html\">关于</a>\n      <a href=\"/search.html\" aria-current=\"page\">搜索</a>");
+LET(want_n05_search_disabled, "<a href=\"/\">首页</a>\n      <a href=\"/standalone/about.html\">关于</a>");
+LET(want_n06_title_truncated, "<a href=\"/\">首页</a>\n      <a href=\"/standalone/long.html\">一二三四五六七八九十一二三四五六七八九十</a>\n      <a href=\"/search.html\">搜索</a>");
+LET(want_n07_empty_title_falls_back, "<a href=\"/\">首页</a>\n      <a href=\"/standalone/no-title.html\">no-title.html</a>\n      <a href=\"/search.html\">搜索</a>");
+
+TEST("nav_links/n01_no_standalones", FUN(() ,
+    (ASSERT_EQ(NAV_LINKS(INDEX_SET(INDEX_SET(INDEX_SET(DICT(), "cfg", INDEX_SET(INDEX_SET(INDEX_SET(INDEX_SET(INDEX_SET(INDEX_SET(INDEX_SET(INDEX_SET(INDEX_SET(INDEX_SET(INDEX_SET(INDEX_SET(INDEX_SET(INDEX_SET(INDEX_SET(INDEX_SET(INDEX_SET(DICT(), "site_title", "TinyPage"), "site_description", "A modern static blog"), "site_url", ""), "site_author", ""), "footer_text", "Powered by TinyPage"), "lang", "zh-CN"), "theme_name", "default"), "page_size", 10), "enable_pwa", TRUE), "enable_dark_mode", TRUE), "enable_search", TRUE), "enable_rss", TRUE), "enable_sitemap", TRUE), "enable_view_transitions", TRUE), "pwa_short_name", "TinyPage"), "pwa_theme_color", "#2c3e50"), "pwa_bg_color", "#ffffff")), "standalones", []), "current_path", "")), want_n01_no_standalones));
+    TRUE));
+TEST("nav_links/n02_with_standalones", FUN(() ,
+    (ASSERT_EQ(NAV_LINKS(INDEX_SET(INDEX_SET(INDEX_SET(DICT(), "cfg", INDEX_SET(INDEX_SET(INDEX_SET(INDEX_SET(INDEX_SET(INDEX_SET(INDEX_SET(INDEX_SET(INDEX_SET(INDEX_SET(INDEX_SET(INDEX_SET(INDEX_SET(INDEX_SET(INDEX_SET(INDEX_SET(INDEX_SET(DICT(), "site_title", "TinyPage"), "site_description", "A modern static blog"), "site_url", ""), "site_author", ""), "footer_text", "Powered by TinyPage"), "lang", "zh-CN"), "theme_name", "default"), "page_size", 10), "enable_pwa", TRUE), "enable_dark_mode", TRUE), "enable_search", TRUE), "enable_rss", TRUE), "enable_sitemap", TRUE), "enable_view_transitions", TRUE), "pwa_short_name", "TinyPage"), "pwa_theme_color", "#2c3e50"), "pwa_bg_color", "#ffffff")), "standalones", [INDEX_SET(INDEX_SET(DICT(), "title", "关于"), "file", "about.html"), INDEX_SET(INDEX_SET(DICT(), "title", "联系"), "file", "contact.html")]), "current_path", "")), want_n02_with_standalones));
+    TRUE));
+TEST("nav_links/n03_active_standalone", FUN(() ,
+    (ASSERT_EQ(NAV_LINKS(INDEX_SET(INDEX_SET(INDEX_SET(DICT(), "cfg", INDEX_SET(INDEX_SET(INDEX_SET(INDEX_SET(INDEX_SET(INDEX_SET(INDEX_SET(INDEX_SET(INDEX_SET(INDEX_SET(INDEX_SET(INDEX_SET(INDEX_SET(INDEX_SET(INDEX_SET(INDEX_SET(INDEX_SET(DICT(), "site_title", "TinyPage"), "site_description", "A modern static blog"), "site_url", ""), "site_author", ""), "footer_text", "Powered by TinyPage"), "lang", "zh-CN"), "theme_name", "default"), "page_size", 10), "enable_pwa", TRUE), "enable_dark_mode", TRUE), "enable_search", TRUE), "enable_rss", TRUE), "enable_sitemap", TRUE), "enable_view_transitions", TRUE), "pwa_short_name", "TinyPage"), "pwa_theme_color", "#2c3e50"), "pwa_bg_color", "#ffffff")), "standalones", [INDEX_SET(INDEX_SET(DICT(), "title", "关于"), "file", "about.html"), INDEX_SET(INDEX_SET(DICT(), "title", "联系"), "file", "contact.html")]), "current_path", "/standalone/about.html")), want_n03_active_standalone));
+    TRUE));
+TEST("nav_links/n04_active_search", FUN(() ,
+    (ASSERT_EQ(NAV_LINKS(INDEX_SET(INDEX_SET(INDEX_SET(DICT(), "cfg", INDEX_SET(INDEX_SET(INDEX_SET(INDEX_SET(INDEX_SET(INDEX_SET(INDEX_SET(INDEX_SET(INDEX_SET(INDEX_SET(INDEX_SET(INDEX_SET(INDEX_SET(INDEX_SET(INDEX_SET(INDEX_SET(INDEX_SET(DICT(), "site_title", "TinyPage"), "site_description", "A modern static blog"), "site_url", ""), "site_author", ""), "footer_text", "Powered by TinyPage"), "lang", "zh-CN"), "theme_name", "default"), "page_size", 10), "enable_pwa", TRUE), "enable_dark_mode", TRUE), "enable_search", TRUE), "enable_rss", TRUE), "enable_sitemap", TRUE), "enable_view_transitions", TRUE), "pwa_short_name", "TinyPage"), "pwa_theme_color", "#2c3e50"), "pwa_bg_color", "#ffffff")), "standalones", [INDEX_SET(INDEX_SET(DICT(), "title", "关于"), "file", "about.html")]), "current_path", "/search.html")), want_n04_active_search));
+    TRUE));
+TEST("nav_links/n05_search_disabled", FUN(() ,
+    (ASSERT_EQ(NAV_LINKS(INDEX_SET(INDEX_SET(INDEX_SET(DICT(), "cfg", INDEX_SET(INDEX_SET(INDEX_SET(INDEX_SET(INDEX_SET(INDEX_SET(INDEX_SET(INDEX_SET(INDEX_SET(INDEX_SET(INDEX_SET(INDEX_SET(INDEX_SET(INDEX_SET(INDEX_SET(INDEX_SET(INDEX_SET(DICT(), "site_title", "TinyPage"), "site_description", "A modern static blog"), "site_url", ""), "site_author", ""), "footer_text", "Powered by TinyPage"), "lang", "zh-CN"), "theme_name", "default"), "page_size", 10), "enable_pwa", TRUE), "enable_dark_mode", TRUE), "enable_search", FALSE), "enable_rss", TRUE), "enable_sitemap", TRUE), "enable_view_transitions", TRUE), "pwa_short_name", "TinyPage"), "pwa_theme_color", "#2c3e50"), "pwa_bg_color", "#ffffff")), "standalones", [INDEX_SET(INDEX_SET(DICT(), "title", "关于"), "file", "about.html")]), "current_path", "")), want_n05_search_disabled));
+    TRUE));
+// n06_title_truncated：标题取 `title[:20]`；超长要截断到 20 个码点
+TEST("nav_links/n06_title_truncated", FUN(() ,
+    (ASSERT_EQ(NAV_LINKS(INDEX_SET(INDEX_SET(INDEX_SET(DICT(), "cfg", INDEX_SET(INDEX_SET(INDEX_SET(INDEX_SET(INDEX_SET(INDEX_SET(INDEX_SET(INDEX_SET(INDEX_SET(INDEX_SET(INDEX_SET(INDEX_SET(INDEX_SET(INDEX_SET(INDEX_SET(INDEX_SET(INDEX_SET(DICT(), "site_title", "TinyPage"), "site_description", "A modern static blog"), "site_url", ""), "site_author", ""), "footer_text", "Powered by TinyPage"), "lang", "zh-CN"), "theme_name", "default"), "page_size", 10), "enable_pwa", TRUE), "enable_dark_mode", TRUE), "enable_search", TRUE), "enable_rss", TRUE), "enable_sitemap", TRUE), "enable_view_transitions", TRUE), "pwa_short_name", "TinyPage"), "pwa_theme_color", "#2c3e50"), "pwa_bg_color", "#ffffff")), "standalones", [INDEX_SET(INDEX_SET(DICT(), "title", "一二三四五六七八九十一二三四五六七八九十多出来的部分"), "file", "long.html")]), "current_path", "")), want_n06_title_truncated));
+    TRUE));
+// n07_empty_title_falls_back：`title[:20] or file` —— 空标题**也**回落文件名（Python 的 or 对空串为假）
+TEST("nav_links/n07_empty_title_falls_back", FUN(() ,
+    (ASSERT_EQ(NAV_LINKS(INDEX_SET(INDEX_SET(INDEX_SET(DICT(), "cfg", INDEX_SET(INDEX_SET(INDEX_SET(INDEX_SET(INDEX_SET(INDEX_SET(INDEX_SET(INDEX_SET(INDEX_SET(INDEX_SET(INDEX_SET(INDEX_SET(INDEX_SET(INDEX_SET(INDEX_SET(INDEX_SET(INDEX_SET(DICT(), "site_title", "TinyPage"), "site_description", "A modern static blog"), "site_url", ""), "site_author", ""), "footer_text", "Powered by TinyPage"), "lang", "zh-CN"), "theme_name", "default"), "page_size", 10), "enable_pwa", TRUE), "enable_dark_mode", TRUE), "enable_search", TRUE), "enable_rss", TRUE), "enable_sitemap", TRUE), "enable_view_transitions", TRUE), "pwa_short_name", "TinyPage"), "pwa_theme_color", "#2c3e50"), "pwa_bg_color", "#ffffff")), "standalones", [INDEX_SET(INDEX_SET(DICT(), "title", ""), "file", "no-title.html")]), "current_path", "")), want_n07_empty_title_falls_back));
+    TRUE));
+
+LET(ctx_c01_all_on, COMMON_CONTEXT(INDEX_SET(INDEX_SET(INDEX_SET(INDEX_SET(INDEX_SET(INDEX_SET(DICT(), "config", INDEX_SET(INDEX_SET(INDEX_SET(INDEX_SET(INDEX_SET(INDEX_SET(INDEX_SET(INDEX_SET(INDEX_SET(INDEX_SET(INDEX_SET(INDEX_SET(INDEX_SET(INDEX_SET(INDEX_SET(INDEX_SET(INDEX_SET(DICT(), "site_title", "Tiny & Page"), "site_description", "A modern static blog"), "site_url", ""), "site_author", ""), "footer_text", "Powered by TinyPage"), "lang", "zh-CN"), "theme_name", "default"), "page_size", 10), "enable_pwa", TRUE), "enable_dark_mode", TRUE), "enable_search", TRUE), "enable_rss", TRUE), "enable_sitemap", TRUE), "enable_view_transitions", TRUE), "pwa_short_name", "TinyPage"), "pwa_theme_color", "#2c3e50"), "pwa_bg_color", "#ffffff")), "theme_css", "CSS{1}"), "dark_css", "DARK{2}"), "has_dark", TRUE), "standalones", [INDEX_SET(INDEX_SET(DICT(), "title", "关于"), "file", "about.html")]), "current_path", "/standalone/about.html")));
+LET(want_c01_all_on_site_title, "Tiny &amp; Page");
+LET(want_c01_all_on_dark_mode_meta, "<meta name=\"color-scheme\" content=\"light dark\">");
+LET(want_c01_all_on_dark_mode_script, "<script>(function(){try{var m=localStorage.getItem('theme');if(m==='light'||(!m&&window.matchMedia('(prefers-color-scheme: light)').matches)){document.documentElement.classList.add('light')}}catch(e){}})();</script>");
+LET(want_c01_all_on_pwa_meta, "<meta name=\"theme-color\" content=\"#2c3e50\" media=\"(prefers-color-scheme: light)\"><meta name=\"theme-color\" content=\"#ffffff\" media=\"(prefers-color-scheme: dark)\">");
+LET(want_c01_all_on_pwa_manifest, "<link rel=\"manifest\" href=\"/manifest.json\">");
+LET(want_c01_all_on_vt_meta, "<meta name=\"view-transition\" content=\"same-origin\">");
+LET(want_c01_all_on_search_script, "<script src=\"/search.js\" defer></script>");
+LET(want_c01_all_on_nav, "<a href=\"/\">首页</a>\n      <a href=\"/standalone/about.html\" aria-current=\"page\">关于</a>\n      <a href=\"/search.html\">搜索</a>");
+LET(want_c01_all_on_theme_toggle, "<button class=\"theme-toggle\" aria-label=\"切换主题\" onclick=\"var d=document.documentElement;d.classList.toggle('light');try{localStorage.setItem('theme',d.classList.contains('light')?'light':'dark')}catch(e){}\">🌓</button>");
+TEST("common_context/c01_all_on/site_title", FUN(() ,
+    (ASSERT_EQ(AT_K(ctx_c01_all_on, "site_title", "<missing>"), want_c01_all_on_site_title));
+    TRUE));
+TEST("common_context/c01_all_on/dark_mode_meta", FUN(() ,
+    (ASSERT_EQ(AT_K(ctx_c01_all_on, "dark_mode_meta", "<missing>"), want_c01_all_on_dark_mode_meta));
+    TRUE));
+TEST("common_context/c01_all_on/dark_mode_script", FUN(() ,
+    (ASSERT_EQ(AT_K(ctx_c01_all_on, "dark_mode_script", "<missing>"), want_c01_all_on_dark_mode_script));
+    TRUE));
+TEST("common_context/c01_all_on/pwa_meta", FUN(() ,
+    (ASSERT_EQ(AT_K(ctx_c01_all_on, "pwa_meta", "<missing>"), want_c01_all_on_pwa_meta));
+    TRUE));
+TEST("common_context/c01_all_on/pwa_manifest", FUN(() ,
+    (ASSERT_EQ(AT_K(ctx_c01_all_on, "pwa_manifest", "<missing>"), want_c01_all_on_pwa_manifest));
+    TRUE));
+TEST("common_context/c01_all_on/vt_meta", FUN(() ,
+    (ASSERT_EQ(AT_K(ctx_c01_all_on, "vt_meta", "<missing>"), want_c01_all_on_vt_meta));
+    TRUE));
+TEST("common_context/c01_all_on/search_script", FUN(() ,
+    (ASSERT_EQ(AT_K(ctx_c01_all_on, "search_script", "<missing>"), want_c01_all_on_search_script));
+    TRUE));
+TEST("common_context/c01_all_on/nav", FUN(() ,
+    (ASSERT_EQ(AT_K(ctx_c01_all_on, "nav", "<missing>"), want_c01_all_on_nav));
+    TRUE));
+TEST("common_context/c01_all_on/theme_toggle", FUN(() ,
+    (ASSERT_EQ(AT_K(ctx_c01_all_on, "theme_toggle", "<missing>"), want_c01_all_on_theme_toggle));
+    TRUE));
+LET(ctx_c02_all_off, COMMON_CONTEXT(INDEX_SET(INDEX_SET(INDEX_SET(INDEX_SET(INDEX_SET(INDEX_SET(DICT(), "config", INDEX_SET(INDEX_SET(INDEX_SET(INDEX_SET(INDEX_SET(INDEX_SET(INDEX_SET(INDEX_SET(INDEX_SET(INDEX_SET(INDEX_SET(INDEX_SET(INDEX_SET(INDEX_SET(INDEX_SET(INDEX_SET(INDEX_SET(DICT(), "site_title", "TinyPage"), "site_description", "A modern static blog"), "site_url", ""), "site_author", ""), "footer_text", "Powered by TinyPage"), "lang", "zh-CN"), "theme_name", "default"), "page_size", 10), "enable_pwa", FALSE), "enable_dark_mode", TRUE), "enable_search", FALSE), "enable_rss", TRUE), "enable_sitemap", TRUE), "enable_view_transitions", FALSE), "pwa_short_name", "TinyPage"), "pwa_theme_color", "#2c3e50"), "pwa_bg_color", "#ffffff")), "theme_css", "CSS"), "dark_css", ""), "has_dark", FALSE), "standalones", []), "current_path", "")));
+LET(want_c02_all_off_site_title, "TinyPage");
+LET(want_c02_all_off_dark_mode_meta, "");
+LET(want_c02_all_off_dark_mode_script, "");
+LET(want_c02_all_off_pwa_meta, "");
+LET(want_c02_all_off_pwa_manifest, "");
+LET(want_c02_all_off_vt_meta, "");
+LET(want_c02_all_off_search_script, "");
+LET(want_c02_all_off_nav, "<a href=\"/\">首页</a>");
+LET(want_c02_all_off_theme_toggle, "");
+TEST("common_context/c02_all_off/site_title", FUN(() ,
+    (ASSERT_EQ(AT_K(ctx_c02_all_off, "site_title", "<missing>"), want_c02_all_off_site_title));
+    TRUE));
+TEST("common_context/c02_all_off/dark_mode_meta", FUN(() ,
+    (ASSERT_EQ(AT_K(ctx_c02_all_off, "dark_mode_meta", "<missing>"), want_c02_all_off_dark_mode_meta));
+    TRUE));
+TEST("common_context/c02_all_off/dark_mode_script", FUN(() ,
+    (ASSERT_EQ(AT_K(ctx_c02_all_off, "dark_mode_script", "<missing>"), want_c02_all_off_dark_mode_script));
+    TRUE));
+TEST("common_context/c02_all_off/pwa_meta", FUN(() ,
+    (ASSERT_EQ(AT_K(ctx_c02_all_off, "pwa_meta", "<missing>"), want_c02_all_off_pwa_meta));
+    TRUE));
+TEST("common_context/c02_all_off/pwa_manifest", FUN(() ,
+    (ASSERT_EQ(AT_K(ctx_c02_all_off, "pwa_manifest", "<missing>"), want_c02_all_off_pwa_manifest));
+    TRUE));
+TEST("common_context/c02_all_off/vt_meta", FUN(() ,
+    (ASSERT_EQ(AT_K(ctx_c02_all_off, "vt_meta", "<missing>"), want_c02_all_off_vt_meta));
+    TRUE));
+TEST("common_context/c02_all_off/search_script", FUN(() ,
+    (ASSERT_EQ(AT_K(ctx_c02_all_off, "search_script", "<missing>"), want_c02_all_off_search_script));
+    TRUE));
+TEST("common_context/c02_all_off/nav", FUN(() ,
+    (ASSERT_EQ(AT_K(ctx_c02_all_off, "nav", "<missing>"), want_c02_all_off_nav));
+    TRUE));
+TEST("common_context/c02_all_off/theme_toggle", FUN(() ,
+    (ASSERT_EQ(AT_K(ctx_c02_all_off, "theme_toggle", "<missing>"), want_c02_all_off_theme_toggle));
+    TRUE));
+// c03_dark_off_has_css：`has_dark` 为假 ⇒ dark_mode_meta / dark_mode_script / theme_toggle 都是空串（即使 dark_css 非空也不输出那三块）
+LET(ctx_c03_dark_off_has_css, COMMON_CONTEXT(INDEX_SET(INDEX_SET(INDEX_SET(INDEX_SET(INDEX_SET(INDEX_SET(DICT(), "config", INDEX_SET(INDEX_SET(INDEX_SET(INDEX_SET(INDEX_SET(INDEX_SET(INDEX_SET(INDEX_SET(INDEX_SET(INDEX_SET(INDEX_SET(INDEX_SET(INDEX_SET(INDEX_SET(INDEX_SET(INDEX_SET(INDEX_SET(DICT(), "site_title", "TinyPage"), "site_description", "A modern static blog"), "site_url", ""), "site_author", ""), "footer_text", "Powered by TinyPage"), "lang", "zh-CN"), "theme_name", "default"), "page_size", 10), "enable_pwa", TRUE), "enable_dark_mode", TRUE), "enable_search", TRUE), "enable_rss", TRUE), "enable_sitemap", TRUE), "enable_view_transitions", TRUE), "pwa_short_name", "TinyPage"), "pwa_theme_color", "#2c3e50"), "pwa_bg_color", "#ffffff")), "theme_css", "CSS"), "dark_css", "DARKCSS"), "has_dark", FALSE), "standalones", []), "current_path", "")));
+LET(want_c03_dark_off_has_css_site_title, "TinyPage");
+LET(want_c03_dark_off_has_css_dark_mode_meta, "");
+LET(want_c03_dark_off_has_css_dark_mode_script, "");
+LET(want_c03_dark_off_has_css_pwa_meta, "<meta name=\"theme-color\" content=\"#2c3e50\" media=\"(prefers-color-scheme: light)\"><meta name=\"theme-color\" content=\"#ffffff\" media=\"(prefers-color-scheme: dark)\">");
+LET(want_c03_dark_off_has_css_pwa_manifest, "<link rel=\"manifest\" href=\"/manifest.json\">");
+LET(want_c03_dark_off_has_css_vt_meta, "<meta name=\"view-transition\" content=\"same-origin\">");
+LET(want_c03_dark_off_has_css_search_script, "<script src=\"/search.js\" defer></script>");
+LET(want_c03_dark_off_has_css_nav, "<a href=\"/\">首页</a>\n      <a href=\"/search.html\">搜索</a>");
+LET(want_c03_dark_off_has_css_theme_toggle, "");
+TEST("common_context/c03_dark_off_has_css/site_title", FUN(() ,
+    (ASSERT_EQ(AT_K(ctx_c03_dark_off_has_css, "site_title", "<missing>"), want_c03_dark_off_has_css_site_title));
+    TRUE));
+TEST("common_context/c03_dark_off_has_css/dark_mode_meta", FUN(() ,
+    (ASSERT_EQ(AT_K(ctx_c03_dark_off_has_css, "dark_mode_meta", "<missing>"), want_c03_dark_off_has_css_dark_mode_meta));
+    TRUE));
+TEST("common_context/c03_dark_off_has_css/dark_mode_script", FUN(() ,
+    (ASSERT_EQ(AT_K(ctx_c03_dark_off_has_css, "dark_mode_script", "<missing>"), want_c03_dark_off_has_css_dark_mode_script));
+    TRUE));
+TEST("common_context/c03_dark_off_has_css/pwa_meta", FUN(() ,
+    (ASSERT_EQ(AT_K(ctx_c03_dark_off_has_css, "pwa_meta", "<missing>"), want_c03_dark_off_has_css_pwa_meta));
+    TRUE));
+TEST("common_context/c03_dark_off_has_css/pwa_manifest", FUN(() ,
+    (ASSERT_EQ(AT_K(ctx_c03_dark_off_has_css, "pwa_manifest", "<missing>"), want_c03_dark_off_has_css_pwa_manifest));
+    TRUE));
+TEST("common_context/c03_dark_off_has_css/vt_meta", FUN(() ,
+    (ASSERT_EQ(AT_K(ctx_c03_dark_off_has_css, "vt_meta", "<missing>"), want_c03_dark_off_has_css_vt_meta));
+    TRUE));
+TEST("common_context/c03_dark_off_has_css/search_script", FUN(() ,
+    (ASSERT_EQ(AT_K(ctx_c03_dark_off_has_css, "search_script", "<missing>"), want_c03_dark_off_has_css_search_script));
+    TRUE));
+TEST("common_context/c03_dark_off_has_css/nav", FUN(() ,
+    (ASSERT_EQ(AT_K(ctx_c03_dark_off_has_css, "nav", "<missing>"), want_c03_dark_off_has_css_nav));
+    TRUE));
+TEST("common_context/c03_dark_off_has_css/theme_toggle", FUN(() ,
+    (ASSERT_EQ(AT_K(ctx_c03_dark_off_has_css, "theme_toggle", "<missing>"), want_c03_dark_off_has_css_theme_toggle));
+    TRUE));
+
+// ── 反向守卫 ──────────────────────────────────────────────────
+// ① site_url 为空 ⇒ 不得输出 JSON-LD
+TEST("guard/json_ld_absent_without_site_url", FUN(() ,
+    (ASSERT_EQ(JSON_LD(INDEX_SET(DICT(), "title", "T")), ""));
+    TRUE));
+// ② 导航栏第一项必须是首页链接（顺序不得颠倒）
+//    ⚠ `LET` 必须放在 TEST 之外 —— 放进 FUN 体里会让括号层级算错（实测 E0011）
+LET(_nav_g_, NAV_LINKS(INDEX_SET(DICT(), "cfg", DICT())));
+TEST("guard/nav_starts_with_home", FUN(() ,
+    (ASSERT_EQ(SUB(_nav_g_, 0, 12), "<a href=\"/\">"));
+    TRUE));
+// ③ has_dark 为假 ⇒ theme_toggle 必须是空串（不得残留按钮）
+LET(_ctx_g_, COMMON_CONTEXT(INDEX_SET(INDEX_SET(DICT(), "has_dark", FALSE),
+    "config", DICT())));
+TEST("guard/no_toggle_without_dark", FUN(() ,
+    (ASSERT_EQ(AT_K(_ctx_g_, "theme_toggle", "?"), ""));
+    TRUE));
+
+LET(records, RUN_TESTS());
+PRINT("test_page_common: ", LEN(records), " test(s) run");
+
+LET MUT(failed, 0);
+FOR(rec, records,
+    (IF(AT_K(rec, "passed", FALSE),
+        PRINT("  PASS ", AT_K(rec, "name", "?")),
+        (SET(failed, +(failed, 1));
+         PRINT("  FAIL ", AT_K(rec, "name", "?"))))));
+PRINT("test_page_common: failed=", failed);
+IF(>(failed, 0), (PRINT_ERR("test_page_common: FAILED"); PANIC("page_common tests failed")), NULL);
+PRINT("test_page_common: OK");

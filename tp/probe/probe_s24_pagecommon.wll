@@ -1,0 +1,58 @@
+// 探针 S2-4b：page_common 三个导出的逐字节烟测（与真 Python 对照）。
+// 用法：wlwl run tp/probe/probe_s24_pagecommon.wll  （在仓库根执行）
+IMPORT("wlwl:std.str", ["CAT"]);
+IMPORT("wlwl:std.fs", ["WRITE_FILE", "MKDIRS"]);
+IMPORT("./../lib/page_common.wll", ["COMMON_CONTEXT", "JSON_LD", "NAV_LINKS"]);
+
+MKDIRS("D:/Project/TinyPage/.scratch/s24out");
+
+LET(cfg, INDEX_SET(INDEX_SET(INDEX_SET(INDEX_SET(INDEX_SET(INDEX_SET(DICT(),
+    "site_title", "Tiny & Page"), "enable_pwa", TRUE), "pwa_theme_color", "#2c3e50"),
+    "pwa_bg_color", "#ffffff"), "enable_view_transitions", TRUE), "enable_search", TRUE));
+
+LET(p1, INDEX_SET(INDEX_SET(DICT(), "title", "关于本站 - 这是一个很长的标题需要截断处理"),
+    "file", "about.html"));
+LET(p2, INDEX_SET(INDEX_SET(DICT(), "title", ""), "file", "空标题.html"));
+
+LET(ctx, COMMON_CONTEXT(INDEX_SET(INDEX_SET(INDEX_SET(INDEX_SET(INDEX_SET(INDEX_SET(
+    DICT(), "config", cfg), "theme_css", "CSS{1}"), "dark_css", "DARK{2}"),
+    "has_dark", TRUE), "standalones", [p1, p2]), "current_path", "/standalone/about.html")));
+
+LET MUT(out, "");
+LET MUT(out, CAT(out, "site_title=", AT_K(ctx, "site_title", ""), "\n"));
+LET MUT(out, CAT(out, "dark_mode_meta=", AT_K(ctx, "dark_mode_meta", ""), "\n"));
+LET MUT(out, CAT(out, "dark_mode_script=", AT_K(ctx, "dark_mode_script", ""), "\n"));
+LET MUT(out, CAT(out, "pwa_meta=", AT_K(ctx, "pwa_meta", ""), "\n"));
+LET MUT(out, CAT(out, "pwa_manifest=", AT_K(ctx, "pwa_manifest", ""), "\n"));
+LET MUT(out, CAT(out, "vt_meta=", AT_K(ctx, "vt_meta", ""), "\n"));
+LET MUT(out, CAT(out, "search_script=", AT_K(ctx, "search_script", ""), "\n"));
+LET MUT(out, CAT(out, "nav=", AT_K(ctx, "nav", ""), "\n"));
+LET MUT(out, CAT(out, "theme_toggle=", AT_K(ctx, "theme_toggle", ""), "\n"));
+LET MUT(out, CAT(out, "has_dark=", STR(AT_K(ctx, "has_dark", FALSE)), "\n"));
+LET MUT(out, CAT(out, "theme_css=", AT_K(ctx, "theme_css", ""), "\n"));
+LET MUT(out, CAT(out, "dark_css=", AT_K(ctx, "dark_css", ""), "\n"));
+IF(IS_ERR(WRITE_FILE("D:/Project/TinyPage/.scratch/s24out/ctx.txt", out)),
+   PRINT("ctx write FAILED"), PRINT("ctx written ", LEN(out)));
+
+// JSON-LD：三组（有 tags / 无 tags / site_url 空）
+LET(j1, JSON_LD(INDEX_SET(INDEX_SET(INDEX_SET(INDEX_SET(INDEX_SET(INDEX_SET(INDEX_SET(DICT(),
+    "title", "标题 & \"引号\""), "description", "描述"), "date", "2026-01-02T10:00"),
+    "slug", "2026-01-01-x"), "tags", ["wlwl", "静态站点"]),
+    "site_url", "https://example.com/"), "author", "")));
+LET(j2, JSON_LD(INDEX_SET(INDEX_SET(INDEX_SET(INDEX_SET(INDEX_SET(INDEX_SET(INDEX_SET(DICT(),
+    "title", "T"), "description", "D"), "date", "2026-01-02T10:00"),
+    "slug", "s"), "tags", []), "site_url", "https://example.com"), "author", "张三")));
+LET(j3, JSON_LD(INDEX_SET(DICT(), "title", "T")));
+IF(IS_ERR(WRITE_FILE("D:/Project/TinyPage/.scratch/s24out/json_ld.txt",
+                    CAT(j1, "\n", j2, "\n", j3))),
+   PRINT("json write FAILED"), PRINT("json written"));
+PRINT("j1_len=", LEN(j1), " j2_len=", LEN(j2), " j3=[", j3, "]");
+
+// NAV_LINKS：无 standalones / 有 / 当前在搜索页
+LET(n1, NAV_LINKS(INDEX_SET(INDEX_SET(INDEX_SET(DICT(), "cfg", cfg),
+    "standalones", []), "current_path", "")));
+LET(n2, NAV_LINKS(INDEX_SET(INDEX_SET(INDEX_SET(DICT(), "cfg", cfg),
+    "standalones", [p1, p2]), "current_path", "/search.html")));
+IF(IS_ERR(WRITE_FILE("D:/Project/TinyPage/.scratch/s24out/nav.txt",
+                    CAT(n1, "\n---\n", n2))),
+   PRINT("nav write FAILED"), PRINT("nav written"));

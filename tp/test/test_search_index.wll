@@ -1,0 +1,251 @@
+// tp/test/test_search_index.wll —— 搜索索引的逐字节对照测试 + 反向守卫
+//
+// ⚠ 本文件由 tp/test/gen_test_search_index.py 生成 —— 请勿手改。
+//
+// 验收方式：每个用例都与**真 Python** 的结果逐字节对照。
+// 基准：tp/test/fixtures/search_index_baseline.json
+//   （由 tp/test/gen_search_index_baseline.py 用真 Python 生成）
+//
+// 对齐目标：tinypage/generator.py:599 generate_search_index
+//   ⇒ WLWL 侧 SEARCH_INDEX(opts)
+//
+// ⚠ 草稿：**本模块不过滤**（= generate_search_index 的现状）。
+//   排除在生产链路的调用方 cli.py:139 (list_articles(include_drafts=False)，
+//   过滤点 content.py:187-189)；反向守卫 guard/drafts_pass_through 钉住这条。
+//
+// ⚠ RUN_TESTS() 的失败**不影响退出码**（规范明载）⇒ 本文件自己把关。
+IMPORT("wlwl:std.test", ["TEST", "ASSERT", "ASSERT_EQ", "RUN_TESTS"]);
+// ⚠ PARSE 失败会产生 E0070 且**无法捕获**（中止整个运行）
+//   ⇒ 只对「先过了 JSON_VALIDATE」的产物做 PARSE。
+IMPORT("wlwl:std.json", ["JSON_VALIDATE", "PARSE"]);
+IMPORT("./../lib/search_index.wll", ["SEARCH_INDEX"]);
+
+// ── 用例数据（输入与期望值都逐字节来自基准）────────────────────
+// 索引字段：title / summary / url / date / tags / category
+
+// all_drafts：2 篇文章 + 0 个独立页
+// 分层说明：草稿不排除（全部草稿也照样逐条进产物，不是 "[]"）；排除在生产链路的调用方 cli.py:139 完成。
+LET(arts_all_drafts, [INDEX_SET(INDEX_SET(INDEX_SET(INDEX_SET(INDEX_SET(INDEX_SET(INDEX_SET(INDEX_SET(DICT(), "category", ""), "date", "2024-05-02 08:00"), "file", "2024-05-02-d1.html"), "slug", "d1"), "status", "draft"), "summary", "s"), "tags", "draft"), "title", "大写草稿标题-DRAFT-UPPER-2"), INDEX_SET(INDEX_SET(INDEX_SET(INDEX_SET(INDEX_SET(INDEX_SET(INDEX_SET(INDEX_SET(DICT(), "category", ""), "date", "2024-05-01 08:00"), "file", "2024-05-01-d2.html"), "slug", "d2"), "status", "DRAFT"), "summary", ""), "tags", ""), "title", "小写草稿标题-DRAFT-LOWER-2")]);
+LET(opts_all_drafts, INDEX_SET(DICT(), "articles", arts_all_drafts));
+LET(want_all_drafts, "[{\"title\": \"大写草稿标题-DRAFT-UPPER-2\", \"summary\": \"s\", \"url\": \"/article/2024-05-02-d1.html\", \"date\": \"2024-05-02 08:00\", \"tags\": [\"draft\"], \"category\": \"\"}, {\"title\": \"小写草稿标题-DRAFT-LOWER-2\", \"summary\": \"\", \"url\": \"/article/2024-05-01-d2.html\", \"date\": \"2024-05-01 08:00\", \"tags\": [], \"category\": \"\"}]");
+
+// drafts_included：3 篇文章 + 0 个独立页
+// 分层说明：草稿不排除：generate_search_index 不过滤草稿（generator.py:604-624），排除在生产链路的调用方（cli.py:139 的 list_articles(include_drafts=False)，过滤点在 content.py:187-189）。本模块照抄函数现状、原样遍历。
+LET(arts_drafts_included, [INDEX_SET(INDEX_SET(INDEX_SET(INDEX_SET(INDEX_SET(INDEX_SET(INDEX_SET(INDEX_SET(DICT(), "category", "Tech"), "date", "2024-04-03 08:00"), "file", "2024-04-03-pub.html"), "slug", "pub"), "status", "published"), "summary", "可见"), "tags", "x"), "title", "已发布文章"), INDEX_SET(INDEX_SET(INDEX_SET(INDEX_SET(INDEX_SET(INDEX_SET(INDEX_SET(INDEX_SET(DICT(), "category", "Tech"), "date", "2024-04-02 08:00"), "file", "2024-04-02-d1.html"), "slug", "d1"), "status", "Draft"), "summary", "草稿一"), "tags", "draft, hidden"), "title", "大写草稿标题-DRAFT-UPPER"), INDEX_SET(INDEX_SET(INDEX_SET(INDEX_SET(INDEX_SET(INDEX_SET(INDEX_SET(INDEX_SET(DICT(), "category", ""), "date", "2024-04-01 08:00"), "file", "2024-04-01-d2.html"), "slug", "d2"), "status", "draft"), "summary", "草稿二"), "tags", "draft"), "title", "小写草稿标题-DRAFT-LOWER")]);
+LET(opts_drafts_included, INDEX_SET(DICT(), "articles", arts_drafts_included));
+LET(want_drafts_included, "[{\"title\": \"已发布文章\", \"summary\": \"可见\", \"url\": \"/article/2024-04-03-pub.html\", \"date\": \"2024-04-03 08:00\", \"tags\": [\"x\"], \"category\": \"Tech\"}, {\"title\": \"大写草稿标题-DRAFT-UPPER\", \"summary\": \"草稿一\", \"url\": \"/article/2024-04-02-d1.html\", \"date\": \"2024-04-02 08:00\", \"tags\": [\"draft\", \"hidden\"], \"category\": \"Tech\"}, {\"title\": \"小写草稿标题-DRAFT-LOWER\", \"summary\": \"草稿二\", \"url\": \"/article/2024-04-01-d2.html\", \"date\": \"2024-04-01 08:00\", \"tags\": [\"draft\"], \"category\": \"\"}]");
+
+// empty：0 篇文章 + 0 个独立页
+LET(arts_empty, []);
+LET(opts_empty, INDEX_SET(DICT(), "articles", arts_empty));
+LET(want_empty, "[]");
+
+// empty_with_standalones_key：0 篇文章 + 0 个独立页
+LET(arts_empty_with_standalones_key, []);
+LET(sa_empty_with_standalones_key, []);
+LET(opts_empty_with_standalones_key, INDEX_SET(INDEX_SET(DICT(), "articles", arts_empty_with_standalones_key), "standalones", sa_empty_with_standalones_key));
+LET(want_empty_with_standalones_key, "[]");
+
+// escaping：2 篇文章 + 0 个独立页
+LET(arts_escaping, [INDEX_SET(INDEX_SET(INDEX_SET(INDEX_SET(INDEX_SET(INDEX_SET(INDEX_SET(INDEX_SET(DICT(), "category", "分类\"带引号\""), "date", "2024-07-01 06:00"), "file", "2024-07-01-esc.html"), "slug", "esc"), "status", "published"), "summary", "摘要里的\t制表符 与 \"双引号\""), "tags", "a \"quoted\" tag, b\\c"), "title", "引号\"与反斜杠\\与换行\n第二行"), INDEX_SET(INDEX_SET(INDEX_SET(INDEX_SET(INDEX_SET(INDEX_SET(INDEX_SET(INDEX_SET(DICT(), "category", ""), "date", "2024-07-02 06:00"), "file", "2024-07-02-u.html"), "slug", "u"), "status", "published"), "summary", "换行\n与回车\r\n结束"), "tags", "🚀, 中文"), "title", "emoji 🚀 与中文")]);
+LET(opts_escaping, INDEX_SET(DICT(), "articles", arts_escaping));
+LET(want_escaping, "[{\"title\": \"引号\\\"与反斜杠\\\\与换行\\n第二行\", \"summary\": \"摘要里的\\t制表符 与 \\\"双引号\\\"\", \"url\": \"/article/2024-07-01-esc.html\", \"date\": \"2024-07-01 06:00\", \"tags\": [\"a \\\"quoted\\\" tag\", \"b\\\\c\"], \"category\": \"分类\\\"带引号\\\"\"}, {\"title\": \"emoji 🚀 与中文\", \"summary\": \"换行\\n与回车\\r\\n结束\", \"url\": \"/article/2024-07-02-u.html\", \"date\": \"2024-07-02 06:00\", \"tags\": [\"🚀\", \"中文\"], \"category\": \"\"}]");
+
+// extra_fields_ignored：1 篇文章 + 0 个独立页
+LET(arts_extra_fields_ignored, [INDEX_SET(INDEX_SET(INDEX_SET(INDEX_SET(INDEX_SET(INDEX_SET(INDEX_SET(INDEX_SET(INDEX_SET(DICT(), "category", "c"), "content", "CONTENT-MUST-NOT-APPEAR-IN-INDEX"), "date", "2024-09-01 04:00"), "file", "2024-09-01-e.html"), "slug", "e"), "status", "published"), "summary", "s"), "tags", "x"), "title", "带正文的文章")]);
+LET(opts_extra_fields_ignored, INDEX_SET(DICT(), "articles", arts_extra_fields_ignored));
+LET(want_extra_fields_ignored, "[{\"title\": \"带正文的文章\", \"summary\": \"s\", \"url\": \"/article/2024-09-01-e.html\", \"date\": \"2024-09-01 04:00\", \"tags\": [\"x\"], \"category\": \"c\"}]");
+
+// multi：3 篇文章 + 0 个独立页
+LET(arts_multi, [INDEX_SET(INDEX_SET(INDEX_SET(INDEX_SET(INDEX_SET(INDEX_SET(INDEX_SET(INDEX_SET(DICT(), "category", "Tech"), "date", "2024-03-03 09:00"), "file", "2024-03-03-alpha.html"), "slug", "alpha"), "status", "published"), "summary", "A 摘要"), "tags", "a, b, c"), "title", "Alpha"), INDEX_SET(INDEX_SET(INDEX_SET(INDEX_SET(INDEX_SET(INDEX_SET(INDEX_SET(INDEX_SET(DICT(), "category", ""), "date", "2024-03-02 09:00"), "file", "2024-03-02-beta.html"), "slug", "beta"), "status", "published"), "summary", ""), "tags", ""), "title", "Beta"), INDEX_SET(INDEX_SET(INDEX_SET(INDEX_SET(INDEX_SET(INDEX_SET(INDEX_SET(INDEX_SET(DICT(), "category", "生活"), "date", "2024-03-01 09:00"), "file", "2024-03-01-gamma.html"), "slug", "gamma"), "status", "published"), "summary", "中文摘要"), "tags", "单标签"), "title", "Gamma")]);
+LET(opts_multi, INDEX_SET(DICT(), "articles", arts_multi));
+LET(want_multi, "[{\"title\": \"Alpha\", \"summary\": \"A 摘要\", \"url\": \"/article/2024-03-03-alpha.html\", \"date\": \"2024-03-03 09:00\", \"tags\": [\"a\", \"b\", \"c\"], \"category\": \"Tech\"}, {\"title\": \"Beta\", \"summary\": \"\", \"url\": \"/article/2024-03-02-beta.html\", \"date\": \"2024-03-02 09:00\", \"tags\": [], \"category\": \"\"}, {\"title\": \"Gamma\", \"summary\": \"中文摘要\", \"url\": \"/article/2024-03-01-gamma.html\", \"date\": \"2024-03-01 09:00\", \"tags\": [\"单标签\"], \"category\": \"生活\"}]");
+
+// no_status_key：1 篇文章 + 0 个独立页
+LET(arts_no_status_key, [INDEX_SET(INDEX_SET(INDEX_SET(INDEX_SET(INDEX_SET(INDEX_SET(INDEX_SET(DICT(), "category", "c"), "date", "2024-08-01 05:00"), "file", "2024-08-01-n.html"), "slug", "n"), "summary", "s"), "tags", "x"), "title", "无 status 键")]);
+LET(opts_no_status_key, INDEX_SET(DICT(), "articles", arts_no_status_key));
+LET(want_no_status_key, "[{\"title\": \"无 status 键\", \"summary\": \"s\", \"url\": \"/article/2024-08-01-n.html\", \"date\": \"2024-08-01 05:00\", \"tags\": [\"x\"], \"category\": \"c\"}]");
+
+// single：1 篇文章 + 0 个独立页
+LET(arts_single, [INDEX_SET(INDEX_SET(INDEX_SET(INDEX_SET(INDEX_SET(INDEX_SET(INDEX_SET(INDEX_SET(DICT(), "category", "Tech"), "date", "2024-03-01 10:00"), "file", "2024-03-01-hello-world.html"), "slug", "hello-world"), "status", "published"), "summary", "第一篇摘要"), "tags", "python, web"), "title", "Hello World")]);
+LET(opts_single, INDEX_SET(DICT(), "articles", arts_single));
+LET(want_single, "[{\"title\": \"Hello World\", \"summary\": \"第一篇摘要\", \"url\": \"/article/2024-03-01-hello-world.html\", \"date\": \"2024-03-01 10:00\", \"tags\": [\"python\", \"web\"], \"category\": \"Tech\"}]");
+
+// standalones_only：0 篇文章 + 1 个独立页
+LET(arts_standalones_only, []);
+LET(sa_standalones_only, [INDEX_SET(INDEX_SET(INDEX_SET(DICT(), "file", "a.html"), "summary", "sa 摘要"), "title", "独立页 A")]);
+LET(opts_standalones_only, INDEX_SET(INDEX_SET(DICT(), "articles", arts_standalones_only), "standalones", sa_standalones_only));
+LET(want_standalones_only, "[{\"title\": \"独立页 A\", \"summary\": \"sa 摘要\", \"url\": \"/standalone/a.html\", \"date\": \"\", \"tags\": [], \"category\": \"\"}]");
+
+// tags_edges：7 篇文章 + 0 个独立页
+LET(arts_tags_edges, [INDEX_SET(INDEX_SET(INDEX_SET(DICT(), "file", "t1.html"), "tags", ""), "title", "t1"), INDEX_SET(INDEX_SET(INDEX_SET(DICT(), "file", "t2.html"), "tags", " , , "), "title", "t2"), INDEX_SET(INDEX_SET(INDEX_SET(DICT(), "file", "t3.html"), "tags", "a"), "title", "t3"), INDEX_SET(INDEX_SET(INDEX_SET(DICT(), "file", "t4.html"), "tags", " a , b "), "title", "t4"), INDEX_SET(INDEX_SET(INDEX_SET(DICT(), "file", "t5.html"), "tags", "a,b,"), "title", "t5"), INDEX_SET(INDEX_SET(INDEX_SET(DICT(), "file", "t6.html"), "tags", "\t tab \t"), "title", "t6"), INDEX_SET(INDEX_SET(INDEX_SET(DICT(), "file", "t7.html"), "tags", "a , b ,c"), "title", "t7")]);
+LET(opts_tags_edges, INDEX_SET(DICT(), "articles", arts_tags_edges));
+LET(want_tags_edges, "[{\"title\": \"t1\", \"summary\": \"\", \"url\": \"/article/t1.html\", \"date\": \"\", \"tags\": [], \"category\": \"\"}, {\"title\": \"t2\", \"summary\": \"\", \"url\": \"/article/t2.html\", \"date\": \"\", \"tags\": [], \"category\": \"\"}, {\"title\": \"t3\", \"summary\": \"\", \"url\": \"/article/t3.html\", \"date\": \"\", \"tags\": [\"a\"], \"category\": \"\"}, {\"title\": \"t4\", \"summary\": \"\", \"url\": \"/article/t4.html\", \"date\": \"\", \"tags\": [\"a\", \"b\"], \"category\": \"\"}, {\"title\": \"t5\", \"summary\": \"\", \"url\": \"/article/t5.html\", \"date\": \"\", \"tags\": [\"a\", \"b\"], \"category\": \"\"}, {\"title\": \"t6\", \"summary\": \"\", \"url\": \"/article/t6.html\", \"date\": \"\", \"tags\": [\"tab\"], \"category\": \"\"}, {\"title\": \"t7\", \"summary\": \"\", \"url\": \"/article/t7.html\", \"date\": \"\", \"tags\": [\"a\", \"b\", \"c\"], \"category\": \"\"}]");
+
+// with_standalones：2 篇文章 + 2 个独立页
+LET(arts_with_standalones, [INDEX_SET(INDEX_SET(INDEX_SET(INDEX_SET(INDEX_SET(INDEX_SET(INDEX_SET(INDEX_SET(DICT(), "category", "Tech"), "date", "2024-06-02 07:00"), "file", "2024-06-02-a1.html"), "slug", "a1"), "status", "published"), "summary", "摘要一"), "tags", "t"), "title", "文章一"), INDEX_SET(INDEX_SET(INDEX_SET(INDEX_SET(INDEX_SET(INDEX_SET(INDEX_SET(INDEX_SET(DICT(), "category", ""), "date", "2024-06-01 07:00"), "file", "2024-06-01-a2.html"), "slug", "a2"), "status", "published"), "summary", ""), "tags", ""), "title", "文章二")]);
+LET(sa_with_standalones, [INDEX_SET(INDEX_SET(INDEX_SET(INDEX_SET(INDEX_SET(INDEX_SET(INDEX_SET(INDEX_SET(DICT(), "category", "ignored"), "date", "2024-01-01 00:00"), "file", "about.html"), "slug", ""), "status", "published"), "summary", "关于本站"), "tags", "ignored, tags"), "title", "关于页"), INDEX_SET(INDEX_SET(INDEX_SET(DICT(), "file", "links.html"), "summary", ""), "title", "")]);
+LET(opts_with_standalones, INDEX_SET(INDEX_SET(DICT(), "articles", arts_with_standalones), "standalones", sa_with_standalones));
+LET(want_with_standalones, "[{\"title\": \"文章一\", \"summary\": \"摘要一\", \"url\": \"/article/2024-06-02-a1.html\", \"date\": \"2024-06-02 07:00\", \"tags\": [\"t\"], \"category\": \"Tech\"}, {\"title\": \"文章二\", \"summary\": \"\", \"url\": \"/article/2024-06-01-a2.html\", \"date\": \"2024-06-01 07:00\", \"tags\": [], \"category\": \"\"}, {\"title\": \"关于页\", \"summary\": \"关于本站\", \"url\": \"/standalone/about.html\", \"date\": \"\", \"tags\": [], \"category\": \"\"}, {\"title\": \"\", \"summary\": \"\", \"url\": \"/standalone/links.html\", \"date\": \"\", \"tags\": [], \"category\": \"\"}]");
+
+// ── 逐字节对照（真 Python 的 json.dumps 输出）──────────────────
+TEST("search_index/all_drafts", FUN(() ,
+    (ASSERT_EQ(SEARCH_INDEX(opts_all_drafts), want_all_drafts));
+    TRUE));
+TEST("search_index/drafts_included", FUN(() ,
+    (ASSERT_EQ(SEARCH_INDEX(opts_drafts_included), want_drafts_included));
+    TRUE));
+TEST("search_index/empty", FUN(() ,
+    (ASSERT_EQ(SEARCH_INDEX(opts_empty), want_empty));
+    TRUE));
+TEST("search_index/empty_with_standalones_key", FUN(() ,
+    (ASSERT_EQ(SEARCH_INDEX(opts_empty_with_standalones_key), want_empty_with_standalones_key));
+    TRUE));
+TEST("search_index/escaping", FUN(() ,
+    (ASSERT_EQ(SEARCH_INDEX(opts_escaping), want_escaping));
+    TRUE));
+TEST("search_index/extra_fields_ignored", FUN(() ,
+    (ASSERT_EQ(SEARCH_INDEX(opts_extra_fields_ignored), want_extra_fields_ignored));
+    TRUE));
+TEST("search_index/multi", FUN(() ,
+    (ASSERT_EQ(SEARCH_INDEX(opts_multi), want_multi));
+    TRUE));
+TEST("search_index/no_status_key", FUN(() ,
+    (ASSERT_EQ(SEARCH_INDEX(opts_no_status_key), want_no_status_key));
+    TRUE));
+TEST("search_index/single", FUN(() ,
+    (ASSERT_EQ(SEARCH_INDEX(opts_single), want_single));
+    TRUE));
+TEST("search_index/standalones_only", FUN(() ,
+    (ASSERT_EQ(SEARCH_INDEX(opts_standalones_only), want_standalones_only));
+    TRUE));
+TEST("search_index/tags_edges", FUN(() ,
+    (ASSERT_EQ(SEARCH_INDEX(opts_tags_edges), want_tags_edges));
+    TRUE));
+TEST("search_index/with_standalones", FUN(() ,
+    (ASSERT_EQ(SEARCH_INDEX(opts_with_standalones), want_with_standalones));
+    TRUE));
+
+// opts 两个键都缺省 ⇒ 空数组（对齐 Python 的 [] / None）
+TEST("search_index/empty_opts_dict", FUN(() ,
+    (ASSERT_EQ(SEARCH_INDEX(DICT()), "[]"));
+    TRUE));
+// 显式 NULL（= Python 的 None）⇒ 同样空数组
+TEST("search_index/null_lists", FUN(() ,
+    (ASSERT_EQ(SEARCH_INDEX(INDEX_SET(INDEX_SET(DICT(), "articles", NULL), "standalones", NULL)), "[]"));
+    TRUE));
+
+// ── 结构化断言：先 JSON_VALIDATE 再 PARSE ─────────────────────
+// ⚠ 顺序不可换：PARSE 失败直接 E0070 中止，无法捕获。
+// ⚠ 非法时退回 [] ⇒ 变成一条「条数不符」的 FAIL，而不是中止整个运行。
+LET(out_drafts_included, SEARCH_INDEX(opts_drafts_included));
+LET(doc_drafts_included, IF(IS_ERR(JSON_VALIDATE(out_drafts_included)), [], PARSE(out_drafts_included)));
+// drafts_included ⇒ 3 条记录
+TEST("structure/drafts_included_record_count", FUN(() ,
+    (ASSERT_EQ(LEN(doc_drafts_included), 3));
+    TRUE));
+TEST("structure/drafts_included_record_keys", FUN(() ,
+    (ASSERT_EQ(LEN(KEYS(AT(doc_drafts_included, 0, DICT()))), 6));
+    TRUE));
+
+LET(out_multi, SEARCH_INDEX(opts_multi));
+LET(doc_multi, IF(IS_ERR(JSON_VALIDATE(out_multi)), [], PARSE(out_multi)));
+// multi ⇒ 3 条记录
+TEST("structure/multi_record_count", FUN(() ,
+    (ASSERT_EQ(LEN(doc_multi), 3));
+    TRUE));
+TEST("structure/multi_record_keys", FUN(() ,
+    (ASSERT_EQ(LEN(KEYS(AT(doc_multi, 0, DICT()))), 6));
+    TRUE));
+
+LET(out_with_standalones, SEARCH_INDEX(opts_with_standalones));
+LET(doc_with_standalones, IF(IS_ERR(JSON_VALIDATE(out_with_standalones)), [], PARSE(out_with_standalones)));
+// with_standalones ⇒ 4 条记录
+TEST("structure/with_standalones_record_count", FUN(() ,
+    (ASSERT_EQ(LEN(doc_with_standalones), 4));
+    TRUE));
+TEST("structure/with_standalones_record_keys", FUN(() ,
+    (ASSERT_EQ(LEN(KEYS(AT(doc_with_standalones, 0, DICT()))), 6));
+    TRUE));
+
+// with_standalones 的第 3 条记录是 standalone（about.html）：
+// 输入 date="2024-01-01 00:00"、tags="ignored, tags"、category="ignored"，
+// 但产物必须是 "" / [] / ""（generator.py:617-624 硬编码）。
+LET(sa0, AT(doc_with_standalones, 2, DICT()));
+TEST("guard/standalone_fields_hardcoded", FUN(() ,
+    (ASSERT_EQ(AT_K(sa0, "date", "?"), ""));
+    (ASSERT_EQ(LEN(AT_K(sa0, "tags", [1])), 0));
+    (ASSERT_EQ(AT_K(sa0, "category", "?"), ""));
+    (ASSERT_EQ(AT_K(sa0, "url", "?"), "/standalone/about.html"));
+    TRUE));
+
+// ── 反向守卫（卡 S2-4 要求 ≥2 条）─────────────────────────────
+// ① 产物必须是合法 JSON（空数组与含转义的两个极端都钉住）
+TEST("guard/output_is_valid_json", FUN(() ,
+    (ASSERT(!IS_ERR(JSON_VALIDATE(SEARCH_INDEX(opts_multi)))));
+    (ASSERT(!IS_ERR(JSON_VALIDATE(SEARCH_INDEX(opts_escaping)))));
+    (ASSERT(!IS_ERR(JSON_VALIDATE(SEARCH_INDEX(opts_with_standalones)))));
+    (ASSERT(!IS_ERR(JSON_VALIDATE(SEARCH_INDEX(opts_drafts_included)))));
+    (ASSERT(!IS_ERR(JSON_VALIDATE(SEARCH_INDEX(DICT())))));
+    TRUE));
+
+// ② 不得出现悬挂逗号（记录分隔符写错的典型症状）
+TEST("guard/no_dangling_separator", FUN(() ,
+    (ASSERT(!CONTAINS(SEARCH_INDEX(opts_multi), ",]")));
+    (ASSERT(!CONTAINS(SEARCH_INDEX(opts_multi), ", }")));
+    (ASSERT(CONTAINS(SEARCH_INDEX(opts_with_standalones), "[{")));
+    TRUE));
+
+// ③ 草稿**必须**出现在产物里：本模块不过滤草稿（见 wll 头部说明）。
+//    ⚠ 这条是「将来的自己」的哨兵：谁在 SEARCH_INDEX 里顺手加个草稿过滤，
+//      它就红 —— 因为那会让本模块与 generate_search_index 不再一一对应。
+LET(out_draftpass, SEARCH_INDEX(opts_drafts_included));
+TEST("guard/drafts_pass_through", FUN(() ,
+    (ASSERT(CONTAINS(out_draftpass, "大写草稿标题-DRAFT-UPPER")));
+    (ASSERT(CONTAINS(out_draftpass, "小写草稿标题-DRAFT-LOWER")));
+    (ASSERT(CONTAINS(out_draftpass, "\"hidden\"")));
+    TRUE));
+TEST("guard/all_drafts_pass_through", FUN(() ,
+    (ASSERT(CONTAINS(SEARCH_INDEX(opts_all_drafts), "大写草稿标题-DRAFT-UPPER-2")));
+    (ASSERT(CONTAINS(SEARCH_INDEX(opts_all_drafts), "小写草稿标题-DRAFT-LOWER-2")));
+    TRUE));
+
+// ④ 正文（`content`）不得进索引：哨兵串与键名都不得出现
+LET(out_extra_fields_ignored, SEARCH_INDEX(opts_extra_fields_ignored));
+TEST("guard/content_marker_absent", FUN(() ,
+    (ASSERT(!CONTAINS(out_extra_fields_ignored, "CONTENT-MUST-NOT-APPEAR-IN-INDEX")));
+    TRUE));
+TEST("guard/content_key_absent", FUN(() ,
+    (ASSERT(!CONTAINS(out_extra_fields_ignored, "\"content\"")));
+    TRUE));
+
+// ⑤ 记录键恰好是 6 个索引字段（顺序由逐字节对照钉住，这里钉"不多不少"）
+TEST("guard/record_keys_exact", FUN(() ,
+    (ASSERT(CONTAINS(out_drafts_included, "\"title\": ")));
+    (ASSERT(CONTAINS(out_drafts_included, "\"summary\": ")));
+    (ASSERT(CONTAINS(out_drafts_included, "\"url\": ")));
+    (ASSERT(CONTAINS(out_drafts_included, "\"date\": ")));
+    (ASSERT(CONTAINS(out_drafts_included, "\"tags\": ")));
+    (ASSERT(CONTAINS(out_drafts_included, "\"category\": ")));
+    (ASSERT_EQ(LEN(KEYS(AT(doc_drafts_included, 0, DICT()))), 6));
+    TRUE));
+
+// ⑥ tag 必须按逗号切、各自 strip（不能把 "a , b" 当一个 tag）
+TEST("guard/tags_split_and_trimmed", FUN(() ,
+    (ASSERT(CONTAINS(SEARCH_INDEX(opts_tags_edges), "\"tags\": [\"a\", \"b\"]")));
+    (ASSERT(!CONTAINS(SEARCH_INDEX(opts_tags_edges), "\" a , b \"")));
+    TRUE));
+
+// ── 跑测试 ────────────────────────────────────────────────────
+LET(records, RUN_TESTS());
+PRINT("test_search_index: ", LEN(records), " test(s) run");
+
+LET MUT(failed, 0);
+FOR(rec, records,
+    (IF(AT_K(rec, "passed", FALSE),
+        PRINT("  PASS ", AT_K(rec, "name", "?")),
+        (SET(failed, +(failed, 1));
+         PRINT("  FAIL ", AT_K(rec, "name", "?"))))));
+PRINT("test_search_index: failed=", failed);
+IF(>(failed, 0), (PRINT_ERR("test_search_index: FAILED"); PANIC("search_index tests failed")), NULL);
+PRINT("test_search_index: OK");

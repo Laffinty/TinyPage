@@ -1,0 +1,700 @@
+{
+  "cases": {
+    "robots": {
+      "empty_url": {
+        "note": "F3：不回落 localhost ⇒ `Sitemap: /sitemap.xml`",
+        "site_url": "",
+        "want": "User-agent: *\nAllow: /\nSitemap: /sitemap.xml\n"
+      },
+      "trailing_slash": {
+        "note": "F3：**没有** rstrip ⇒ `//sitemap.xml`（证明这里不是 rss/sitemap 的口径）",
+        "site_url": "https://ex.com/",
+        "want": "User-agent: *\nAllow: /\nSitemap: https://ex.com//sitemap.xml\n"
+      },
+      "with_url": {
+        "site_url": "https://ex.com",
+        "want": "User-agent: *\nAllow: /\nSitemap: https://ex.com/sitemap.xml\n"
+      }
+    },
+    "rss": {
+      "basic": {
+        "articles": [
+          {
+            "date": "2024-01-02 03:04:05",
+            "date_obj": null,
+            "file": "hello.html",
+            "status": "published",
+            "summary": "summary \"one\" & more",
+            "title": "Hello & <World>"
+          },
+          {
+            "date": "2024-02-03",
+            "date_obj": null,
+            "file": "second.html",
+            "status": "published",
+            "summary": "",
+            "title": "Second 'quoted'"
+          }
+        ],
+        "config": {
+          "lang": "zh-CN",
+          "site_description": "desc \"x\" & y",
+          "site_title": "My & Co <blog>",
+          "site_url": "https://ex.com"
+        },
+        "want": "<?xml version=\"1.0\" encoding=\"UTF-8\"?>\n<rss version=\"2.0\">\n  <channel>\n    <title>My &amp; Co &lt;blog&gt;</title>\n    <link>https://ex.com</link>\n    <description>desc &quot;x&quot; &amp; y</description>\n    <language>zh-CN</language>\n    \n    <item>\n      <title>Hello &amp; &lt;World&gt;</title>\n      <link>https://ex.com/article/hello.html</link>\n      <guid>https://ex.com/article/hello.html</guid>\n      <pubDate>2024-01-02T03:04:05</pubDate>\n      <description>summary &quot;one&quot; &amp; more</description>\n    </item>\n    <item>\n      <title>Second &#x27;quoted&#x27;</title>\n      <link>https://ex.com/article/second.html</link>\n      <guid>https://ex.com/article/second.html</guid>\n      <pubDate>2024-02-03</pubDate>\n      <description></description>\n    </item>\n  </channel>\n</rss>"
+      },
+      "cap20": {
+        "articles": [
+          {
+            "date": "2024-01-02",
+            "date_obj": null,
+            "file": "p1.html",
+            "status": "published",
+            "summary": "summary 1",
+            "title": "Post 1"
+          },
+          {
+            "date": "2024-01-02",
+            "date_obj": null,
+            "file": "p2.html",
+            "status": "published",
+            "summary": "summary 2",
+            "title": "Post 2"
+          },
+          {
+            "date": "2024-01-02",
+            "date_obj": null,
+            "file": "p3.html",
+            "status": "published",
+            "summary": "summary 3",
+            "title": "Post 3"
+          },
+          {
+            "date": "2024-01-02",
+            "date_obj": null,
+            "file": "p4.html",
+            "status": "published",
+            "summary": "summary 4",
+            "title": "Post 4"
+          },
+          {
+            "date": "2024-01-02",
+            "date_obj": null,
+            "file": "p5.html",
+            "status": "published",
+            "summary": "summary 5",
+            "title": "Post 5"
+          },
+          {
+            "date": "2024-01-02",
+            "date_obj": null,
+            "file": "p6.html",
+            "status": "published",
+            "summary": "summary 6",
+            "title": "Post 6"
+          },
+          {
+            "date": "2024-01-02",
+            "date_obj": null,
+            "file": "p7.html",
+            "status": "published",
+            "summary": "summary 7",
+            "title": "Post 7"
+          },
+          {
+            "date": "2024-01-02",
+            "date_obj": null,
+            "file": "p8.html",
+            "status": "published",
+            "summary": "summary 8",
+            "title": "Post 8"
+          },
+          {
+            "date": "2024-01-02",
+            "date_obj": null,
+            "file": "p9.html",
+            "status": "published",
+            "summary": "summary 9",
+            "title": "Post 9"
+          },
+          {
+            "date": "2024-01-02",
+            "date_obj": null,
+            "file": "p10.html",
+            "status": "published",
+            "summary": "summary 10",
+            "title": "Post 10"
+          },
+          {
+            "date": "2024-01-02",
+            "date_obj": null,
+            "file": "p11.html",
+            "status": "published",
+            "summary": "summary 11",
+            "title": "Post 11"
+          },
+          {
+            "date": "2024-01-02",
+            "date_obj": null,
+            "file": "p12.html",
+            "status": "published",
+            "summary": "summary 12",
+            "title": "Post 12"
+          },
+          {
+            "date": "2024-01-02",
+            "date_obj": null,
+            "file": "p13.html",
+            "status": "published",
+            "summary": "summary 13",
+            "title": "Post 13"
+          },
+          {
+            "date": "2024-01-02",
+            "date_obj": null,
+            "file": "p14.html",
+            "status": "published",
+            "summary": "summary 14",
+            "title": "Post 14"
+          },
+          {
+            "date": "2024-01-02",
+            "date_obj": null,
+            "file": "p15.html",
+            "status": "published",
+            "summary": "summary 15",
+            "title": "Post 15"
+          },
+          {
+            "date": "2024-01-02",
+            "date_obj": null,
+            "file": "p16.html",
+            "status": "published",
+            "summary": "summary 16",
+            "title": "Post 16"
+          },
+          {
+            "date": "2024-01-02",
+            "date_obj": null,
+            "file": "p17.html",
+            "status": "published",
+            "summary": "summary 17",
+            "title": "Post 17"
+          },
+          {
+            "date": "2024-01-02",
+            "date_obj": null,
+            "file": "p18.html",
+            "status": "published",
+            "summary": "summary 18",
+            "title": "Post 18"
+          },
+          {
+            "date": "2024-01-02",
+            "date_obj": null,
+            "file": "p19.html",
+            "status": "published",
+            "summary": "summary 19",
+            "title": "Post 19"
+          },
+          {
+            "date": "2024-01-02",
+            "date_obj": null,
+            "file": "p20.html",
+            "status": "published",
+            "summary": "summary 20",
+            "title": "Post 20"
+          },
+          {
+            "date": "2024-01-02",
+            "date_obj": null,
+            "file": "p21.html",
+            "status": "published",
+            "summary": "summary 21",
+            "title": "Post 21"
+          },
+          {
+            "date": "2024-01-02",
+            "date_obj": null,
+            "file": "p22.html",
+            "status": "published",
+            "summary": "summary 22",
+            "title": "Post 22"
+          },
+          {
+            "date": "2024-01-02",
+            "date_obj": null,
+            "file": "p23.html",
+            "status": "published",
+            "summary": "summary 23",
+            "title": "Post 23"
+          },
+          {
+            "date": "2024-01-02",
+            "date_obj": null,
+            "file": "p24.html",
+            "status": "published",
+            "summary": "summary 24",
+            "title": "Post 24"
+          },
+          {
+            "date": "2024-01-02",
+            "date_obj": null,
+            "file": "p25.html",
+            "status": "published",
+            "summary": "summary 25",
+            "title": "Post 25"
+          }
+        ],
+        "config": {
+          "lang": "zh-CN",
+          "site_description": "desc \"x\" & y",
+          "site_title": "My & Co <blog>",
+          "site_url": "https://ex.com"
+        },
+        "note": "25 篇 ⇒ generate_rss 内部 articles[:20] 截断到 20 条",
+        "want": "<?xml version=\"1.0\" encoding=\"UTF-8\"?>\n<rss version=\"2.0\">\n  <channel>\n    <title>My &amp; Co &lt;blog&gt;</title>\n    <link>https://ex.com</link>\n    <description>desc &quot;x&quot; &amp; y</description>\n    <language>zh-CN</language>\n    \n    <item>\n      <title>Post 1</title>\n      <link>https://ex.com/article/p1.html</link>\n      <guid>https://ex.com/article/p1.html</guid>\n      <pubDate>2024-01-02</pubDate>\n      <description>summary 1</description>\n    </item>\n    <item>\n      <title>Post 2</title>\n      <link>https://ex.com/article/p2.html</link>\n      <guid>https://ex.com/article/p2.html</guid>\n      <pubDate>2024-01-02</pubDate>\n      <description>summary 2</description>\n    </item>\n    <item>\n      <title>Post 3</title>\n      <link>https://ex.com/article/p3.html</link>\n      <guid>https://ex.com/article/p3.html</guid>\n      <pubDate>2024-01-02</pubDate>\n      <description>summary 3</description>\n    </item>\n    <item>\n      <title>Post 4</title>\n      <link>https://ex.com/article/p4.html</link>\n      <guid>https://ex.com/article/p4.html</guid>\n      <pubDate>2024-01-02</pubDate>\n      <description>summary 4</description>\n    </item>\n    <item>\n      <title>Post 5</title>\n      <link>https://ex.com/article/p5.html</link>\n      <guid>https://ex.com/article/p5.html</guid>\n      <pubDate>2024-01-02</pubDate>\n      <description>summary 5</description>\n    </item>\n    <item>\n      <title>Post 6</title>\n      <link>https://ex.com/article/p6.html</link>\n      <guid>https://ex.com/article/p6.html</guid>\n      <pubDate>2024-01-02</pubDate>\n      <description>summary 6</description>\n    </item>\n    <item>\n      <title>Post 7</title>\n      <link>https://ex.com/article/p7.html</link>\n      <guid>https://ex.com/article/p7.html</guid>\n      <pubDate>2024-01-02</pubDate>\n      <description>summary 7</description>\n    </item>\n    <item>\n      <title>Post 8</title>\n      <link>https://ex.com/article/p8.html</link>\n      <guid>https://ex.com/article/p8.html</guid>\n      <pubDate>2024-01-02</pubDate>\n      <description>summary 8</description>\n    </item>\n    <item>\n      <title>Post 9</title>\n      <link>https://ex.com/article/p9.html</link>\n      <guid>https://ex.com/article/p9.html</guid>\n      <pubDate>2024-01-02</pubDate>\n      <description>summary 9</description>\n    </item>\n    <item>\n      <title>Post 10</title>\n      <link>https://ex.com/article/p10.html</link>\n      <guid>https://ex.com/article/p10.html</guid>\n      <pubDate>2024-01-02</pubDate>\n      <description>summary 10</description>\n    </item>\n    <item>\n      <title>Post 11</title>\n      <link>https://ex.com/article/p11.html</link>\n      <guid>https://ex.com/article/p11.html</guid>\n      <pubDate>2024-01-02</pubDate>\n      <description>summary 11</description>\n    </item>\n    <item>\n      <title>Post 12</title>\n      <link>https://ex.com/article/p12.html</link>\n      <guid>https://ex.com/article/p12.html</guid>\n      <pubDate>2024-01-02</pubDate>\n      <description>summary 12</description>\n    </item>\n    <item>\n      <title>Post 13</title>\n      <link>https://ex.com/article/p13.html</link>\n      <guid>https://ex.com/article/p13.html</guid>\n      <pubDate>2024-01-02</pubDate>\n      <description>summary 13</description>\n    </item>\n    <item>\n      <title>Post 14</title>\n      <link>https://ex.com/article/p14.html</link>\n      <guid>https://ex.com/article/p14.html</guid>\n      <pubDate>2024-01-02</pubDate>\n      <description>summary 14</description>\n    </item>\n    <item>\n      <title>Post 15</title>\n      <link>https://ex.com/article/p15.html</link>\n      <guid>https://ex.com/article/p15.html</guid>\n      <pubDate>2024-01-02</pubDate>\n      <description>summary 15</description>\n    </item>\n    <item>\n      <title>Post 16</title>\n      <link>https://ex.com/article/p16.html</link>\n      <guid>https://ex.com/article/p16.html</guid>\n      <pubDate>2024-01-02</pubDate>\n      <description>summary 16</description>\n    </item>\n    <item>\n      <title>Post 17</title>\n      <link>https://ex.com/article/p17.html</link>\n      <guid>https://ex.com/article/p17.html</guid>\n      <pubDate>2024-01-02</pubDate>\n      <description>summary 17</description>\n    </item>\n    <item>\n      <title>Post 18</title>\n      <link>https://ex.com/article/p18.html</link>\n      <guid>https://ex.com/article/p18.html</guid>\n      <pubDate>2024-01-02</pubDate>\n      <description>summary 18</description>\n    </item>\n    <item>\n      <title>Post 19</title>\n      <link>https://ex.com/article/p19.html</link>\n      <guid>https://ex.com/article/p19.html</guid>\n      <pubDate>2024-01-02</pubDate>\n      <description>summary 19</description>\n    </item>\n    <item>\n      <title>Post 20</title>\n      <link>https://ex.com/article/p20.html</link>\n      <guid>https://ex.com/article/p20.html</guid>\n      <pubDate>2024-01-02</pubDate>\n      <description>summary 20</description>\n    </item>\n  </channel>\n</rss>"
+      },
+      "date_obj": {
+        "articles": [
+          {
+            "date": "2020-01-01 00:00:00",
+            "date_obj": "2024-05-06T07:08:09",
+            "file": "obj.html",
+            "status": "published",
+            "summary": "iso wins",
+            "title": "With date_obj"
+          }
+        ],
+        "config": {
+          "lang": "zh-CN",
+          "site_description": "desc \"x\" & y",
+          "site_title": "My & Co <blog>",
+          "site_url": "https://ex.com"
+        },
+        "note": "date_obj 存在 ⇒ 用 datetime.isoformat()，忽略 date",
+        "want": "<?xml version=\"1.0\" encoding=\"UTF-8\"?>\n<rss version=\"2.0\">\n  <channel>\n    <title>My &amp; Co &lt;blog&gt;</title>\n    <link>https://ex.com</link>\n    <description>desc &quot;x&quot; &amp; y</description>\n    <language>zh-CN</language>\n    \n    <item>\n      <title>With date_obj</title>\n      <link>https://ex.com/article/obj.html</link>\n      <guid>https://ex.com/article/obj.html</guid>\n      <pubDate>2024-05-06T07:08:09</pubDate>\n      <description>iso wins</description>\n    </item>\n  </channel>\n</rss>"
+      },
+      "date_space": {
+        "articles": [
+          {
+            "date": "2024-01-02 03:04:05",
+            "date_obj": null,
+            "file": "hello.html",
+            "status": "published",
+            "summary": "summary \"one\" & more",
+            "title": "Hello & <World>"
+          }
+        ],
+        "config": {
+          "lang": "zh-CN",
+          "site_description": "desc \"x\" & y",
+          "site_title": "My & Co <blog>",
+          "site_url": "https://ex.com"
+        },
+        "note": "iso_date：date 含空格 ⇒ 全部空格替换成 T（str.replace）",
+        "want": "<?xml version=\"1.0\" encoding=\"UTF-8\"?>\n<rss version=\"2.0\">\n  <channel>\n    <title>My &amp; Co &lt;blog&gt;</title>\n    <link>https://ex.com</link>\n    <description>desc &quot;x&quot; &amp; y</description>\n    <language>zh-CN</language>\n    \n    <item>\n      <title>Hello &amp; &lt;World&gt;</title>\n      <link>https://ex.com/article/hello.html</link>\n      <guid>https://ex.com/article/hello.html</guid>\n      <pubDate>2024-01-02T03:04:05</pubDate>\n      <description>summary &quot;one&quot; &amp; more</description>\n    </item>\n  </channel>\n</rss>"
+      },
+      "default_config": {
+        "articles": [
+          {
+            "date": "2024-01-02 03:04:05",
+            "date_obj": null,
+            "file": "hello.html",
+            "status": "published",
+            "summary": "summary \"one\" & more",
+            "title": "Hello & <World>"
+          }
+        ],
+        "config": {},
+        "note": "空 config ⇒ 取 Config() 的默认值（site_title/site_description/lang）",
+        "want": "<?xml version=\"1.0\" encoding=\"UTF-8\"?>\n<rss version=\"2.0\">\n  <channel>\n    <title>TinyPage</title>\n    <link>http://localhost:8080</link>\n    <description>A modern static blog</description>\n    <language>zh-CN</language>\n    \n    <item>\n      <title>Hello &amp; &lt;World&gt;</title>\n      <link>http://localhost:8080/article/hello.html</link>\n      <guid>http://localhost:8080/article/hello.html</guid>\n      <pubDate>2024-01-02T03:04:05</pubDate>\n      <description>summary &quot;one&quot; &amp; more</description>\n    </item>\n  </channel>\n</rss>"
+      },
+      "draft_filtered": {
+        "articles": [
+          {
+            "date": "2024-01-02 03:04:05",
+            "date_obj": null,
+            "file": "hello.html",
+            "status": "published",
+            "summary": "summary \"one\" & more",
+            "title": "Hello & <World>"
+          },
+          {
+            "date": "2024-02-03",
+            "date_obj": null,
+            "file": "second.html",
+            "status": "published",
+            "summary": "",
+            "title": "Second 'quoted'"
+          }
+        ],
+        "config": {
+          "lang": "zh-CN",
+          "site_description": "desc \"x\" & y",
+          "site_title": "My & Co <blog>",
+          "site_url": "https://ex.com"
+        },
+        "note": "F1：这是**调用方** generator.py:730 过滤后的输入 ⇒ 草稿不在输出里",
+        "want": "<?xml version=\"1.0\" encoding=\"UTF-8\"?>\n<rss version=\"2.0\">\n  <channel>\n    <title>My &amp; Co &lt;blog&gt;</title>\n    <link>https://ex.com</link>\n    <description>desc &quot;x&quot; &amp; y</description>\n    <language>zh-CN</language>\n    \n    <item>\n      <title>Hello &amp; &lt;World&gt;</title>\n      <link>https://ex.com/article/hello.html</link>\n      <guid>https://ex.com/article/hello.html</guid>\n      <pubDate>2024-01-02T03:04:05</pubDate>\n      <description>summary &quot;one&quot; &amp; more</description>\n    </item>\n    <item>\n      <title>Second &#x27;quoted&#x27;</title>\n      <link>https://ex.com/article/second.html</link>\n      <guid>https://ex.com/article/second.html</guid>\n      <pubDate>2024-02-03</pubDate>\n      <description></description>\n    </item>\n  </channel>\n</rss>"
+      },
+      "draft_raw": {
+        "articles": [
+          {
+            "date": "2024-01-02 03:04:05",
+            "date_obj": null,
+            "file": "hello.html",
+            "status": "published",
+            "summary": "summary \"one\" & more",
+            "title": "Hello & <World>"
+          },
+          {
+            "date": "2024-03-04 05:06:07",
+            "date_obj": null,
+            "file": "draft.html",
+            "status": "draft",
+            "summary": "not yet",
+            "title": "Draft post"
+          },
+          {
+            "date": "2024-02-03",
+            "date_obj": null,
+            "file": "second.html",
+            "status": "published",
+            "summary": "",
+            "title": "Second 'quoted'"
+          }
+        ],
+        "config": {
+          "lang": "zh-CN",
+          "site_description": "desc \"x\" & y",
+          "site_title": "My & Co <blog>",
+          "site_url": "https://ex.com"
+        },
+        "note": "F1：原样喂进去 ⇒ generate_rss 不过滤，草稿在输出里（与 Python 一致）",
+        "want": "<?xml version=\"1.0\" encoding=\"UTF-8\"?>\n<rss version=\"2.0\">\n  <channel>\n    <title>My &amp; Co &lt;blog&gt;</title>\n    <link>https://ex.com</link>\n    <description>desc &quot;x&quot; &amp; y</description>\n    <language>zh-CN</language>\n    \n    <item>\n      <title>Hello &amp; &lt;World&gt;</title>\n      <link>https://ex.com/article/hello.html</link>\n      <guid>https://ex.com/article/hello.html</guid>\n      <pubDate>2024-01-02T03:04:05</pubDate>\n      <description>summary &quot;one&quot; &amp; more</description>\n    </item>\n    <item>\n      <title>Draft post</title>\n      <link>https://ex.com/article/draft.html</link>\n      <guid>https://ex.com/article/draft.html</guid>\n      <pubDate>2024-03-04T05:06:07</pubDate>\n      <description>not yet</description>\n    </item>\n    <item>\n      <title>Second &#x27;quoted&#x27;</title>\n      <link>https://ex.com/article/second.html</link>\n      <guid>https://ex.com/article/second.html</guid>\n      <pubDate>2024-02-03</pubDate>\n      <description></description>\n    </item>\n  </channel>\n</rss>"
+      },
+      "empty": {
+        "articles": [],
+        "config": {
+          "lang": "zh-CN",
+          "site_description": "desc \"x\" & y",
+          "site_title": "My & Co <blog>",
+          "site_url": "https://ex.com"
+        },
+        "note": "空列表 ⇒ items 为空串；模板里 {items} 前那 4 个空格仍在（行尾空白，逐字节必须一致）",
+        "want": "<?xml version=\"1.0\" encoding=\"UTF-8\"?>\n<rss version=\"2.0\">\n  <channel>\n    <title>My &amp; Co &lt;blog&gt;</title>\n    <link>https://ex.com</link>\n    <description>desc &quot;x&quot; &amp; y</description>\n    <language>zh-CN</language>\n    \n  </channel>\n</rss>"
+      },
+      "empty_site_url": {
+        "articles": [
+          {
+            "date": "2024-01-02 03:04:05",
+            "date_obj": null,
+            "file": "hello.html",
+            "status": "published",
+            "summary": "summary \"one\" & more",
+            "title": "Hello & <World>"
+          }
+        ],
+        "config": {
+          "lang": "en",
+          "site_description": "A modern static blog",
+          "site_title": "TinyPage",
+          "site_url": ""
+        },
+        "note": "generator.py:545 回落 \"http://localhost:8080\"（channel link 用回落值）",
+        "want": "<?xml version=\"1.0\" encoding=\"UTF-8\"?>\n<rss version=\"2.0\">\n  <channel>\n    <title>TinyPage</title>\n    <link>http://localhost:8080</link>\n    <description>A modern static blog</description>\n    <language>en</language>\n    \n    <item>\n      <title>Hello &amp; &lt;World&gt;</title>\n      <link>http://localhost:8080/article/hello.html</link>\n      <guid>http://localhost:8080/article/hello.html</guid>\n      <pubDate>2024-01-02T03:04:05</pubDate>\n      <description>summary &quot;one&quot; &amp; more</description>\n    </item>\n  </channel>\n</rss>"
+      },
+      "special_chars": {
+        "articles": [
+          {
+            "date": "2024-06-07",
+            "date_obj": null,
+            "file": "special.html",
+            "status": "published",
+            "summary": "s & <t> \"q\" 'a'",
+            "title": "A & B < C > D \" E ' F"
+          }
+        ],
+        "config": {
+          "lang": "zh-CN",
+          "site_description": "desc \"x\" & y",
+          "site_title": "My & Co <blog>",
+          "site_url": "https://ex.com"
+        },
+        "note": "标题/摘要/站点标题/描述都含 & < > \" ' ⇒ 必须走 html.escape(quote=True)",
+        "want": "<?xml version=\"1.0\" encoding=\"UTF-8\"?>\n<rss version=\"2.0\">\n  <channel>\n    <title>My &amp; Co &lt;blog&gt;</title>\n    <link>https://ex.com</link>\n    <description>desc &quot;x&quot; &amp; y</description>\n    <language>zh-CN</language>\n    \n    <item>\n      <title>A &amp; B &lt; C &gt; D &quot; E &#x27; F</title>\n      <link>https://ex.com/article/special.html</link>\n      <guid>https://ex.com/article/special.html</guid>\n      <pubDate>2024-06-07</pubDate>\n      <description>s &amp; &lt;t&gt; &quot;q&quot; &#x27;a&#x27;</description>\n    </item>\n  </channel>\n</rss>"
+      },
+      "trailing_slash": {
+        "articles": [
+          {
+            "date": "2024-01-02 03:04:05",
+            "date_obj": null,
+            "file": "hello.html",
+            "status": "published",
+            "summary": "summary \"one\" & more",
+            "title": "Hello & <World>"
+          }
+        ],
+        "config": {
+          "lang": "zh-CN",
+          "site_description": "trailing slash",
+          "site_title": "Slash",
+          "site_url": "https://ex.com/"
+        },
+        "note": "item link 走 rstrip(\"/\")，但 channel <link> 用**原值**（带尾斜杠）",
+        "want": "<?xml version=\"1.0\" encoding=\"UTF-8\"?>\n<rss version=\"2.0\">\n  <channel>\n    <title>Slash</title>\n    <link>https://ex.com/</link>\n    <description>trailing slash</description>\n    <language>zh-CN</language>\n    \n    <item>\n      <title>Hello &amp; &lt;World&gt;</title>\n      <link>https://ex.com/article/hello.html</link>\n      <guid>https://ex.com/article/hello.html</guid>\n      <pubDate>2024-01-02T03:04:05</pubDate>\n      <description>summary &quot;one&quot; &amp; more</description>\n    </item>\n  </channel>\n</rss>"
+      },
+      "upper_status": {
+        "articles": [
+          {
+            "date": "2024-07-08",
+            "date_obj": null,
+            "file": "upper.html",
+            "status": "DRAFT",
+            "summary": "u",
+            "title": "Upper status"
+          }
+        ],
+        "config": {
+          "lang": "zh-CN",
+          "site_description": "desc \"x\" & y",
+          "site_title": "My & Co <blog>",
+          "site_url": "https://ex.com"
+        },
+        "note": "status 原样传递；rss 不读 status（大小写不影响输出）",
+        "want": "<?xml version=\"1.0\" encoding=\"UTF-8\"?>\n<rss version=\"2.0\">\n  <channel>\n    <title>My &amp; Co &lt;blog&gt;</title>\n    <link>https://ex.com</link>\n    <description>desc &quot;x&quot; &amp; y</description>\n    <language>zh-CN</language>\n    \n    <item>\n      <title>Upper status</title>\n      <link>https://ex.com/article/upper.html</link>\n      <guid>https://ex.com/article/upper.html</guid>\n      <pubDate>2024-07-08</pubDate>\n      <description>u</description>\n    </item>\n  </channel>\n</rss>"
+      }
+    },
+    "sitemap": {
+      "all": {
+        "articles": [
+          {
+            "date": "2024-01-02 03:04:05",
+            "date_obj": null,
+            "file": "hello.html",
+            "status": "published",
+            "summary": "summary \"one\" & more",
+            "title": "Hello & <World>"
+          },
+          {
+            "date": "2024-02-03",
+            "date_obj": null,
+            "file": "second.html",
+            "status": "published",
+            "summary": "",
+            "title": "Second 'quoted'"
+          }
+        ],
+        "categories": [
+          "杂谈",
+          "tech"
+        ],
+        "config": {
+          "lang": "zh-CN",
+          "site_description": "desc \"x\" & y",
+          "site_title": "My & Co <blog>",
+          "site_url": "https://ex.com"
+        },
+        "standalones": [
+          {
+            "date": "",
+            "date_obj": null,
+            "file": "about.html",
+            "status": "published",
+            "summary": "about page",
+            "title": "About"
+          }
+        ],
+        "want": "<?xml version=\"1.0\" encoding=\"UTF-8\"?>\n<urlset xmlns=\"http://www.sitemaps.org/schemas/sitemap/0.9\">\n  <url>\n    <loc>https://ex.com/</loc>\n  </url>\n  <url>\n    <loc>https://ex.com/article/hello.html</loc>\n  </url>\n  <url>\n    <loc>https://ex.com/article/second.html</loc>\n  </url>\n  <url>\n    <loc>https://ex.com/standalone/about.html</loc>\n  </url>\n  <url>\n    <loc>https://ex.com/category/杂谈.html</loc>\n  </url>\n  <url>\n    <loc>https://ex.com/category/tech.html</loc>\n  </url>\n</urlset>"
+      },
+      "basic": {
+        "articles": [
+          {
+            "date": "2024-01-02 03:04:05",
+            "date_obj": null,
+            "file": "hello.html",
+            "status": "published",
+            "summary": "summary \"one\" & more",
+            "title": "Hello & <World>"
+          },
+          {
+            "date": "2024-02-03",
+            "date_obj": null,
+            "file": "second.html",
+            "status": "published",
+            "summary": "",
+            "title": "Second 'quoted'"
+          }
+        ],
+        "categories": [],
+        "config": {
+          "lang": "zh-CN",
+          "site_description": "desc \"x\" & y",
+          "site_title": "My & Co <blog>",
+          "site_url": "https://ex.com"
+        },
+        "standalones": [],
+        "want": "<?xml version=\"1.0\" encoding=\"UTF-8\"?>\n<urlset xmlns=\"http://www.sitemaps.org/schemas/sitemap/0.9\">\n  <url>\n    <loc>https://ex.com/</loc>\n  </url>\n  <url>\n    <loc>https://ex.com/article/hello.html</loc>\n  </url>\n  <url>\n    <loc>https://ex.com/article/second.html</loc>\n  </url>\n</urlset>"
+      },
+      "draft_included": {
+        "articles": [
+          {
+            "date": "2024-01-02 03:04:05",
+            "date_obj": null,
+            "file": "hello.html",
+            "status": "published",
+            "summary": "summary \"one\" & more",
+            "title": "Hello & <World>"
+          },
+          {
+            "date": "2024-03-04 05:06:07",
+            "date_obj": null,
+            "file": "draft.html",
+            "status": "draft",
+            "summary": "not yet",
+            "title": "Draft post"
+          }
+        ],
+        "categories": [],
+        "config": {
+          "lang": "zh-CN",
+          "site_description": "desc \"x\" & y",
+          "site_title": "My & Co <blog>",
+          "site_url": "https://ex.com"
+        },
+        "note": "F2：generator.py:736 传的是**未过滤**的 articles ⇒ 草稿在 sitemap 里",
+        "standalones": [],
+        "want": "<?xml version=\"1.0\" encoding=\"UTF-8\"?>\n<urlset xmlns=\"http://www.sitemaps.org/schemas/sitemap/0.9\">\n  <url>\n    <loc>https://ex.com/</loc>\n  </url>\n  <url>\n    <loc>https://ex.com/article/hello.html</loc>\n  </url>\n  <url>\n    <loc>https://ex.com/article/draft.html</loc>\n  </url>\n</urlset>"
+      },
+      "empty_articles": {
+        "articles": [],
+        "categories": [],
+        "config": {
+          "lang": "zh-CN",
+          "site_description": "desc \"x\" & y",
+          "site_title": "My & Co <blog>",
+          "site_url": "https://ex.com"
+        },
+        "note": "只剩根 URL 一条",
+        "standalones": [],
+        "want": "<?xml version=\"1.0\" encoding=\"UTF-8\"?>\n<urlset xmlns=\"http://www.sitemaps.org/schemas/sitemap/0.9\">\n  <url>\n    <loc>https://ex.com/</loc>\n  </url>\n</urlset>"
+      },
+      "empty_site_url": {
+        "articles": [
+          {
+            "date": "2024-01-02 03:04:05",
+            "date_obj": null,
+            "file": "hello.html",
+            "status": "published",
+            "summary": "summary \"one\" & more",
+            "title": "Hello & <World>"
+          }
+        ],
+        "categories": [],
+        "config": {
+          "lang": "en",
+          "site_description": "A modern static blog",
+          "site_title": "TinyPage",
+          "site_url": ""
+        },
+        "note": "generator.py:579 回落 localhost:8080",
+        "standalones": [],
+        "want": "<?xml version=\"1.0\" encoding=\"UTF-8\"?>\n<urlset xmlns=\"http://www.sitemaps.org/schemas/sitemap/0.9\">\n  <url>\n    <loc>http://localhost:8080/</loc>\n  </url>\n  <url>\n    <loc>http://localhost:8080/article/hello.html</loc>\n  </url>\n</urlset>"
+      },
+      "trailing_slash": {
+        "articles": [
+          {
+            "date": "2024-01-02 03:04:05",
+            "date_obj": null,
+            "file": "hello.html",
+            "status": "published",
+            "summary": "summary \"one\" & more",
+            "title": "Hello & <World>"
+          }
+        ],
+        "categories": [],
+        "config": {
+          "lang": "zh-CN",
+          "site_description": "trailing slash",
+          "site_title": "Slash",
+          "site_url": "https://ex.com/"
+        },
+        "standalones": [],
+        "want": "<?xml version=\"1.0\" encoding=\"UTF-8\"?>\n<urlset xmlns=\"http://www.sitemaps.org/schemas/sitemap/0.9\">\n  <url>\n    <loc>https://ex.com/</loc>\n  </url>\n  <url>\n    <loc>https://ex.com/article/hello.html</loc>\n  </url>\n</urlset>"
+      },
+      "with_categories": {
+        "articles": [
+          {
+            "date": "2024-01-02 03:04:05",
+            "date_obj": null,
+            "file": "hello.html",
+            "status": "published",
+            "summary": "summary \"one\" & more",
+            "title": "Hello & <World>"
+          }
+        ],
+        "categories": [
+          "杂谈",
+          "tech & stuff"
+        ],
+        "config": {
+          "lang": "zh-CN",
+          "site_description": "desc \"x\" & y",
+          "site_title": "My & Co <blog>",
+          "site_url": "https://ex.com"
+        },
+        "note": "loc **不做** XML 转义（Python 直接 f-string 插值）⇒ `&` 原样出现",
+        "standalones": [],
+        "want": "<?xml version=\"1.0\" encoding=\"UTF-8\"?>\n<urlset xmlns=\"http://www.sitemaps.org/schemas/sitemap/0.9\">\n  <url>\n    <loc>https://ex.com/</loc>\n  </url>\n  <url>\n    <loc>https://ex.com/article/hello.html</loc>\n  </url>\n  <url>\n    <loc>https://ex.com/category/杂谈.html</loc>\n  </url>\n  <url>\n    <loc>https://ex.com/category/tech & stuff.html</loc>\n  </url>\n</urlset>"
+      },
+      "with_standalones": {
+        "articles": [
+          {
+            "date": "2024-01-02 03:04:05",
+            "date_obj": null,
+            "file": "hello.html",
+            "status": "published",
+            "summary": "summary \"one\" & more",
+            "title": "Hello & <World>"
+          }
+        ],
+        "categories": [],
+        "config": {
+          "lang": "zh-CN",
+          "site_description": "desc \"x\" & y",
+          "site_title": "My & Co <blog>",
+          "site_url": "https://ex.com"
+        },
+        "standalones": [
+          {
+            "date": "",
+            "date_obj": null,
+            "file": "about.html",
+            "status": "published",
+            "summary": "about page",
+            "title": "About"
+          }
+        ],
+        "want": "<?xml version=\"1.0\" encoding=\"UTF-8\"?>\n<urlset xmlns=\"http://www.sitemaps.org/schemas/sitemap/0.9\">\n  <url>\n    <loc>https://ex.com/</loc>\n  </url>\n  <url>\n    <loc>https://ex.com/article/hello.html</loc>\n  </url>\n  <url>\n    <loc>https://ex.com/standalone/about.html</loc>\n  </url>\n</urlset>"
+      }
+    }
+  },
+  "source": {
+    "article_dict_keys": [
+      "title",
+      "date",
+      "summary",
+      "status",
+      "file",
+      "date_obj"
+    ],
+    "draft_filter_site": "tinypage/generator.py:730 (published = [a for a in articles if a.is_published])",
+    "iso_date": "tinypage/models.py:32 ArticleMeta.iso_date",
+    "robots": "tinypage/generator.py:739-744 （generate_static_pages 内部，真跑取字节）",
+    "rss": "tinypage/generator.py:542 generate_rss(articles, config)",
+    "sitemap": "tinypage/generator.py:571 generate_sitemap(articles, config, standalones, categories)",
+    "sitemap_unfiltered_site": "tinypage/generator.py:736 (articles 未过滤)"
+  }
+}

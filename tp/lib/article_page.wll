@@ -1,0 +1,375 @@
+// tp/lib/article_page.wll —— 文章页 / 独立页（卡 S2-4）
+//
+// ⚠ 本文件由 tp/test/gen_article_page.py 生成 —— 请勿手改。
+//   改实现请改生成器（WLWL 的括号诊断不告诉你缺了几层）。
+//
+// 对齐目标（真 Python 源码树）：
+//   ARTICLE_PAGE(opts)    == generator.py:154 generate_article_html
+//   STANDALONE_PAGE(opts) == generator.py:429 generate_standalone_html
+//
+// 复用（不重写，重写必漂移）：
+//   page_common.wll  COMMON_CONTEXT / JSON_LD   （ctx 12 字段 / JSON-LD）
+//   template.wll     RENDER_SKELETON            （页面骨架）
+//   esc.wll          ESCAPE_HTML                （html.escape 逐字节对齐）
+//
+// 边界：脚注 / TOC / 双链 / Markdown 在 Python 侧由调用方渲染好，
+//   本模块只接**已渲染好的** content / toc_html / footnotes_html / backlinks_html，
+//   一律**原样嵌入**（不解析、不 escape）。
+//
+// ⚠ 本机实测的三条（详见生成器 docstring）：
+//   ① 内建 TRIM **只去 ASCII 空白** ⇒ Python 的 str.strip() 用 PY_STRIP 复刻；
+//   ② escape_attr == escape_html（replace 是空操作）⇒ 统一用 ESCAPE_HTML；
+//   ③ og:url 走 rstrip("/")，share 的 url **不**走 ⇒ 两种斜杠形态并存（a08）。
+//
+// 逐字节对照基准：tp/test/fixtures/article_page_baseline.json
+
+IMPORT("wlwl:std.str", ["CAT"]);
+IMPORT("wlwl:std.text", ["TO_LOWER"]);
+IMPORT("wlwl:std.regex", ["RE", "RE_REPLACE"]);
+IMPORT("wlwl:std.encode", ["UTF8_DECODE"]);
+IMPORT("./page_common.wll", ["COMMON_CONTEXT", "JSON_LD"]);
+IMPORT("./template.wll", ["RENDER_SKELETON"]);
+IMPORT("./esc.wll", ["ESCAPE_HTML"]);
+
+// // Python str.strip() 去掉的字符集合（逐字节构造）
+     LET(PY_WS, FUN((), (
+               // Python 的 str.isspace() 全集（10 个 ASCII 空白 \t\n\v\f\r \x1c-\x1f 空格;
+               // + U+0085 / U+00A0 / U+1680 / U+2000-200A / U+2028 / U+2029 / U+202F;
+               // + U+205F / U+3000，共 29 个字符）。;
+               // ⚠ 内建 TRIM **只去 ASCII 空白**（实测：TRIM 对 U+3000 / U+00A0 无效）;
+               // ⇒ tags 的 t.strip() 不能直接用 TRIM。;
+               // ⚠ UTF8_DECODE 的实参是**字节**（0-255），不是码点。;
+               UTF8_DECODE([9, 10, 11, 12, 13, 28, 29, 30, 31, 32, 194, 133, 194, 160, 225, 154, 128, 226, 128, 128, 226, 128, 129, 226, 128, 130, 226, 128, 131, 226, 128, 132, 226, 128, 133, 226, 128, 134, 226, 128, 135, 226, 128, 136, 226, 128, 137, 226, 128, 138, 226, 128, 168, 226, 128, 169, 226, 128, 175, 226, 129, 159, 227, 128, 128])
+     )));
+
+// 首尾空白模式（运行期用上面的集合拼出来 —— 字符类是**字面**字符，无转义问题）
+LET(WS_LEAD_RE, RE(CAT("^[", PY_WS(), "]+")));
+// ⚠ 结尾锚 `$` 要写成 `\$`（裸 `$` 在字面量里是插值）；
+//   WLWL 正则的 `$` = 正文末尾，与 Python 的 `$`（也允许结尾一个 \n）不同 ——
+//   但换行本身在空白集合里 ⇒ 剥空白时两者结果一致（不会漏剥也不会多剥）。
+LET(WS_TRAIL_RE, RE(CAT("[", PY_WS(), "]+\$")));
+
+// // Python str.strip() 的逐字节复刻
+     LET(PY_STRIP, FUN((s), (
+               // 对齐 Python 的 s.strip()（默认空白集合）;
+               RE_REPLACE(WS_TRAIL_RE, RE_REPLACE(WS_LEAD_RE, s, ""), "")
+     )));
+
+// // 去掉结尾所有 /（对齐 rstrip("/")）
+     LET(RSTRIP_SLASH, FUN((s), (
+               // 对齐 Python 的 s.rstrip("/");
+               // ⚠ 不用正则 `[.]+\$`：WLWL 的 `$` 只认正文末尾，且这里手写循环更直白。;
+               LET MUT(out, s);
+               LET MUT(i, LEN(out));
+               WHILE(>(i, 0), (
+                    IF(==(SUB(out, -(i, 1), 1), "/"), (
+                         SET(out, SUB(out, 0, -(i, 1)));
+                         SET(i, -(i, 1))
+                    ), (
+                         SET(i, 0)
+                    ))
+               ));
+               out
+     )));
+
+// // 归一化成字符串
+     LET(AS_STR, FUN((v), (
+               // 非 STRING 一律当空串（对齐 Python 侧「缺省 = ""」；也兜住显式传 NULL）;
+               IF(==(TYPE(v), "STRING"), v, "")
+     )));
+
+// // 归一化成数组
+     LET(AS_ARR, FUN((v), (
+               // 非 ARRAY 一律当空数组（Python 侧 None / 缺省都是 falsy）;
+               IF(==(TYPE(v), "ARRAY"), v, [])
+     )));
+
+// // Config 的默认值（缺键回落用）
+     LET(DEFAULT_CONFIG, FUN((), (
+               // tinypage/config.py::Config 的默认值（⚠ 只列页面生成用到的 17 个键）;
+               // 为什么必须有一份：WLWL 侧 config 是 DICT，缺键时要回落到 Python 的默认值，;
+               // 而不是空串（例如 footer_text 的默认是 "Powered by TinyPage"）。;
+               LET MUT(d, DICT());
+               SET(d, INDEX_SET(d, "site_title", "TinyPage"));
+               SET(d, INDEX_SET(d, "site_description", "A modern static blog"));
+               SET(d, INDEX_SET(d, "site_url", ""));
+               SET(d, INDEX_SET(d, "site_author", ""));
+               SET(d, INDEX_SET(d, "footer_text", "Powered by TinyPage"));
+               SET(d, INDEX_SET(d, "lang", "zh-CN"));
+               SET(d, INDEX_SET(d, "theme_name", "default"));
+               SET(d, INDEX_SET(d, "page_size", 10));
+               SET(d, INDEX_SET(d, "enable_pwa", TRUE));
+               SET(d, INDEX_SET(d, "enable_dark_mode", TRUE));
+               SET(d, INDEX_SET(d, "enable_search", TRUE));
+               SET(d, INDEX_SET(d, "enable_rss", TRUE));
+               SET(d, INDEX_SET(d, "enable_sitemap", TRUE));
+               SET(d, INDEX_SET(d, "enable_view_transitions", TRUE));
+               SET(d, INDEX_SET(d, "pwa_short_name", "TinyPage"));
+               SET(d, INDEX_SET(d, "pwa_theme_color", "#2c3e50"));
+               SET(d, INDEX_SET(d, "pwa_bg_color", "#ffffff"));
+               d
+     )));
+
+// // 合并 config（部分键 ⇒ 其余走 Config 默认值）
+     LET(CFG_OF, FUN((opts), (
+               // opts 键：config（DICT；与 Config 同名，**可只给一部分**）;
+               // Python: cfg = config or Config() ⇒ 缺键回落默认值，不回落空串。;
+               LET(c, AT_K(opts, "config", DICT()));
+               LET MUT(o, DEFAULT_CONFIG());
+               IF(==(TYPE(c), "DICT"), (
+                    // 逐键覆盖：只有**真给了**的键才盖掉默认值;
+                    SET(o, INDEX_SET(o, "site_title", AT_K(c, "site_title", AT_K(o, "site_title", ""))));
+                    SET(o, INDEX_SET(o, "site_description", AT_K(c, "site_description", AT_K(o, "site_description", ""))));
+                    SET(o, INDEX_SET(o, "site_url", AT_K(c, "site_url", AT_K(o, "site_url", ""))));
+                    SET(o, INDEX_SET(o, "site_author", AT_K(c, "site_author", AT_K(o, "site_author", ""))));
+                    SET(o, INDEX_SET(o, "footer_text", AT_K(c, "footer_text", AT_K(o, "footer_text", ""))));
+                    SET(o, INDEX_SET(o, "lang", AT_K(c, "lang", AT_K(o, "lang", ""))));
+                    SET(o, INDEX_SET(o, "theme_name", AT_K(c, "theme_name", AT_K(o, "theme_name", ""))));
+                    SET(o, INDEX_SET(o, "page_size", AT_K(c, "page_size", AT_K(o, "page_size", ""))));
+                    SET(o, INDEX_SET(o, "enable_pwa", AT_K(c, "enable_pwa", AT_K(o, "enable_pwa", ""))));
+                    SET(o, INDEX_SET(o, "enable_dark_mode", AT_K(c, "enable_dark_mode", AT_K(o, "enable_dark_mode", ""))));
+                    SET(o, INDEX_SET(o, "enable_search", AT_K(c, "enable_search", AT_K(o, "enable_search", ""))));
+                    SET(o, INDEX_SET(o, "enable_rss", AT_K(c, "enable_rss", AT_K(o, "enable_rss", ""))));
+                    SET(o, INDEX_SET(o, "enable_sitemap", AT_K(c, "enable_sitemap", AT_K(o, "enable_sitemap", ""))));
+                    SET(o, INDEX_SET(o, "enable_view_transitions", AT_K(c, "enable_view_transitions", AT_K(o, "enable_view_transitions", ""))));
+                    SET(o, INDEX_SET(o, "pwa_short_name", AT_K(c, "pwa_short_name", AT_K(o, "pwa_short_name", ""))));
+                    SET(o, INDEX_SET(o, "pwa_theme_color", AT_K(c, "pwa_theme_color", AT_K(o, "pwa_theme_color", ""))));
+                    SET(o, INDEX_SET(o, "pwa_bg_color", AT_K(c, "pwa_bg_color", AT_K(o, "pwa_bg_color", ""))))
+               ), (
+                    NULL
+               ));
+               o
+     )));
+
+// // tags 串 → 去空白后的数组（对齐 tag_list）
+     LET(TAG_LIST, FUN((tags), (
+               // Python: [t.strip() for t in tags.split(",") if t.strip()];
+               // ⚠ t.strip() 用 PY_STRIP（内建 TRIM 只去 ASCII 空白）;
+               LET(parts, SPLIT(tags, ","));
+               LET MUT(out, []);
+               LET MUT(i, 0);
+               LET(n, LEN(parts));
+               WHILE(<(i, n), (
+                    LET(t, PY_STRIP(AT(parts, i, "")));
+                    IF(!=(t, ""), (
+                         SET(out, PUSH(out, t))
+                    ), (
+                         NULL
+                    ));
+                    SET(i, +(i, 1))
+               ));
+               out
+     )));
+
+// // tags 的 HTML（无 tag ⇒ 空串）
+     LET(TAGS_HTML, FUN((lst), (
+               // Python: 有 tag_items 才输出 <div class="post-tags">…</div>，项间用**一个空格**;
+               LET MUT(out, "");
+               LET MUT(i, 0);
+               LET(n, LEN(lst));
+               WHILE(<(i, n), (
+                    IF(>(i, 0), (
+                         SET(out, +(out, " "))
+                    ), (
+                         NULL
+                    ));
+                    SET(out, CAT(out, "<span class=\"tag\">", ESCAPE_HTML(AT(lst, i, "")), "</span>"));
+                    SET(i, +(i, 1))
+               ));
+               IF(==(n, 0), "", CAT("<div class=\"post-tags\">", out, "</div>"))
+     )));
+
+// // 分类徽章（无分类 ⇒ 空串）
+     LET(CATEGORY_HTML, FUN((c), (
+               // Python: if category: <span class="post-category"><a href="/category/{escape_attr(c)}.html">…;
+               // ⚠ escape_attr 与 escape_html 等价（见文件头的实测②）;
+               IF(==(c, ""), "", CAT("<span class=\"post-category\"><a href=\"/category/", ESCAPE_HTML(c), ".html\">", ESCAPE_HTML(c), "</a></span>"))
+     )));
+
+// // 草稿徽章
+     LET(DRAFT_BADGE, FUN((status), (
+               // Python: if status.lower() == "draft" ⇒ 草稿徽章;
+               // ⚠ 必须 TO_LOWER（`DRAFT` 也算；基准 a03 钉住）;
+               IF(==(TO_LOWER(status), "draft"), "<span class=\"draft-badge\">草稿</span>", "")
+     )));
+
+// // 文章页的 og / twitter meta
+     LET(ARTICLE_OG, FUN((page_title, safe_summary, article_url), (
+               // Python（generator.py:209-215）：og:title / og:description / og:type=article;
+               //   / og:url（escape_attr）/ twitter:card / twitter:title / twitter:description;
+               // ⚠ article_url 在调用方已做过 rstrip("/");
+               CAT("<meta property=\"og:title\" content=\"", page_title, "\">\n<meta property=\"og:description\" content=\"", safe_summary, "\">\n<meta property=\"og:type\" content=\"article\">\n<meta property=\"og:url\" content=\"", ESCAPE_HTML(article_url), "\">\n<meta name=\"twitter:card\" content=\"summary\">\n<meta name=\"twitter:title\" content=\"", page_title, "\">\n<meta name=\"twitter:description\" content=\"", safe_summary, "\">")
+     )));
+
+// // 独立页的 og meta
+     LET(STANDALONE_OG, FUN((page_title, safe_summary), (
+               // Python（generator.py:447-450）：注意**没有** og:url，og:type 是 website;
+               CAT("<meta property=\"og:title\" content=\"", page_title, "\">\n<meta property=\"og:description\" content=\"", safe_summary, "\">\n<meta property=\"og:type\" content=\"website\">\n<meta name=\"twitter:card\" content=\"summary\">")
+     )));
+
+// // mermaid 脚本（文章页恒有）
+     LET(MERMAID, FUN((), (
+               // Python（generator.py:228）：文章页**恒**带 mermaid;
+               // ⚠ 独立页没有这一段（见 STANDALONE_PAGE 传 ""）;
+               "<script src=\"https://cdn.jsdelivr.net/npm/mermaid@10/dist/mermaid.min.js\"></script><script>mermaid.initialize({startOnLoad:true,theme:document.documentElement.classList.contains('dark')?'dark':'default',securityLevel:'strict'});</script>"
+     )));
+
+// // 分享按钮（仅 site_url 非空时输出）
+     LET(SHARE_HTML, FUN((page_title, safe_summary, site_url_esc, slug), (
+               // Python（generator.py:233）：share 按钮的 url **不做** rstrip("/");
+               // ⇒ site_url 以 "/" 结尾时这里会出现 `//article/…`（基准 a08 钉住）;
+               // ⚠ 值里的 `{` / `}` 是 JS 语法，与 WLWL 无关（本串是**字面量**）;
+               CAT("<button class=\"share-btn\" onclick=\"navigator.share?.({title:'", page_title, "',text:'", safe_summary, "',url:'", site_url_esc, "/article/", slug, ".html'}).catch(()=>{})\" hidden>分享</button>")
+     )));
+
+// // 相关文章段（空列表 ⇒ 空串）
+     LET(RELATED_HTML, FUN((related), (
+               // Python（generator.py:236-251）：每项前有换行、缩进 6 空格；;
+               //   `art.url` = f"/article/{art.file}"（models.py:39 的 ArticleMeta.url）;
+               //   ⇒ 元素只需 title / date / file 三个键;
+               LET MUT(items, "");
+               LET MUT(i, 0);
+               LET(n, LEN(related));
+               WHILE(<(i, n), (
+                    LET(a0, AT(related, i, DICT()));
+                    LET(a, IF(==(TYPE(a0), "DICT"), a0, DICT()));
+                    LET(url, CAT("/article/", AS_STR(AT_K(a, "file", ""))));
+                    SET(items, CAT(items, "\n      <div class=\"related-item\">\n        <a href=\"", url, "\">", ESCAPE_HTML(AS_STR(AT_K(a, "title", ""))), "</a>\n        <span class=\"related-date\">", ESCAPE_HTML(AS_STR(AT_K(a, "date", ""))), "</span>\n      </div>"));
+                    SET(i, +(i, 1))
+               ));
+               IF(==(n, 0), (
+                    ""
+               ), (
+                    CAT("\n    <section class=\"related-articles\">\n      <h2>相关文章</h2>\n      <div class=\"related-list\">\n        ", items, "\n      </div>\n    </section>")
+               ))
+     )));
+
+// // 文章页 body_content（对齐 generator.py:253）
+     LET(ARTICLE_BODY, FUN((b), (
+               // Python（generator.py:253-271）的 body_content —— 逐字节照抄其缩进与换行;
+               // 键：page_title / safe_date / category_html / draft_badge / share_html /;
+               //     toc_html / content / tags_html / footnotes_html / backlinks_html / related_html;
+               // ⚠ content 与三个 *_html 一律**原样嵌入**（不在本卡解析）;
+               CAT("<article class=\"post\">\n      <header class=\"post-header\">\n        <h1 class=\"post-title\">", AT_K(b, "page_title", ""), "</h1>\n        <div class=\"post-meta\">\n          ", AT_K(b, "category_html", ""), "\n          <time datetime=\"", AT_K(b, "safe_date", ""), "\">", AT_K(b, "safe_date", ""), "</time>\n          ", AT_K(b, "draft_badge", ""), "\n          ", AT_K(b, "share_html", ""), "\n        </div>\n      </header>\n      ", AT_K(b, "toc_html", ""), "\n      <div class=\"post-content\">\n", AT_K(b, "content", ""), "\n      </div>\n      ", AT_K(b, "tags_html", ""), "\n      ", AT_K(b, "footnotes_html", ""), "\n      ", AT_K(b, "backlinks_html", ""), "\n    </article>\n    ", AT_K(b, "related_html", ""))
+     )));
+
+// // 独立页 body_content（对齐 generator.py:452）
+     LET(STANDALONE_BODY, FUN((page_title, content), (
+               // Python（generator.py:452-459）的 body_content;
+               CAT("<article class=\"post standalone\">\n      <header class=\"post-header\">\n        <h1 class=\"post-title\">", page_title, "</h1>\n      </header>\n      <div class=\"post-content\">\n", content, "\n      </div>\n    </article>")
+     )));
+
+// // render_skeleton 的 opts（对齐 Python 的关键字实参）
+     LET(SKEL_OPTS, FUN((ctx, cfg, page_title, desc, body, og, ld, mermaid), (
+               // 对齐 generate_article_html / generate_standalone_html 里 render_skeleton(...) 的实参;
+               // ⚠ page_title / desc 传进来时**已** escape 过，而 render_skeleton 会再 escape 一次;
+               //   ⇒ 产物里是双重转义（这是 Python 的真实行为，见文件头实测⑤）;
+               // ⚠ has_dark / mermaid_script 在骨架里没被用到（骨架无 $has_dark 占位符），;
+               //   但 Python 侧确实传了 ⇒ 这里照传，别自作主张删。;
+               LET MUT(o, DICT());
+               SET(o, INDEX_SET(o, "lang", AS_STR(AT_K(cfg, "lang", "zh-CN"))));
+               SET(o, INDEX_SET(o, "site_title", AT_K(ctx, "site_title", "")));
+               SET(o, INDEX_SET(o, "page_title", page_title));
+               SET(o, INDEX_SET(o, "description", desc));
+               SET(o, INDEX_SET(o, "body_content", body));
+               SET(o, INDEX_SET(o, "theme_css", AT_K(ctx, "theme_css", "")));
+               SET(o, INDEX_SET(o, "dark_css", AT_K(ctx, "dark_css", "")));
+               SET(o, INDEX_SET(o, "has_dark", AT_K(ctx, "has_dark", FALSE)));
+               SET(o, INDEX_SET(o, "nav_links", AT_K(ctx, "nav", "")));
+               SET(o, INDEX_SET(o, "theme_toggle", AT_K(ctx, "theme_toggle", "")));
+               SET(o, INDEX_SET(o, "footer_text", AS_STR(AT_K(cfg, "footer_text", ""))));
+               SET(o, INDEX_SET(o, "dark_mode_meta", AT_K(ctx, "dark_mode_meta", "")));
+               SET(o, INDEX_SET(o, "pwa_meta", AT_K(ctx, "pwa_meta", "")));
+               SET(o, INDEX_SET(o, "vt_meta", AT_K(ctx, "vt_meta", "")));
+               SET(o, INDEX_SET(o, "og_html", og));
+               SET(o, INDEX_SET(o, "json_ld_html", ld));
+               SET(o, INDEX_SET(o, "pwa_manifest", AT_K(ctx, "pwa_manifest", "")));
+               SET(o, INDEX_SET(o, "dark_mode_script", AT_K(ctx, "dark_mode_script", "")));
+               SET(o, INDEX_SET(o, "search_script", AT_K(ctx, "search_script", "")));
+               SET(o, INDEX_SET(o, "mermaid_script", mermaid));
+               o
+     )));
+
+// // 文章页（对齐 generator.py:154 generate_article_html）
+     LET(ARTICLE_PAGE, FUN((opts), (
+               // opts 键（与 generate_article_html 的具名参数同名）：;
+               //   title date slug content tags(STRING，逗号分隔) summary category;
+               //   status(默认 "published") config(DICT) theme_css dark_css has_dark;
+               //   standalones(ARRAY[DICT]，键 title/file) toc_html footnotes_html;
+               //   backlinks_html related_articles(ARRAY[DICT]，键 title/date/file);
+               LET(title, AS_STR(AT_K(opts, "title", "")));
+               LET(date, AS_STR(AT_K(opts, "date", "")));
+               LET(slug, AS_STR(AT_K(opts, "slug", "")));
+               LET(content, AS_STR(AT_K(opts, "content", "")));
+               LET(tags, AS_STR(AT_K(opts, "tags", "")));
+               LET(summary, AS_STR(AT_K(opts, "summary", "")));
+               LET(category, AS_STR(AT_K(opts, "category", "")));
+               LET(status, AS_STR(AT_K(opts, "status", "published")));
+               LET(pages, AS_ARR(AT_K(opts, "standalones", [])));
+               LET(toc, AS_STR(AT_K(opts, "toc_html", "")));
+               LET(foot, AS_STR(AT_K(opts, "footnotes_html", "")));
+               LET(back, AS_STR(AT_K(opts, "backlinks_html", "")));
+               LET(related, AS_ARR(AT_K(opts, "related_articles", [])));
+               LET(cfg, CFG_OF(opts));
+               // Python: page_title = escape_html(title) 等三处;
+               LET(page_title, ESCAPE_HTML(title));
+               LET(safe_date, ESCAPE_HTML(date));
+               LET(safe_summary, ESCAPE_HTML(summary));
+               LET(tag_list, TAG_LIST(tags));
+               LET(site_url, AS_STR(AT_K(cfg, "site_url", "")));
+               // Python: `if cfg.site_url:` ⇒ 空则 og / JSON-LD / share 全不输出;
+               LET MUT(og, "");
+               LET MUT(ld, "");
+               LET MUT(share, "");
+               IF(!=(site_url, ""), (
+                    // og:url 与 JSON-LD 的 url 都走 rstrip("/");
+                    LET(article_url, CAT(RSTRIP_SLASH(site_url), "/article/", slug, ".html"));
+                    SET(og, ARTICLE_OG(page_title, safe_summary, article_url));
+                    // ⚠ JSON_LD 自己也会在 site_url 为空时返回 ""（卡片要求不加门控，这里不重复判）;
+                    SET(ld, JSON_LD(INDEX_SET(INDEX_SET(INDEX_SET(INDEX_SET(INDEX_SET(INDEX_SET(INDEX_SET(DICT(), "title", title), "description", summary), "date", date), "slug", slug), "tags", tag_list), "site_url", site_url), "author", AS_STR(AT_K(cfg, "site_author", "")))));
+                    // ⚠ share 的 url **不** rstrip（见文件头实测④）;
+                    SET(share, SHARE_HTML(page_title, safe_summary, ESCAPE_HTML(site_url), slug))
+               ), (
+                    NULL
+               ));
+               LET(ctx, COMMON_CONTEXT(INDEX_SET(INDEX_SET(INDEX_SET(INDEX_SET(INDEX_SET(INDEX_SET(DICT(), "config", cfg), "theme_css", AS_STR(AT_K(opts, "theme_css", ""))), "dark_css", AS_STR(AT_K(opts, "dark_css", ""))), "has_dark", ==(AT_K(opts, "has_dark", FALSE), TRUE)), "standalones", pages), "current_path", CAT("/article/", slug, ".html"))));
+               LET MUT(b, DICT());
+               SET(b, INDEX_SET(b, "page_title", page_title));
+               SET(b, INDEX_SET(b, "safe_date", safe_date));
+               SET(b, INDEX_SET(b, "category_html", CATEGORY_HTML(category)));
+               SET(b, INDEX_SET(b, "draft_badge", DRAFT_BADGE(status)));
+               SET(b, INDEX_SET(b, "share_html", share));
+               SET(b, INDEX_SET(b, "toc_html", toc));
+               SET(b, INDEX_SET(b, "content", content));
+               SET(b, INDEX_SET(b, "tags_html", TAGS_HTML(tag_list)));
+               SET(b, INDEX_SET(b, "footnotes_html", foot));
+               SET(b, INDEX_SET(b, "backlinks_html", back));
+               SET(b, INDEX_SET(b, "related_html", RELATED_HTML(related)));
+               // Python 传 description=safe_summary（不是 summary）;
+               RENDER_SKELETON("article", SKEL_OPTS(ctx, cfg, page_title, safe_summary, ARTICLE_BODY(b), og, ld, MERMAID()))
+     )));
+
+// // 独立页（对齐 generator.py:429 generate_standalone_html）
+     LET(STANDALONE_PAGE, FUN((opts), (
+               // opts 键：title content summary config theme_css dark_css has_dark standalones;
+               // ⚠ Python 侧 `${standalones}` 只是导航用；current_path 是 "/"（不是 /standalone/…）;
+               LET(title, AS_STR(AT_K(opts, "title", "")));
+               LET(content, AS_STR(AT_K(opts, "content", "")));
+               LET(summary, AS_STR(AT_K(opts, "summary", "")));
+               LET(pages, AS_ARR(AT_K(opts, "standalones", [])));
+               LET(cfg, CFG_OF(opts));
+               LET(page_title, ESCAPE_HTML(title));
+               LET(safe_summary, ESCAPE_HTML(summary));
+               LET(site_url, AS_STR(AT_K(cfg, "site_url", "")));
+               LET MUT(og, "");
+               IF(!=(site_url, ""), (
+                    SET(og, STANDALONE_OG(page_title, safe_summary))
+               ), (
+                    NULL
+               ));
+               LET(ctx, COMMON_CONTEXT(INDEX_SET(INDEX_SET(INDEX_SET(INDEX_SET(INDEX_SET(INDEX_SET(DICT(), "config", cfg), "theme_css", AS_STR(AT_K(opts, "theme_css", ""))), "dark_css", AS_STR(AT_K(opts, "dark_css", ""))), "has_dark", ==(AT_K(opts, "has_dark", FALSE), TRUE)), "standalones", pages), "current_path", "/")));
+               // ⚠ 独立页**没有** mermaid，也**没有** JSON-LD（Python 侧都没传）;
+               RENDER_SKELETON("standalone", SKEL_OPTS(ctx, cfg, page_title, safe_summary, STANDALONE_BODY(page_title, content), og, "", ""))
+     )));
+
+EXPORT(["ARTICLE_PAGE", "STANDALONE_PAGE"]);

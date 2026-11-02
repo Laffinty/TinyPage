@@ -33,7 +33,7 @@
 | S1-2 行内解析器 | ✅ 完成 | `tp/lib/md_inline.wll`（生成器产出）；**21/21 测试通过**，含 3 个反向守卫 |
 | S1-3 块级解析器 | ✅ 完成 | `tp/lib/md.wll`（生成器产出）；**28/28 对照 mistune 3.2.1 逐字节通过**（25 基准 + 3 守卫）；链接去掉自加的 `rel` 属性以逐字节对齐 |
 | S1-4 front-matter/TOC/脚注/wikilink | ✅ 完成 | `frontmatter.wll` / `toc.wll` / `footnotes.wll` / `wikilink.wll` + 共享 `esc.wll`（全部生成器产出）；**38/38 + 41/41 + 23/23 + 28/28 + esc 19/19 全绿**；本地 CI 5 步全过（21 生成器 / 21 产物无 drift） |
-| S2 内容模型与生成器 | 🔄 进行中（**S2-1 / S2-2 / S2-3 已完成**；余 S2-4/S2-5） | 卡 S2-1 ✅（`article_store.wll` 11 导出，**277/277**，差异 D2/D3/D4）；卡 S2-2 ✅（`sort_util.wll` 4 导出，**39/39**）；卡 S2-3 ✅（`template.wll` + `theme.wll`，**162/162 + 68/68**，差异 D5–D8，父进程独立比 SHA256 四组全 MATCH）；S2-4/S2-5 ⬜ |
+| S2 内容模型与生成器 | 🔄 **S2-1～S2-4 已完成**；余 S2-5（增量构建） | S2-1 ✅ `article_store.wll` **277/277**／S2-2 ✅ `sort_util.wll` **39/39**／S2-3 ✅ `template.wll` + `theme.wll` **162+68**／S2-4 ✅ `page_common` + `article_page` + `list_page` + `feeds` + `search_index` **42+33+21+30+29 = 155**（共 10 个导出、91 条基准、24 条反向守卫）；S2-5 ⬜ |
 | S3 前台静态服务（TLS） | ⬜ 未开始 | `serve_public.wll`（TLS 终止 + 静态文件） |
 | S4 Admin 后台 | ⬜ 未开始 | `serve_admin.wll` + 会话/CSRF/限流/CRUD |
 | S5 AI 助手（出站 HTTPS） | ⬜ 未开始 | `ai.wll`（`tls.CONNECT` + 手写 HTTP/1.1） |
@@ -991,6 +991,43 @@ TinyPage/
 
 #### 卡 S2-4：站点产物生成
 
+- **✅ 实测状态（2026-11-02 完成；交付物由计划的 3 个模块拆成 5 个，理由见下）**：
+  | 模块 | 导出 | 测试 | 基准 |
+  |---|---|---|---|
+  | `tp/lib/page_common.wll`（**新增，计划的隐藏前置**） | `JSON_LD` / `NAV_LINKS` / `COMMON_CONTEXT` | **42/42** | 15 条 |
+  | `tp/lib/article_page.wll` | `ARTICLE_PAGE` / `STANDALONE_PAGE` | **33/33** | 26 条 |
+  | `tp/lib/list_page.wll` | `LIST_PAGE` / `CATEGORY_PAGE` / `SEARCH_PAGE` | **21/21** | 15 条 |
+  | `tp/lib/feeds.wll` | `RSS` / `SITEMAP` / `ROBOTS` | **30/30** | 23 条 |
+  | `tp/lib/search_index.wll` | `SEARCH_INDEX` | **29/29** | 12 条 |
+  | **合计** | 10 个导出 | **155 个断言，全部 failed=0、exit 0** | 91 条基准 |
+
+  **为什么拆成 5 个而不是卡片的 3 个**：`generator.py` 的 `build_json_ld` / `_nav_links` /
+  `_build_common_context` 被 **5 个页面函数共用**。若让并行 worker 各写一份，必然漂移
+  （正是 §0.2 第 6 条要防的）⇒ 单独抽成 `page_common.wll` 作为共享前置，其余模块只 import、不重写。
+  另外 `generator.wll` 一拆为二（`article_page` / `list_page`）是**为了让 4 路并行拥有互不重叠的文件所有权**。
+
+  | 其他读数 | 值 |
+  |---|---|
+  | 本地 CI | 5 步全过：**33 个 `.wll` check** / **17 个测试文件全绿** / 27 个生成器重跑无 drift |
+  | 幂等 | 5 个模块的生成器各自重跑，产物 SHA256 全等 |
+  | 父进程独立核验 | `page_common` 用**真 Python 另算**的 ctx 12 字段 / JSON-LD 三组 / nav 两组，与 WLWL 产物逐字节 MATCH（不依赖 worker 的夹具） |
+  | 变异测试 | 各模块都做了：改空格数、关草稿过滤、放宽标识符、退化换行归一 ⇒ 都能让对应用例变红并使退出码为 1 |
+  | 反向守卫合计 | 24 条（含「`title` 必转义而 `content` 不转义」的对照组、`site_url` 空时不得有 `ld+json`/`og:title`/`share-btn`、RSS 不得有裸 `&`、sitemap 不得有 `lastmod`/`changefreq`、`SEARCH_INDEX` 草稿**必须**原样通过） |
+
+  **⚠ 两条已知缺口（未修，已登记，附现成修法）**：
+  1. **`tags` 的 strip 口径**：WLWL 内建 `TRIM` 只剥 **ASCII** 空白，Python 的 `str.strip()`
+     还剥 U+3000 / U+00A0 / U+0085 / U+2000–200A / U+2028–2029 / U+202F / U+205F。
+     ⇒ `list_page.wll` 与 `search_index.wll` 的 tags 在**含非 ASCII 空白**时会与 Python 不同
+     （`article_page.wll` **已修**：自建 `PY_WS()` 用 `RE_REPLACE` 两侧剥 Unicode 空白集合，用例 `a12` 钉住）。
+     **修法**（已排除其他选项）：照抄 `article_page.wll` 的 `PY_WS()` 换掉那两处的 `TRIM`，
+     各加一条 `tags="\u3000a\u3000, \xa0b\xa0"` 用例；属**行为变更**，须单独一轮做并全量复跑。
+  2. **`RSTRIP_SLASH` 有三份**（`page_common.wll` 私有、`article_page.wll`、`feeds.wll`）：
+     `page_common` 的那份**未导出**，而契约只允许它导出三个函数 ⇒ 各自自带 8 行。
+     **可接受的依据**：三处行为都被各自的逐字节用例钉住，漂移必红，不存在静默分叉；
+     若将来要收敛，让 `page_common` 导出 `RSTRIP_SLASH` 再改两处 import 即可。
+
+#### 卡 S2-4（原卡片正文，交付物已按上文拆分）
+
 - **依赖**：S2-2、S2-3
 - **交付物**：`tp/lib/generator.wll`、`feeds.wll`、`search_index.wll`
 - **产物清单**（与 Python 侧对齐）：
@@ -1010,6 +1047,17 @@ TinyPage/
 - **反向守卫**：
   - 构建后 `git status` **不得**出现非预期产物（只允许 §3.2 列出的路径）
   - 生成 100 篇 → 耗时 ≤ 60s（按 0.3ms/行推算）
+- **⚠ 卡片措辞与源码分层的两处冲突（2026-11-02 实测 + 父进程读源码复核；以源码为准）**：
+  | 卡片原话 | 源码实情 | 本轮的裁决 |
+  |---|---|---|
+  | 「RSS 最多 20 条、**排除草稿**」 | `generate_rss`（`generator.py:542`）**不过滤**，只 `articles[:20]`；过滤在调用方 `generator.py:730` 的 `published = [a for a in articles if a.is_published]` | **`RSS()` 不过滤**（照函数现状），排除草稿由**调用方**（构建编排层）做 —— 否则与 `generate_rss` 逐字节对照必红 |
+  | 「草稿不进**搜索索引**」 | `generate_search_index`（`generator.py:599-625`）**不过滤**；排除发生在 `cli.py:139` 的 `list_articles(include_drafts=False)`（过滤点在 `content.py:187-189`） | 同上：`SEARCH_INDEX()` 不过滤，草稿排除归**调用方** |
+  | 「反向守卫：草稿不得出现在 **sitemap**」 | `generator.py:736` 传给 `generate_sitemap` 的是**未过滤**的 `articles` ⇒ 真实实现里**草稿在 sitemap 里** | **按现状实现**，并把它写成守卫 `guard/sitemap_draft_present_upstream`（上游哪天改了这条会红，正是提醒） |
+
+  ⇒ **统一口径（避免「两套语义」）**：**过滤草稿是构建编排层的唯一职责**，各产物模块一律照抄对应 Python 函数的现状（不过滤）。
+  这条对后续接线者尤其重要：接 `RSS()` / `SEARCH_INDEX()` 时**必须**先过滤，否则草稿会漏进发布物；
+  而 `SITEMAP()` 要喂**未过滤**列表才与现状一致（这是上游既有行为，不是新引入的偏差）。
+
 - **⚠ 已知 blocker：`pages/` 下没有真实文章**（2026-11-02 实测）：
   `pages/` 里只有 `pages/.tinypage/backlinks.json`（30 bytes），
   **`.html` 0 个、`.md` 0 个** ⇒ 没有真实语料可跑端到端。

@@ -140,6 +140,13 @@ powershell -File tp\test\ci_local_check.ps1
 | 38 | ⚠ **`wllgen.C()` 的参数里不能放嵌套 `C()` 节点** | `render_call` 会把内层调用渲染**两遍**（`F(g(x)` / `g(x))`）⇒ 产出坏代码，再被逗号守卫误报成假阳性 | `C()` 的参数一律用**表达式字符串**（既有生成器全是这么写的，原因就在这） |
 | 39 | **`UNWRAP_OR` 只吃 OK/ERR** | 对普通串报 `E0030: expected OK/ERR, got string` | 「STRING 或 ERR」的接地用 `IS_ERR(调用)` 判别；载荷一步取用 `std.result::TAKE_ERR(调用)`（`NULL` 表示非 ERR） |
 | 40 | **Python 的 `read_text()` 还会把「孤立 CR」转成 LF** | 只做 CRLF→LF 归一化，遇到老 Mac 换行的文件仍与 Python 不一致 | CRLF **和** 孤立 CR 都要归一成 LF（`themes/default/theme.css` 本身无孤立 CR，但基准里有专门用例钉这条） |
+| 41 | ⚠ **内建 `TRIM` 只剥 ASCII 空白**（Python `str.strip()` 剥 Unicode 空白） | `TRIM("\u3000a\u3000")` **原样保留**；粘来的标签常带 NBSP/全角空格 ⇒ 静默漏剥 | 需要 Python 口径时自己构造空白集合再用 `RE_REPLACE` 两侧剥；`tp/lib/article_page.wll` 的 `PY_WS()` 是可复用写法 |
+| 42 | **`UTF8_DECODE` 的实参是「字节」不是码点** | 传 12288 报 `E0030: byte out of range` | 只能给 0–255；造多字节字符要自己拼 UTF-8 字节序列 |
+| 43 | **`SPLIT` / `TRIM` / `PUSH` 是**全局内建**，不是 `wlwl:std.str` 成员** | `IMPORT("wlwl:std.str", ["SPLIT"])` ⇒ `E0023` | 直接用裸名；`SPLIT_LINES` 才是 `std.str` 的 |
+| 44 | **`TO_LOWER` / `TO_UPPER` 必须从 `wlwl:std.text` IMPORT** | 不 import 报 `E0020`，且提示是误导性的 `did you mean LOWER?`（`LOWER` 是另一个真实存在的全局名） | 一律显式 `IMPORT("wlwl:std.text", ["TO_LOWER"])` |
+| 45 | **`CONTAINS_SUB` 的空子串是运行时 `E0030`** | 拿 `CONTAINS_SUB(s, "")` 当「恒真」会炸 | 判「包含」用 `RE_FIND_ALL` 计数或非空子串 |
+| 46 | **`(ASSERT(...));` 行首那个 `(` 是分组括号，多断言时**每条**都要带** | 漏一条就每行多一个 `)`，而 `paren_check` 只报「lines X-Y ends at depth N」、**不指出真正出错的行** | 照抄范本形态：每行 `    (ASSERT(...));` 或 `    ASSERT(...);`（二者**不可混用**） |
+| 47 | **`std.json::PARSE` 返回的是原始值**（`TYPE` = `ARRAY`/`DICT`），不是 `RESULT`；解析失败才是 `E0070` 中止 | 对 `PARSE` 的返回值调 `UNWRAP_OR` ⇒ `E0030: expected OK/ERR, got array` | 只有 `JSON_VALIDATE` 返回 `RESULT`；要「解析失败可处置」必须先 `JSON_VALIDATE` 再 `PARSE` |
 
 ## 参考
 

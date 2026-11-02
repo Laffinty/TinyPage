@@ -1,0 +1,681 @@
+{
+  "generated_by": "tp/test/gen_list_page_baseline.py",
+  "note": "期望值全部来自真 Python：tinypage.generator.generate_list_page / generate_category_page / generate_search_page。已知差异 D1（**故意不放进夹具**）：tags 的 t.strip() —— Python 的 str.strip() 剥 Unicode 空白（NBSP U+00A0 / 全角空格 U+3000），WLWL 的 TRIM 实测只剥 ASCII 空白 ⇒ 含这类空白的 tags 两边不同；放进来会让本夹具变红，故只登记不测。",
+  "cases": [
+    {
+      "name": "list_single_page",
+      "fn": "LIST_PAGE",
+      "note": "单页（total=1）：无分页 nav，两条文章；一条带 tags+category、一条都不带。",
+      "opts": {
+        "config": {
+          "site_title": "TinyPage",
+          "site_description": "A modern static blog",
+          "site_url": "",
+          "site_author": "",
+          "footer_text": "Powered by TinyPage",
+          "lang": "zh-CN",
+          "theme_name": "default",
+          "page_size": 10,
+          "enable_pwa": true,
+          "enable_dark_mode": true,
+          "enable_search": true,
+          "enable_rss": true,
+          "enable_sitemap": true,
+          "enable_view_transitions": true,
+          "pwa_short_name": "TinyPage",
+          "pwa_theme_color": "#2c3e50",
+          "pwa_bg_color": "#ffffff"
+        },
+        "theme_css": "body{color:#222}",
+        "dark_css": "",
+        "has_dark": false,
+        "standalones": [],
+        "articles": [
+          {
+            "title": "Hello World",
+            "date": "2026-01-02",
+            "tags": "python, wll",
+            "summary": "first summary",
+            "category": "Tech",
+            "file": "2026-01-02-hello.html"
+          },
+          {
+            "title": "Second Post",
+            "date": "2026-01-01",
+            "tags": "",
+            "summary": "second summary",
+            "category": "",
+            "file": "2026-01-01-second.html"
+          }
+        ],
+        "page_info": {
+          "current": 1,
+          "total": 1,
+          "has_prev": false,
+          "has_next": false,
+          "prev_url": "",
+          "next_url": ""
+        }
+      },
+      "want": "<!DOCTYPE html>\n<html lang=\"zh-CN\">\n<head>\n<meta charset=\"utf-8\">\n<meta name=\"viewport\" content=\"width=device-width,initial-scale=1\">\n\n<meta name=\"theme-color\" content=\"#2c3e50\" media=\"(prefers-color-scheme: light)\"><meta name=\"theme-color\" content=\"#ffffff\" media=\"(prefers-color-scheme: dark)\">\n<meta name=\"view-transition\" content=\"same-origin\">\n<meta name=\"description\" content=\"A modern static blog\">\n\n\n<link rel=\"manifest\" href=\"/manifest.json\">\n<title>首页 - TinyPage</title>\n<style>\nbody{color:#222}\n</style>\n\n\n</head>\n<body>\n<div class=\"container\">\n  <header class=\"site-header\">\n    <a href=\"/\" class=\"site-title\">TinyPage</a>\n    <nav class=\"site-nav\" aria-label=\"站点导航\">\n      <a href=\"/\">首页</a>\n      <a href=\"/search.html\">搜索</a>\n      \n    </nav>\n  </header>\n  <main>\n<h1 class=\"page-title\" style=\"position:absolute;left:-9999px;\">文章列表</h1>\n    <div class=\"posts\">\n      \n<article class=\"post-preview\">\n  <header>\n    <h2 class=\"post-title\"><a href=\"/article/2026-01-02-hello.html\">Hello World</a></h2>\n    <time class=\"post-date\" datetime=\"2026-01-02\">2026-01-02</time>\n    <span class=\"category-badge\">Tech</span>\n  </header>\n  <p class=\"post-summary\">first summary</p>\n  <div class=\"post-tags\"><span class=\"tag\">python</span> <span class=\"tag\">wll</span></div>\n  <a href=\"/article/2026-01-02-hello.html\" class=\"read-more\">阅读全文 →</a>\n</article>\n\n<article class=\"post-preview\">\n  <header>\n    <h2 class=\"post-title\"><a href=\"/article/2026-01-01-second.html\">Second Post</a></h2>\n    <time class=\"post-date\" datetime=\"2026-01-01\">2026-01-01</time>\n    \n  </header>\n  <p class=\"post-summary\">second summary</p>\n  \n  <a href=\"/article/2026-01-01-second.html\" class=\"read-more\">阅读全文 →</a>\n</article>\n\n    </div>\n    \n  </main>\n  <footer class=\"site-footer\">\n    <p>Powered by TinyPage</p>\n  </footer>\n</div>\n<script src=\"/search.js\" defer></script>\n\n</body>\n</html>"
+    },
+    {
+      "name": "list_page2_prev_root",
+      "fn": "LIST_PAGE",
+      "note": "第 2 页 / 共 3 页：prev_url 必须是 \"/\"（不是 \"/list/1.html\"）；当前页码用 <span class=\"current\">。",
+      "opts": {
+        "config": {
+          "site_title": "TinyPage",
+          "site_description": "A modern static blog",
+          "site_url": "",
+          "site_author": "",
+          "footer_text": "Powered by TinyPage",
+          "lang": "zh-CN",
+          "theme_name": "default",
+          "page_size": 10,
+          "enable_pwa": true,
+          "enable_dark_mode": true,
+          "enable_search": true,
+          "enable_rss": true,
+          "enable_sitemap": true,
+          "enable_view_transitions": true,
+          "pwa_short_name": "TinyPage",
+          "pwa_theme_color": "#2c3e50",
+          "pwa_bg_color": "#ffffff"
+        },
+        "theme_css": "body{color:#222}",
+        "dark_css": "",
+        "has_dark": false,
+        "standalones": [],
+        "articles": [
+          {
+            "title": "Page Two A",
+            "date": "2025-12-31",
+            "tags": "x",
+            "summary": "a",
+            "category": "",
+            "file": "2025-12-31-a.html"
+          },
+          {
+            "title": "Page Two B",
+            "date": "2025-12-30",
+            "tags": "",
+            "summary": "b",
+            "category": "Life",
+            "file": "2025-12-30-b.html"
+          }
+        ],
+        "page_info": {
+          "current": 2,
+          "total": 3,
+          "has_prev": true,
+          "has_next": true,
+          "prev_url": "/",
+          "next_url": "/list/3.html"
+        }
+      },
+      "want": "<!DOCTYPE html>\n<html lang=\"zh-CN\">\n<head>\n<meta charset=\"utf-8\">\n<meta name=\"viewport\" content=\"width=device-width,initial-scale=1\">\n\n<meta name=\"theme-color\" content=\"#2c3e50\" media=\"(prefers-color-scheme: light)\"><meta name=\"theme-color\" content=\"#ffffff\" media=\"(prefers-color-scheme: dark)\">\n<meta name=\"view-transition\" content=\"same-origin\">\n<meta name=\"description\" content=\"A modern static blog\">\n\n\n<link rel=\"manifest\" href=\"/manifest.json\">\n<title>第2页 - TinyPage</title>\n<style>\nbody{color:#222}\n</style>\n\n\n</head>\n<body>\n<div class=\"container\">\n  <header class=\"site-header\">\n    <a href=\"/\" class=\"site-title\">TinyPage</a>\n    <nav class=\"site-nav\" aria-label=\"站点导航\">\n      <a href=\"/\">首页</a>\n      <a href=\"/search.html\">搜索</a>\n      \n    </nav>\n  </header>\n  <main>\n<h1 class=\"page-title\" style=\"position:absolute;left:-9999px;\">文章列表</h1>\n    <div class=\"posts\">\n      \n<article class=\"post-preview\">\n  <header>\n    <h2 class=\"post-title\"><a href=\"/article/2025-12-31-a.html\">Page Two A</a></h2>\n    <time class=\"post-date\" datetime=\"2025-12-31\">2025-12-31</time>\n    \n  </header>\n  <p class=\"post-summary\">a</p>\n  <div class=\"post-tags\"><span class=\"tag\">x</span></div>\n  <a href=\"/article/2025-12-31-a.html\" class=\"read-more\">阅读全文 →</a>\n</article>\n\n<article class=\"post-preview\">\n  <header>\n    <h2 class=\"post-title\"><a href=\"/article/2025-12-30-b.html\">Page Two B</a></h2>\n    <time class=\"post-date\" datetime=\"2025-12-30\">2025-12-30</time>\n    <span class=\"category-badge\">Life</span>\n  </header>\n  <p class=\"post-summary\">b</p>\n  \n  <a href=\"/article/2025-12-30-b.html\" class=\"read-more\">阅读全文 →</a>\n</article>\n\n    </div>\n    \n<nav class=\"pagination\" aria-label=\"分页导航\">\n  <div class=\"nav-links\"><a href=\"/\" class=\"prev\">← 上一页</a><a href=\"/list/3.html\" class=\"next\">下一页 →</a></div>\n  <div class=\"page-numbers\"><a href=\"/\">1</a><span class=\"current\" aria-current=\"page\">2</span><a href=\"/list/3.html\">3</a></div>\n</nav>\n  </main>\n  <footer class=\"site-footer\">\n    <p>Powered by TinyPage</p>\n  </footer>\n</div>\n<script src=\"/search.js\" defer></script>\n\n</body>\n</html>"
+    },
+    {
+      "name": "list_page3_next_empty",
+      "fn": "LIST_PAGE",
+      "note": "末页：只有 prev 链接，没有 next；next_url 为空串。",
+      "opts": {
+        "config": {
+          "site_title": "TinyPage",
+          "site_description": "A modern static blog",
+          "site_url": "",
+          "site_author": "",
+          "footer_text": "Powered by TinyPage",
+          "lang": "zh-CN",
+          "theme_name": "default",
+          "page_size": 10,
+          "enable_pwa": true,
+          "enable_dark_mode": true,
+          "enable_search": true,
+          "enable_rss": true,
+          "enable_sitemap": true,
+          "enable_view_transitions": true,
+          "pwa_short_name": "TinyPage",
+          "pwa_theme_color": "#2c3e50",
+          "pwa_bg_color": "#ffffff"
+        },
+        "theme_css": "body{color:#222}",
+        "dark_css": "",
+        "has_dark": false,
+        "standalones": [],
+        "articles": [
+          {
+            "title": "Last",
+            "date": "2025-12-29",
+            "tags": "",
+            "summary": "z",
+            "category": "",
+            "file": "2025-12-29-last.html"
+          }
+        ],
+        "page_info": {
+          "current": 3,
+          "total": 3,
+          "has_prev": true,
+          "has_next": false,
+          "prev_url": "/list/2.html",
+          "next_url": ""
+        }
+      },
+      "want": "<!DOCTYPE html>\n<html lang=\"zh-CN\">\n<head>\n<meta charset=\"utf-8\">\n<meta name=\"viewport\" content=\"width=device-width,initial-scale=1\">\n\n<meta name=\"theme-color\" content=\"#2c3e50\" media=\"(prefers-color-scheme: light)\"><meta name=\"theme-color\" content=\"#ffffff\" media=\"(prefers-color-scheme: dark)\">\n<meta name=\"view-transition\" content=\"same-origin\">\n<meta name=\"description\" content=\"A modern static blog\">\n\n\n<link rel=\"manifest\" href=\"/manifest.json\">\n<title>第3页 - TinyPage</title>\n<style>\nbody{color:#222}\n</style>\n\n\n</head>\n<body>\n<div class=\"container\">\n  <header class=\"site-header\">\n    <a href=\"/\" class=\"site-title\">TinyPage</a>\n    <nav class=\"site-nav\" aria-label=\"站点导航\">\n      <a href=\"/\">首页</a>\n      <a href=\"/search.html\">搜索</a>\n      \n    </nav>\n  </header>\n  <main>\n<h1 class=\"page-title\" style=\"position:absolute;left:-9999px;\">文章列表</h1>\n    <div class=\"posts\">\n      \n<article class=\"post-preview\">\n  <header>\n    <h2 class=\"post-title\"><a href=\"/article/2025-12-29-last.html\">Last</a></h2>\n    <time class=\"post-date\" datetime=\"2025-12-29\">2025-12-29</time>\n    \n  </header>\n  <p class=\"post-summary\">z</p>\n  \n  <a href=\"/article/2025-12-29-last.html\" class=\"read-more\">阅读全文 →</a>\n</article>\n\n    </div>\n    \n<nav class=\"pagination\" aria-label=\"分页导航\">\n  <div class=\"nav-links\"><a href=\"/list/2.html\" class=\"prev\">← 上一页</a></div>\n  <div class=\"page-numbers\"><a href=\"/\">1</a><a href=\"/list/2.html\">2</a><span class=\"current\" aria-current=\"page\">3</span></div>\n</nav>\n  </main>\n  <footer class=\"site-footer\">\n    <p>Powered by TinyPage</p>\n  </footer>\n</div>\n<script src=\"/search.js\" defer></script>\n\n</body>\n</html>"
+    },
+    {
+      "name": "list_empty",
+      "fn": "LIST_PAGE",
+      "note": "空列表：items 为空串 ⇒ <div class=\"posts\"> 内只有空白；total=1 ⇒ 无分页 nav。",
+      "opts": {
+        "config": {
+          "site_title": "TinyPage",
+          "site_description": "A modern static blog",
+          "site_url": "",
+          "site_author": "",
+          "footer_text": "Powered by TinyPage",
+          "lang": "zh-CN",
+          "theme_name": "default",
+          "page_size": 10,
+          "enable_pwa": true,
+          "enable_dark_mode": true,
+          "enable_search": true,
+          "enable_rss": true,
+          "enable_sitemap": true,
+          "enable_view_transitions": true,
+          "pwa_short_name": "TinyPage",
+          "pwa_theme_color": "#2c3e50",
+          "pwa_bg_color": "#ffffff"
+        },
+        "theme_css": "body{color:#222}",
+        "dark_css": "",
+        "has_dark": false,
+        "standalones": [],
+        "articles": [],
+        "page_info": {
+          "current": 1,
+          "total": 1,
+          "has_prev": false,
+          "has_next": false,
+          "prev_url": "",
+          "next_url": ""
+        }
+      },
+      "want": "<!DOCTYPE html>\n<html lang=\"zh-CN\">\n<head>\n<meta charset=\"utf-8\">\n<meta name=\"viewport\" content=\"width=device-width,initial-scale=1\">\n\n<meta name=\"theme-color\" content=\"#2c3e50\" media=\"(prefers-color-scheme: light)\"><meta name=\"theme-color\" content=\"#ffffff\" media=\"(prefers-color-scheme: dark)\">\n<meta name=\"view-transition\" content=\"same-origin\">\n<meta name=\"description\" content=\"A modern static blog\">\n\n\n<link rel=\"manifest\" href=\"/manifest.json\">\n<title>首页 - TinyPage</title>\n<style>\nbody{color:#222}\n</style>\n\n\n</head>\n<body>\n<div class=\"container\">\n  <header class=\"site-header\">\n    <a href=\"/\" class=\"site-title\">TinyPage</a>\n    <nav class=\"site-nav\" aria-label=\"站点导航\">\n      <a href=\"/\">首页</a>\n      <a href=\"/search.html\">搜索</a>\n      \n    </nav>\n  </header>\n  <main>\n<h1 class=\"page-title\" style=\"position:absolute;left:-9999px;\">文章列表</h1>\n    <div class=\"posts\">\n      \n    </div>\n    \n  </main>\n  <footer class=\"site-footer\">\n    <p>Powered by TinyPage</p>\n  </footer>\n</div>\n<script src=\"/search.js\" defer></script>\n\n</body>\n</html>"
+    },
+    {
+      "name": "list_escape",
+      "fn": "LIST_PAGE",
+      "note": "反向守卫的基准：标题/摘要/tags/分类里的 HTML 必须被 escape。⚠ 摘要是**先 escape 再**去掉字面 \"<p>\"/\"</p>\"（Python 行序如此）⇒ escape 后已无 \"<p>\" ⇒ 那条 replace 实际是空操作，但仍要复刻。",
+      "opts": {
+        "config": {
+          "site_title": "TinyPage",
+          "site_description": "A modern static blog",
+          "site_url": "",
+          "site_author": "",
+          "footer_text": "Powered by TinyPage",
+          "lang": "zh-CN",
+          "theme_name": "default",
+          "page_size": 10,
+          "enable_pwa": true,
+          "enable_dark_mode": true,
+          "enable_search": true,
+          "enable_rss": true,
+          "enable_sitemap": true,
+          "enable_view_transitions": true,
+          "pwa_short_name": "TinyPage",
+          "pwa_theme_color": "#2c3e50",
+          "pwa_bg_color": "#ffffff"
+        },
+        "theme_css": "body{color:#222}",
+        "dark_css": "",
+        "has_dark": false,
+        "standalones": [],
+        "articles": [
+          {
+            "title": "<script>alert(1)</script>",
+            "date": "2026-02-01 10:00",
+            "tags": "<b>, \"q\" ,&amp;",
+            "summary": "<p>段落</p> & <em>x</em>",
+            "category": "A&B<script>",
+            "file": "2026-02-01-esc.html"
+          }
+        ],
+        "page_info": {
+          "current": 1,
+          "total": 1,
+          "has_prev": false,
+          "has_next": false,
+          "prev_url": "",
+          "next_url": ""
+        }
+      },
+      "want": "<!DOCTYPE html>\n<html lang=\"zh-CN\">\n<head>\n<meta charset=\"utf-8\">\n<meta name=\"viewport\" content=\"width=device-width,initial-scale=1\">\n\n<meta name=\"theme-color\" content=\"#2c3e50\" media=\"(prefers-color-scheme: light)\"><meta name=\"theme-color\" content=\"#ffffff\" media=\"(prefers-color-scheme: dark)\">\n<meta name=\"view-transition\" content=\"same-origin\">\n<meta name=\"description\" content=\"A modern static blog\">\n\n\n<link rel=\"manifest\" href=\"/manifest.json\">\n<title>首页 - TinyPage</title>\n<style>\nbody{color:#222}\n</style>\n\n\n</head>\n<body>\n<div class=\"container\">\n  <header class=\"site-header\">\n    <a href=\"/\" class=\"site-title\">TinyPage</a>\n    <nav class=\"site-nav\" aria-label=\"站点导航\">\n      <a href=\"/\">首页</a>\n      <a href=\"/search.html\">搜索</a>\n      \n    </nav>\n  </header>\n  <main>\n<h1 class=\"page-title\" style=\"position:absolute;left:-9999px;\">文章列表</h1>\n    <div class=\"posts\">\n      \n<article class=\"post-preview\">\n  <header>\n    <h2 class=\"post-title\"><a href=\"/article/2026-02-01-esc.html\">&lt;script&gt;alert(1)&lt;/script&gt;</a></h2>\n    <time class=\"post-date\" datetime=\"2026-02-01 10:00\">2026-02-01 10:00</time>\n    <span class=\"category-badge\">A&amp;B&lt;script&gt;</span>\n  </header>\n  <p class=\"post-summary\">&lt;p&gt;段落&lt;/p&gt; &amp; &lt;em&gt;x&lt;/em&gt;</p>\n  <div class=\"post-tags\"><span class=\"tag\">&lt;b&gt;</span> <span class=\"tag\">&quot;q&quot;</span> <span class=\"tag\">&amp;amp;</span></div>\n  <a href=\"/article/2026-02-01-esc.html\" class=\"read-more\">阅读全文 →</a>\n</article>\n\n    </div>\n    \n  </main>\n  <footer class=\"site-footer\">\n    <p>Powered by TinyPage</p>\n  </footer>\n</div>\n<script src=\"/search.js\" defer></script>\n\n</body>\n</html>"
+    },
+    {
+      "name": "list_dollar",
+      "fn": "LIST_PAGE",
+      "note": "插值守卫：标题/摘要里的 `$` 必须**原样**输出。WLWL 字符串字面量里 `$` 是插值 ⇒ 夹具生成器必须转义成 `\\$`。",
+      "opts": {
+        "config": {
+          "site_title": "TinyPage",
+          "site_description": "A modern static blog",
+          "site_url": "",
+          "site_author": "",
+          "footer_text": "Powered by TinyPage",
+          "lang": "zh-CN",
+          "theme_name": "default",
+          "page_size": 10,
+          "enable_pwa": true,
+          "enable_dark_mode": true,
+          "enable_search": true,
+          "enable_rss": true,
+          "enable_sitemap": true,
+          "enable_view_transitions": true,
+          "pwa_short_name": "TinyPage",
+          "pwa_theme_color": "#2c3e50",
+          "pwa_bg_color": "#ffffff"
+        },
+        "theme_css": "body{color:#222}",
+        "dark_css": "",
+        "has_dark": false,
+        "standalones": [],
+        "articles": [
+          {
+            "title": "Price $5 and ${x}",
+            "date": "2026-02-02",
+            "tags": "",
+            "summary": "cost $9",
+            "category": "",
+            "file": "2026-02-02-dollar.html"
+          }
+        ],
+        "page_info": {
+          "current": 1,
+          "total": 1,
+          "has_prev": false,
+          "has_next": false,
+          "prev_url": "",
+          "next_url": ""
+        }
+      },
+      "want": "<!DOCTYPE html>\n<html lang=\"zh-CN\">\n<head>\n<meta charset=\"utf-8\">\n<meta name=\"viewport\" content=\"width=device-width,initial-scale=1\">\n\n<meta name=\"theme-color\" content=\"#2c3e50\" media=\"(prefers-color-scheme: light)\"><meta name=\"theme-color\" content=\"#ffffff\" media=\"(prefers-color-scheme: dark)\">\n<meta name=\"view-transition\" content=\"same-origin\">\n<meta name=\"description\" content=\"A modern static blog\">\n\n\n<link rel=\"manifest\" href=\"/manifest.json\">\n<title>首页 - TinyPage</title>\n<style>\nbody{color:#222}\n</style>\n\n\n</head>\n<body>\n<div class=\"container\">\n  <header class=\"site-header\">\n    <a href=\"/\" class=\"site-title\">TinyPage</a>\n    <nav class=\"site-nav\" aria-label=\"站点导航\">\n      <a href=\"/\">首页</a>\n      <a href=\"/search.html\">搜索</a>\n      \n    </nav>\n  </header>\n  <main>\n<h1 class=\"page-title\" style=\"position:absolute;left:-9999px;\">文章列表</h1>\n    <div class=\"posts\">\n      \n<article class=\"post-preview\">\n  <header>\n    <h2 class=\"post-title\"><a href=\"/article/2026-02-02-dollar.html\">Price $5 and ${x}</a></h2>\n    <time class=\"post-date\" datetime=\"2026-02-02\">2026-02-02</time>\n    \n  </header>\n  <p class=\"post-summary\">cost $9</p>\n  \n  <a href=\"/article/2026-02-02-dollar.html\" class=\"read-more\">阅读全文 →</a>\n</article>\n\n    </div>\n    \n  </main>\n  <footer class=\"site-footer\">\n    <p>Powered by TinyPage</p>\n  </footer>\n</div>\n<script src=\"/search.js\" defer></script>\n\n</body>\n</html>"
+    },
+    {
+      "name": "list_long_title",
+      "fn": "LIST_PAGE",
+      "note": "标题按 Python 的 art.title[:80] 截断（100 个 T ⇒ 只剩 80 个）。",
+      "opts": {
+        "config": {
+          "site_title": "TinyPage",
+          "site_description": "A modern static blog",
+          "site_url": "",
+          "site_author": "",
+          "footer_text": "Powered by TinyPage",
+          "lang": "zh-CN",
+          "theme_name": "default",
+          "page_size": 10,
+          "enable_pwa": true,
+          "enable_dark_mode": true,
+          "enable_search": true,
+          "enable_rss": true,
+          "enable_sitemap": true,
+          "enable_view_transitions": true,
+          "pwa_short_name": "TinyPage",
+          "pwa_theme_color": "#2c3e50",
+          "pwa_bg_color": "#ffffff"
+        },
+        "theme_css": "body{color:#222}",
+        "dark_css": "",
+        "has_dark": false,
+        "standalones": [],
+        "articles": [
+          {
+            "title": "TTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTT",
+            "date": "2026-02-03",
+            "tags": "",
+            "summary": "s",
+            "category": "",
+            "file": "2026-02-03-long.html"
+          }
+        ],
+        "page_info": {
+          "current": 1,
+          "total": 1,
+          "has_prev": false,
+          "has_next": false,
+          "prev_url": "",
+          "next_url": ""
+        }
+      },
+      "want": "<!DOCTYPE html>\n<html lang=\"zh-CN\">\n<head>\n<meta charset=\"utf-8\">\n<meta name=\"viewport\" content=\"width=device-width,initial-scale=1\">\n\n<meta name=\"theme-color\" content=\"#2c3e50\" media=\"(prefers-color-scheme: light)\"><meta name=\"theme-color\" content=\"#ffffff\" media=\"(prefers-color-scheme: dark)\">\n<meta name=\"view-transition\" content=\"same-origin\">\n<meta name=\"description\" content=\"A modern static blog\">\n\n\n<link rel=\"manifest\" href=\"/manifest.json\">\n<title>首页 - TinyPage</title>\n<style>\nbody{color:#222}\n</style>\n\n\n</head>\n<body>\n<div class=\"container\">\n  <header class=\"site-header\">\n    <a href=\"/\" class=\"site-title\">TinyPage</a>\n    <nav class=\"site-nav\" aria-label=\"站点导航\">\n      <a href=\"/\">首页</a>\n      <a href=\"/search.html\">搜索</a>\n      \n    </nav>\n  </header>\n  <main>\n<h1 class=\"page-title\" style=\"position:absolute;left:-9999px;\">文章列表</h1>\n    <div class=\"posts\">\n      \n<article class=\"post-preview\">\n  <header>\n    <h2 class=\"post-title\"><a href=\"/article/2026-02-03-long.html\">TTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTT</a></h2>\n    <time class=\"post-date\" datetime=\"2026-02-03\">2026-02-03</time>\n    \n  </header>\n  <p class=\"post-summary\">s</p>\n  \n  <a href=\"/article/2026-02-03-long.html\" class=\"read-more\">阅读全文 →</a>\n</article>\n\n    </div>\n    \n  </main>\n  <footer class=\"site-footer\">\n    <p>Powered by TinyPage</p>\n  </footer>\n</div>\n<script src=\"/search.js\" defer></script>\n\n</body>\n</html>"
+    },
+    {
+      "name": "list_tags_spaces_only",
+      "fn": "LIST_PAGE",
+      "note": "⚠ 刁钻点：tags 是 \" ,  , \" ⇒ `if art.tags:` **真**（原串非空）但 tag_list 过滤后为空 ⇒ 输出 `<div class=\"post-tags\"></div>`（空的 div），**不是**不输出 div。",
+      "opts": {
+        "config": {
+          "site_title": "TinyPage",
+          "site_description": "A modern static blog",
+          "site_url": "",
+          "site_author": "",
+          "footer_text": "Powered by TinyPage",
+          "lang": "zh-CN",
+          "theme_name": "default",
+          "page_size": 10,
+          "enable_pwa": true,
+          "enable_dark_mode": true,
+          "enable_search": true,
+          "enable_rss": true,
+          "enable_sitemap": true,
+          "enable_view_transitions": true,
+          "pwa_short_name": "TinyPage",
+          "pwa_theme_color": "#2c3e50",
+          "pwa_bg_color": "#ffffff"
+        },
+        "theme_css": "body{color:#222}",
+        "dark_css": "",
+        "has_dark": false,
+        "standalones": [],
+        "articles": [
+          {
+            "title": "Spaces",
+            "date": "2026-02-04",
+            "tags": " ,  , ",
+            "summary": "s",
+            "category": "",
+            "file": "2026-02-04-sp.html"
+          }
+        ],
+        "page_info": {
+          "current": 1,
+          "total": 1,
+          "has_prev": false,
+          "has_next": false,
+          "prev_url": "",
+          "next_url": ""
+        }
+      },
+      "want": "<!DOCTYPE html>\n<html lang=\"zh-CN\">\n<head>\n<meta charset=\"utf-8\">\n<meta name=\"viewport\" content=\"width=device-width,initial-scale=1\">\n\n<meta name=\"theme-color\" content=\"#2c3e50\" media=\"(prefers-color-scheme: light)\"><meta name=\"theme-color\" content=\"#ffffff\" media=\"(prefers-color-scheme: dark)\">\n<meta name=\"view-transition\" content=\"same-origin\">\n<meta name=\"description\" content=\"A modern static blog\">\n\n\n<link rel=\"manifest\" href=\"/manifest.json\">\n<title>首页 - TinyPage</title>\n<style>\nbody{color:#222}\n</style>\n\n\n</head>\n<body>\n<div class=\"container\">\n  <header class=\"site-header\">\n    <a href=\"/\" class=\"site-title\">TinyPage</a>\n    <nav class=\"site-nav\" aria-label=\"站点导航\">\n      <a href=\"/\">首页</a>\n      <a href=\"/search.html\">搜索</a>\n      \n    </nav>\n  </header>\n  <main>\n<h1 class=\"page-title\" style=\"position:absolute;left:-9999px;\">文章列表</h1>\n    <div class=\"posts\">\n      \n<article class=\"post-preview\">\n  <header>\n    <h2 class=\"post-title\"><a href=\"/article/2026-02-04-sp.html\">Spaces</a></h2>\n    <time class=\"post-date\" datetime=\"2026-02-04\">2026-02-04</time>\n    \n  </header>\n  <p class=\"post-summary\">s</p>\n  <div class=\"post-tags\"></div>\n  <a href=\"/article/2026-02-04-sp.html\" class=\"read-more\">阅读全文 →</a>\n</article>\n\n    </div>\n    \n  </main>\n  <footer class=\"site-footer\">\n    <p>Powered by TinyPage</p>\n  </footer>\n</div>\n<script src=\"/search.js\" defer></script>\n\n</body>\n</html>"
+    },
+    {
+      "name": "list_dark_standalones",
+      "fn": "LIST_PAGE",
+      "note": "has_dark=True + dark_css 非空 + 两个独立页 ⇒ 暗色 meta/脚本/按钮与导航里的独立页链接都出现；其中一个标题超过 20 码点（nav 里截断）。",
+      "opts": {
+        "config": {
+          "site_title": "TinyPage",
+          "site_description": "A modern static blog",
+          "site_url": "",
+          "site_author": "",
+          "footer_text": "Powered by TinyPage",
+          "lang": "zh-CN",
+          "theme_name": "default",
+          "page_size": 10,
+          "enable_pwa": true,
+          "enable_dark_mode": true,
+          "enable_search": true,
+          "enable_rss": true,
+          "enable_sitemap": true,
+          "enable_view_transitions": true,
+          "pwa_short_name": "TinyPage",
+          "pwa_theme_color": "#2c3e50",
+          "pwa_bg_color": "#ffffff"
+        },
+        "theme_css": "body{color:#222}",
+        "dark_css": "body{background:#111;color:#eee}",
+        "has_dark": true,
+        "standalones": [
+          {
+            "title": "About",
+            "file": "about.html"
+          },
+          {
+            "title": "A very long standalone title here",
+            "file": "proj.html"
+          }
+        ],
+        "articles": [
+          {
+            "title": "Dark",
+            "date": "2026-02-05",
+            "tags": "wll",
+            "summary": "s",
+            "category": "Tech",
+            "file": "2026-02-05-dark.html"
+          }
+        ],
+        "page_info": {
+          "current": 1,
+          "total": 1,
+          "has_prev": false,
+          "has_next": false,
+          "prev_url": "",
+          "next_url": ""
+        }
+      },
+      "want": "<!DOCTYPE html>\n<html lang=\"zh-CN\">\n<head>\n<meta charset=\"utf-8\">\n<meta name=\"viewport\" content=\"width=device-width,initial-scale=1\">\n<meta name=\"color-scheme\" content=\"light dark\">\n<meta name=\"theme-color\" content=\"#2c3e50\" media=\"(prefers-color-scheme: light)\"><meta name=\"theme-color\" content=\"#ffffff\" media=\"(prefers-color-scheme: dark)\">\n<meta name=\"view-transition\" content=\"same-origin\">\n<meta name=\"description\" content=\"A modern static blog\">\n\n\n<link rel=\"manifest\" href=\"/manifest.json\">\n<title>首页 - TinyPage</title>\n<style>\nbody{color:#222}\n</style>\n<style media=\"(prefers-color-scheme: dark)\">body{background:#111;color:#eee}</style>\n<script>(function(){try{var m=localStorage.getItem('theme');if(m==='light'||(!m&&window.matchMedia('(prefers-color-scheme: light)').matches)){document.documentElement.classList.add('light')}}catch(e){}})();</script>\n</head>\n<body>\n<div class=\"container\">\n  <header class=\"site-header\">\n    <a href=\"/\" class=\"site-title\">TinyPage</a>\n    <nav class=\"site-nav\" aria-label=\"站点导航\">\n      <a href=\"/\">首页</a>\n      <a href=\"/standalone/about.html\">About</a>\n      <a href=\"/standalone/proj.html\">A very long standalo</a>\n      <a href=\"/search.html\">搜索</a>\n      <button class=\"theme-toggle\" aria-label=\"切换主题\" onclick=\"var d=document.documentElement;d.classList.toggle('light');try{localStorage.setItem('theme',d.classList.contains('light')?'light':'dark')}catch(e){}\">🌓</button>\n    </nav>\n  </header>\n  <main>\n<h1 class=\"page-title\" style=\"position:absolute;left:-9999px;\">文章列表</h1>\n    <div class=\"posts\">\n      \n<article class=\"post-preview\">\n  <header>\n    <h2 class=\"post-title\"><a href=\"/article/2026-02-05-dark.html\">Dark</a></h2>\n    <time class=\"post-date\" datetime=\"2026-02-05\">2026-02-05</time>\n    <span class=\"category-badge\">Tech</span>\n  </header>\n  <p class=\"post-summary\">s</p>\n  <div class=\"post-tags\"><span class=\"tag\">wll</span></div>\n  <a href=\"/article/2026-02-05-dark.html\" class=\"read-more\">阅读全文 →</a>\n</article>\n\n    </div>\n    \n  </main>\n  <footer class=\"site-footer\">\n    <p>Powered by TinyPage</p>\n  </footer>\n</div>\n<script src=\"/search.js\" defer></script>\n\n</body>\n</html>"
+    },
+    {
+      "name": "category_normal",
+      "fn": "CATEGORY_PAGE",
+      "note": "分类页与列表页的预览块有**两处**结构差异：① 没有 category-badge 行；② 没有标签（post-tags）行 —— 本例第一条文章带 tags=\"a,b\"，正是用来钉住「分类页不出标签区」。另：分类页没有分页。",
+      "opts": {
+        "config": {
+          "site_title": "TinyPage",
+          "site_description": "A modern static blog",
+          "site_url": "",
+          "site_author": "",
+          "footer_text": "Powered by TinyPage",
+          "lang": "zh-CN",
+          "theme_name": "default",
+          "page_size": 10,
+          "enable_pwa": true,
+          "enable_dark_mode": true,
+          "enable_search": true,
+          "enable_rss": true,
+          "enable_sitemap": true,
+          "enable_view_transitions": true,
+          "pwa_short_name": "TinyPage",
+          "pwa_theme_color": "#2c3e50",
+          "pwa_bg_color": "#ffffff"
+        },
+        "theme_css": "body{color:#222}",
+        "dark_css": "",
+        "has_dark": false,
+        "standalones": [],
+        "category": "Tech",
+        "articles": [
+          {
+            "title": "One",
+            "date": "2026-03-01",
+            "tags": "a,b",
+            "summary": "s1",
+            "category": "Tech",
+            "file": "2026-03-01-one.html"
+          },
+          {
+            "title": "Two",
+            "date": "2026-02-28",
+            "tags": "",
+            "summary": "s2",
+            "category": "Tech",
+            "file": "2026-02-28-two.html"
+          }
+        ]
+      },
+      "want": "<!DOCTYPE html>\n<html lang=\"zh-CN\">\n<head>\n<meta charset=\"utf-8\">\n<meta name=\"viewport\" content=\"width=device-width,initial-scale=1\">\n\n<meta name=\"theme-color\" content=\"#2c3e50\" media=\"(prefers-color-scheme: light)\"><meta name=\"theme-color\" content=\"#ffffff\" media=\"(prefers-color-scheme: dark)\">\n<meta name=\"view-transition\" content=\"same-origin\">\n<meta name=\"description\" content=\"Tech 分类下的文章 - TinyPage\">\n\n\n<link rel=\"manifest\" href=\"/manifest.json\">\n<title>分类：Tech - TinyPage</title>\n<style>\nbody{color:#222}\n</style>\n\n\n</head>\n<body>\n<div class=\"container\">\n  <header class=\"site-header\">\n    <a href=\"/\" class=\"site-title\">TinyPage</a>\n    <nav class=\"site-nav\" aria-label=\"站点导航\">\n      <a href=\"/\">首页</a>\n      <a href=\"/search.html\">搜索</a>\n      \n    </nav>\n  </header>\n  <main>\n<h1 class=\"page-title\">分类：Tech</h1>\n    <p style=\"color:#666;margin-bottom:1.5rem;\">共 2 篇文章</p>\n    <div class=\"posts\">\n      \n<article class=\"post-preview\">\n  <header>\n    <h2 class=\"post-title\"><a href=\"/article/2026-03-01-one.html\">One</a></h2>\n    <time class=\"post-date\" datetime=\"2026-03-01\">2026-03-01</time>\n  </header>\n  <p class=\"post-summary\">s1</p>\n  <a href=\"/article/2026-03-01-one.html\" class=\"read-more\">阅读全文 →</a>\n</article>\n\n<article class=\"post-preview\">\n  <header>\n    <h2 class=\"post-title\"><a href=\"/article/2026-02-28-two.html\">Two</a></h2>\n    <time class=\"post-date\" datetime=\"2026-02-28\">2026-02-28</time>\n  </header>\n  <p class=\"post-summary\">s2</p>\n  <a href=\"/article/2026-02-28-two.html\" class=\"read-more\">阅读全文 →</a>\n</article>\n\n    </div>\n  </main>\n  <footer class=\"site-footer\">\n    <p>Powered by TinyPage</p>\n  </footer>\n</div>\n<script src=\"/search.js\" defer></script>\n\n</body>\n</html>"
+    },
+    {
+      "name": "category_empty",
+      "fn": "CATEGORY_PAGE",
+      "note": "空分类：`共 0 篇文章`，items 为空串。",
+      "opts": {
+        "config": {
+          "site_title": "TinyPage",
+          "site_description": "A modern static blog",
+          "site_url": "",
+          "site_author": "",
+          "footer_text": "Powered by TinyPage",
+          "lang": "zh-CN",
+          "theme_name": "default",
+          "page_size": 10,
+          "enable_pwa": true,
+          "enable_dark_mode": true,
+          "enable_search": true,
+          "enable_rss": true,
+          "enable_sitemap": true,
+          "enable_view_transitions": true,
+          "pwa_short_name": "TinyPage",
+          "pwa_theme_color": "#2c3e50",
+          "pwa_bg_color": "#ffffff"
+        },
+        "theme_css": "body{color:#222}",
+        "dark_css": "",
+        "has_dark": false,
+        "standalones": [],
+        "category": "Empty",
+        "articles": []
+      },
+      "want": "<!DOCTYPE html>\n<html lang=\"zh-CN\">\n<head>\n<meta charset=\"utf-8\">\n<meta name=\"viewport\" content=\"width=device-width,initial-scale=1\">\n\n<meta name=\"theme-color\" content=\"#2c3e50\" media=\"(prefers-color-scheme: light)\"><meta name=\"theme-color\" content=\"#ffffff\" media=\"(prefers-color-scheme: dark)\">\n<meta name=\"view-transition\" content=\"same-origin\">\n<meta name=\"description\" content=\"Empty 分类下的文章 - TinyPage\">\n\n\n<link rel=\"manifest\" href=\"/manifest.json\">\n<title>分类：Empty - TinyPage</title>\n<style>\nbody{color:#222}\n</style>\n\n\n</head>\n<body>\n<div class=\"container\">\n  <header class=\"site-header\">\n    <a href=\"/\" class=\"site-title\">TinyPage</a>\n    <nav class=\"site-nav\" aria-label=\"站点导航\">\n      <a href=\"/\">首页</a>\n      <a href=\"/search.html\">搜索</a>\n      \n    </nav>\n  </header>\n  <main>\n<h1 class=\"page-title\">分类：Empty</h1>\n    <p style=\"color:#666;margin-bottom:1.5rem;\">共 0 篇文章</p>\n    <div class=\"posts\">\n      \n    </div>\n  </main>\n  <footer class=\"site-footer\">\n    <p>Powered by TinyPage</p>\n  </footer>\n</div>\n<script src=\"/search.js\" defer></script>\n\n</body>\n</html>"
+    },
+    {
+      "name": "category_escape",
+      "fn": "CATEGORY_PAGE",
+      "note": "反向守卫的基准：分类名 `<A&B<script>>` 在 h1 / <title> / meta description 三处都必须 escape（其中 description 会被 escape **两次** —— Python 先把 safe_category 传进去，render_skeleton 再 escape 一遍）。",
+      "opts": {
+        "config": {
+          "site_title": "TinyPage",
+          "site_description": "A modern static blog",
+          "site_url": "",
+          "site_author": "",
+          "footer_text": "Powered by TinyPage",
+          "lang": "zh-CN",
+          "theme_name": "default",
+          "page_size": 10,
+          "enable_pwa": true,
+          "enable_dark_mode": true,
+          "enable_search": true,
+          "enable_rss": true,
+          "enable_sitemap": true,
+          "enable_view_transitions": true,
+          "pwa_short_name": "TinyPage",
+          "pwa_theme_color": "#2c3e50",
+          "pwa_bg_color": "#ffffff"
+        },
+        "theme_css": "body{color:#222}",
+        "dark_css": "",
+        "has_dark": false,
+        "standalones": [],
+        "category": "<A&B<script>>",
+        "articles": [
+          {
+            "title": "<i>x</i>",
+            "date": "2026-03-02",
+            "tags": "",
+            "summary": "<p>s</p>",
+            "category": "A&B",
+            "file": "2026-03-02-esc.html"
+          }
+        ]
+      },
+      "want": "<!DOCTYPE html>\n<html lang=\"zh-CN\">\n<head>\n<meta charset=\"utf-8\">\n<meta name=\"viewport\" content=\"width=device-width,initial-scale=1\">\n\n<meta name=\"theme-color\" content=\"#2c3e50\" media=\"(prefers-color-scheme: light)\"><meta name=\"theme-color\" content=\"#ffffff\" media=\"(prefers-color-scheme: dark)\">\n<meta name=\"view-transition\" content=\"same-origin\">\n<meta name=\"description\" content=\"&amp;lt;A&amp;amp;B&amp;lt;script&amp;gt;&amp;gt; 分类下的文章 - TinyPage\">\n\n\n<link rel=\"manifest\" href=\"/manifest.json\">\n<title>分类：&amp;lt;A&amp;amp;B&amp;lt;script&amp;gt;&amp;gt; - TinyPage</title>\n<style>\nbody{color:#222}\n</style>\n\n\n</head>\n<body>\n<div class=\"container\">\n  <header class=\"site-header\">\n    <a href=\"/\" class=\"site-title\">TinyPage</a>\n    <nav class=\"site-nav\" aria-label=\"站点导航\">\n      <a href=\"/\">首页</a>\n      <a href=\"/search.html\">搜索</a>\n      \n    </nav>\n  </header>\n  <main>\n<h1 class=\"page-title\">分类：&lt;A&amp;B&lt;script&gt;&gt;</h1>\n    <p style=\"color:#666;margin-bottom:1.5rem;\">共 1 篇文章</p>\n    <div class=\"posts\">\n      \n<article class=\"post-preview\">\n  <header>\n    <h2 class=\"post-title\"><a href=\"/article/2026-03-02-esc.html\">&lt;i&gt;x&lt;/i&gt;</a></h2>\n    <time class=\"post-date\" datetime=\"2026-03-02\">2026-03-02</time>\n  </header>\n  <p class=\"post-summary\">&lt;p&gt;s&lt;/p&gt;</p>\n  <a href=\"/article/2026-03-02-esc.html\" class=\"read-more\">阅读全文 →</a>\n</article>\n\n    </div>\n  </main>\n  <footer class=\"site-footer\">\n    <p>Powered by TinyPage</p>\n  </footer>\n</div>\n<script src=\"/search.js\" defer></script>\n\n</body>\n</html>"
+    },
+    {
+      "name": "search_default",
+      "fn": "SEARCH_PAGE",
+      "note": "enable_search=True：nav 里有「搜索」并带 aria-current（current_path 是 \"/search.html\"）、body 末尾有 search.js。",
+      "opts": {
+        "config": {
+          "site_title": "TinyPage",
+          "site_description": "A modern static blog",
+          "site_url": "",
+          "site_author": "",
+          "footer_text": "Powered by TinyPage",
+          "lang": "zh-CN",
+          "theme_name": "default",
+          "page_size": 10,
+          "enable_pwa": true,
+          "enable_dark_mode": true,
+          "enable_search": true,
+          "enable_rss": true,
+          "enable_sitemap": true,
+          "enable_view_transitions": true,
+          "pwa_short_name": "TinyPage",
+          "pwa_theme_color": "#2c3e50",
+          "pwa_bg_color": "#ffffff"
+        },
+        "theme_css": "body{color:#222}",
+        "dark_css": "",
+        "has_dark": false,
+        "standalones": []
+      },
+      "want": "<!DOCTYPE html>\n<html lang=\"zh-CN\">\n<head>\n<meta charset=\"utf-8\">\n<meta name=\"viewport\" content=\"width=device-width,initial-scale=1\">\n\n<meta name=\"theme-color\" content=\"#2c3e50\" media=\"(prefers-color-scheme: light)\"><meta name=\"theme-color\" content=\"#ffffff\" media=\"(prefers-color-scheme: dark)\">\n\n<meta name=\"description\" content=\"搜索站内文章\">\n\n\n<link rel=\"manifest\" href=\"/manifest.json\">\n<title>搜索 - TinyPage</title>\n<style>\nbody{color:#222}\n</style>\n\n\n</head>\n<body>\n<div class=\"container\">\n  <header class=\"site-header\">\n    <a href=\"/\" class=\"site-title\">TinyPage</a>\n    <nav class=\"site-nav\" aria-label=\"站点导航\">\n      <a href=\"/\">首页</a>\n      <a href=\"/search.html\" aria-current=\"page\">搜索</a>\n      \n    </nav>\n  </header>\n  <main>\n<h1 class=\"page-title\">搜索文章</h1>\n    <div class=\"search-box\">\n      <input type=\"search\" id=\"search-input\" placeholder=\"输入关键词...\" autocomplete=\"off\" aria-label=\"搜索关键词\">\n      <div id=\"search-results\" class=\"search-results\"></div>\n    </div>\n  </main>\n  <footer class=\"site-footer\">\n    <p>Powered by TinyPage</p>\n  </footer>\n</div>\n<script src=\"/search.js\" defer></script>\n\n</body>\n</html>"
+    },
+    {
+      "name": "search_disabled",
+      "fn": "SEARCH_PAGE",
+      "note": "enable_search=False：nav 里**没有**「搜索」、也没有 `<script src=\"/search.js\">` —— 这是搜索页最主要的可观察差异。",
+      "opts": {
+        "config": {
+          "site_title": "TinyPage",
+          "site_description": "A modern static blog",
+          "site_url": "",
+          "site_author": "",
+          "footer_text": "Powered by TinyPage",
+          "lang": "zh-CN",
+          "theme_name": "default",
+          "page_size": 10,
+          "enable_pwa": true,
+          "enable_dark_mode": true,
+          "enable_search": false,
+          "enable_rss": true,
+          "enable_sitemap": true,
+          "enable_view_transitions": true,
+          "pwa_short_name": "TinyPage",
+          "pwa_theme_color": "#2c3e50",
+          "pwa_bg_color": "#ffffff"
+        },
+        "theme_css": "body{color:#222}",
+        "dark_css": "",
+        "has_dark": false,
+        "standalones": []
+      },
+      "want": "<!DOCTYPE html>\n<html lang=\"zh-CN\">\n<head>\n<meta charset=\"utf-8\">\n<meta name=\"viewport\" content=\"width=device-width,initial-scale=1\">\n\n<meta name=\"theme-color\" content=\"#2c3e50\" media=\"(prefers-color-scheme: light)\"><meta name=\"theme-color\" content=\"#ffffff\" media=\"(prefers-color-scheme: dark)\">\n\n<meta name=\"description\" content=\"搜索站内文章\">\n\n\n<link rel=\"manifest\" href=\"/manifest.json\">\n<title>搜索 - TinyPage</title>\n<style>\nbody{color:#222}\n</style>\n\n\n</head>\n<body>\n<div class=\"container\">\n  <header class=\"site-header\">\n    <a href=\"/\" class=\"site-title\">TinyPage</a>\n    <nav class=\"site-nav\" aria-label=\"站点导航\">\n      <a href=\"/\">首页</a>\n      \n    </nav>\n  </header>\n  <main>\n<h1 class=\"page-title\">搜索文章</h1>\n    <div class=\"search-box\">\n      <input type=\"search\" id=\"search-input\" placeholder=\"输入关键词...\" autocomplete=\"off\" aria-label=\"搜索关键词\">\n      <div id=\"search-results\" class=\"search-results\"></div>\n    </div>\n  </main>\n  <footer class=\"site-footer\">\n    <p>Powered by TinyPage</p>\n  </footer>\n</div>\n\n\n</body>\n</html>"
+    },
+    {
+      "name": "search_vt_meta_dropped",
+      "fn": "SEARCH_PAGE",
+      "note": "⚠ 搜索页把 vt_meta 显式传成 \"\"（generator.py:421），**即使** enable_view_transitions=True ⇒ 输出里没有 view-transition meta。这是与列表/分类页的一个真实差异。",
+      "opts": {
+        "config": {
+          "site_title": "TinyPage",
+          "site_description": "A modern static blog",
+          "site_url": "",
+          "site_author": "",
+          "footer_text": "Powered by TinyPage",
+          "lang": "zh-CN",
+          "theme_name": "default",
+          "page_size": 10,
+          "enable_pwa": true,
+          "enable_dark_mode": true,
+          "enable_search": true,
+          "enable_rss": true,
+          "enable_sitemap": true,
+          "enable_view_transitions": true,
+          "pwa_short_name": "TinyPage",
+          "pwa_theme_color": "#2c3e50",
+          "pwa_bg_color": "#ffffff"
+        },
+        "theme_css": "body{color:#222}",
+        "dark_css": "",
+        "has_dark": false,
+        "standalones": []
+      },
+      "want": "<!DOCTYPE html>\n<html lang=\"zh-CN\">\n<head>\n<meta charset=\"utf-8\">\n<meta name=\"viewport\" content=\"width=device-width,initial-scale=1\">\n\n<meta name=\"theme-color\" content=\"#2c3e50\" media=\"(prefers-color-scheme: light)\"><meta name=\"theme-color\" content=\"#ffffff\" media=\"(prefers-color-scheme: dark)\">\n\n<meta name=\"description\" content=\"搜索站内文章\">\n\n\n<link rel=\"manifest\" href=\"/manifest.json\">\n<title>搜索 - TinyPage</title>\n<style>\nbody{color:#222}\n</style>\n\n\n</head>\n<body>\n<div class=\"container\">\n  <header class=\"site-header\">\n    <a href=\"/\" class=\"site-title\">TinyPage</a>\n    <nav class=\"site-nav\" aria-label=\"站点导航\">\n      <a href=\"/\">首页</a>\n      <a href=\"/search.html\" aria-current=\"page\">搜索</a>\n      \n    </nav>\n  </header>\n  <main>\n<h1 class=\"page-title\">搜索文章</h1>\n    <div class=\"search-box\">\n      <input type=\"search\" id=\"search-input\" placeholder=\"输入关键词...\" autocomplete=\"off\" aria-label=\"搜索关键词\">\n      <div id=\"search-results\" class=\"search-results\"></div>\n    </div>\n  </main>\n  <footer class=\"site-footer\">\n    <p>Powered by TinyPage</p>\n  </footer>\n</div>\n<script src=\"/search.js\" defer></script>\n\n</body>\n</html>"
+    }
+  ]
+}

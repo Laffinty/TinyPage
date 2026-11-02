@@ -1,0 +1,152 @@
+// tp/lib/feeds.wll —— 订阅源与站点文件（RSS / sitemap / robots.txt）
+//
+// ⚠ 本文件由 tp/test/gen_feeds.py 生成 —— 请勿手改。
+//   改实现请改生成器（WLWL 的括号诊断不告诉你缺了几层）。
+//
+// 对齐目标（真 Python 源码树 tinypage/generator.py）：
+//   RSS(opts)     == generator.py:542  generate_rss(articles, config)
+//   SITEMAP(opts) == generator.py:571  generate_sitemap(articles, config,
+//                                        standalones, categories)
+//   ROBOTS(opts)  == generator.py:739-744  generate_static_pages 里写
+//                    robots.txt 的那 3 行（**无独立函数**）
+//
+// ── 分层事实（卡片措辞与现状不一致处，按**实际实现**对齐）──────────────
+// F1 草稿过滤**不在** generate_rss 里，在调用方 generator.py:730：
+//      published = [a for a in articles if a.is_published]
+//    ⇒ RSS() **不过滤**草稿（generate_rss 自己只做 articles[:20]）。
+//    「排除草稿」是流水线责任：调用前按 is_published 过滤。
+// F2 sitemap 用的是**未过滤**的 articles（generator.py:736）
+//    ⇒ 真实实现里草稿**会**出现在 sitemap 里；本模块照做不改（登记为差异项）。
+// F3 robots.txt 的 Sitemap: 行用 cfg.site_url or ''，**不回落** localhost，
+//    也**没有** rstrip("/") ⇒ 'https://ex.com/' 会拼出 '//sitemap.xml'。
+//
+// ── WLWL 侧的三处口径 ────────────────────────────────────────────
+// · config 缺键 ⇒ 取 Python Config() 的默认值（site_title/site_description/lang）。
+// · date_obj 是 NULL 或 DICT{"iso": <datetime.isoformat()>}（WLWL 无 datetime；
+//   ArticleMeta.iso_date 只用到 isoformat() ⇒ 逐字节等价）。
+// · 只有 title/summary/channel title+description 走转义；link/guid/loc/language
+//   一律**原样**插值（照 Python 的 f-string）。
+//
+// 逐字节对照基准：tp/test/fixtures/feeds_baseline.json
+//   （由 tp/test/gen_feeds_baseline.py 用真 Python 生成；robots 那段是真跑
+//     generate_static_pages 读回文件，不是复刻。）
+
+IMPORT("wlwl:std.str", ["CAT"]);
+IMPORT("wlwl:std.regex", ["RE", "RE_FIND_ALL", "RE_REPLACE"]);
+IMPORT("./esc.wll", ["ESCAPE_HTML"]);
+
+// // 去掉结尾所有 /（对齐 rstrip("/")）
+     LET(RSTRIP_SLASH, FUN((s), (
+               // 去掉结尾所有 "/"（对齐 Python 的 s.rstrip("/")）;
+               // ⚠ page_common.wll 里有一份私有同名实现，但它**未导出**（EXPORT 只含三个;
+               //   公开函数）⇒ 这里自带一份，不改别人的文件。;
+               LET MUT(out, s);
+               LET MUT(i, LEN(out));
+               WHILE(>(i, 0), (
+                    IF(==(SUB(out, -(i, 1), 1), "/"), (
+                         SET(out, SUB(out, 0, -(i, 1)));
+                         SET(i, -(i, 1))
+                    ), (
+                         SET(i, 0)
+                    ))
+               ));
+               out
+     )));
+
+// // ISO 8601 日期串（对齐 ArticleMeta.iso_date）
+     LET(ISO_DATE, FUN((art), (
+               // 对齐 ArticleMeta.iso_date（models.py:32）;
+               LET(dobj, AT_K(art, "date_obj", NULL));
+               LET(d, AT_K(art, "date", ""));
+               // date 含空格 ⇒ **全部**空格换成 T（str.replace 无 count 参数）;
+               LET(fallback, IF(==(LEN(RE_FIND_ALL(RE(" "), d)), 0), d, RE_REPLACE(RE(" "), d, "T")));
+               // date_obj：NULL ⇒ 走 date；DICT{"iso": …} ⇒ 用 isoformat；STRING ⇒ 直接当 iso;
+               // ⚠ IF 是惰性求值的（实测），所以这里的 AT_K(dobj, …) 不会在 dobj 为 NULL 时执行;
+               IF(==(TYPE(dobj), "STRING"), dobj, IF(==(TYPE(dobj), "DICT"), IF(==(AT_K(dobj, "iso", ""), ""), fallback, AT_K(dobj, "iso", "")), fallback))
+     )));
+
+// // 追加一条 sitemap <url> 条目
+     LET(PUSH_URL, FUN((acc, u), (
+               // 追加一条 <url>（对齐 Python 的 urls.append + "\n".join）;
+               LET(one, CAT("  <url>\n    <loc>", u, "</loc>\n  </url>"));
+               IF(==(acc, ""), one, CAT(acc, "\n", one))
+     )));
+
+// // RSS 2.0 feed（对齐 generator.py:542）
+     LET(RSS, FUN((opts), (
+               // opts 键：articles（ARRAY[DICT]）/ config（DICT）;
+               LET(o, IF(==(TYPE(opts), "NULL"), DICT(), opts));
+               LET(arts, AT_K(o, "articles", []));
+               LET(cfg, AT_K(o, "config", DICT()));
+               // generator.py:545 —— site_url = cfg.site_url or "http://localhost:8080";
+               // ⚠ Python 的 `or` 对空串也回落；WLWL 没有 or 的真值语义 ⇒ 显式比空串;
+               LET(raw_url, AT_K(cfg, "site_url", ""));
+               LET(site_url, IF(==(raw_url, ""), "http://localhost:8080", raw_url));
+               LET(base, RSTRIP_SLASH(site_url));
+               // generator.py:547 —— items 只取前 20 条（截断在 generate_rss **内部**）;
+               // ⚠ 这里**不**过滤草稿：那一步在调用方 generator.py:730（见文件头 F1）;
+               LET(n, LEN(arts));
+               LET(cap, IF(>(n, 20), 20, n));
+               LET MUT(items, "");
+               LET MUT(i, 0);
+               WHILE(<(i, cap), (
+                    LET(a, AT(arts, i, DICT()));
+                    // generator.py:548 —— link 走 rstrip("/");
+                    LET(link, CAT(base, "/article/", AT_K(a, "file", "")));
+                    // generator.py:550-557 —— 每条 item 的固定缩进与换行（逐字节）;
+                    SET(items, CAT(items, "\n    <item>\n      <title>", ESCAPE_HTML(AT_K(a, "title", "")), "</title>\n      <link>", link, "</link>\n      <guid>", link, "</guid>\n      <pubDate>", ISO_DATE(a), "</pubDate>\n      <description>", ESCAPE_HTML(AT_K(a, "summary", "")), "</description>\n    </item>"));
+                    SET(i, +(i, 1))
+               ));
+               // generator.py:559-568 —— 模板里 {items} 前有 4 个空格，items 以 "\n" 开头;
+               // ⇒ items 为空时那一行是「4 个空格 + 换行」（行尾空白，必须留着）;
+               CAT("<?xml version=\"1.0\" encoding=\"UTF-8\"?>\n<rss version=\"2.0\">\n  <channel>\n    <title>", ESCAPE_HTML(AT_K(cfg, "site_title", "TinyPage")), "</title>\n    <link>", site_url, "</link>\n    <description>", ESCAPE_HTML(AT_K(cfg, "site_description", "A modern static blog")), "</description>\n    <language>", AT_K(cfg, "lang", "zh-CN"), "</language>\n    ", items, "\n  </channel>\n</rss>")
+     )));
+
+// // XML sitemap（对齐 generator.py:571）
+     LET(SITEMAP, FUN((opts), (
+               // opts 键：articles / config / standalones / categories;
+               LET(o, IF(==(TYPE(opts), "NULL"), DICT(), opts));
+               LET(arts, AT_K(o, "articles", []));
+               LET(cfg, AT_K(o, "config", DICT()));
+               LET(sts, AT_K(o, "standalones", []));
+               LET(cats, AT_K(o, "categories", []));
+               // generator.py:579 —— 回落同 RSS;
+               LET(raw_url, AT_K(cfg, "site_url", ""));
+               LET(site_url, IF(==(raw_url, ""), "http://localhost:8080", raw_url));
+               LET(base, RSTRIP_SLASH(site_url));
+               // 顺序照 Python（generator.py:580-588）：根 → articles → standalones → categories;
+               // ⚠ articles 是**未过滤**的（generator.py:736）⇒ 草稿也在（见文件头 F2）;
+               // ⚠ loc 是原样插值，**不做** XML 转义（Python 直接 f-string）;
+               LET MUT(entries, PUSH_URL("", CAT(base, "/")));
+               LET(na, LEN(arts));
+               LET MUT(ia, 0);
+               WHILE(<(ia, na), (
+                    SET(entries, PUSH_URL(entries, CAT(base, "/article/", AT_K(AT(arts, ia, DICT()), "file", ""))));
+                    SET(ia, +(ia, 1))
+               ));
+               LET(ns, LEN(sts));
+               LET MUT(isx, 0);
+               WHILE(<(isx, ns), (
+                    SET(entries, PUSH_URL(entries, CAT(base, "/standalone/", AT_K(AT(sts, isx, DICT()), "file", ""))));
+                    SET(isx, +(isx, 1))
+               ));
+               LET(nc, LEN(cats));
+               LET MUT(ic, 0);
+               WHILE(<(ic, nc), (
+                    SET(entries, PUSH_URL(entries, CAT(base, "/category/", AT(cats, ic, ""), ".html")));
+                    SET(ic, +(ic, 1))
+               ));
+               // generator.py:593-596 —— url_entries 非空（根 URL 恒有）;
+               CAT("<?xml version=\"1.0\" encoding=\"UTF-8\"?>\n<urlset xmlns=\"http://www.sitemaps.org/schemas/sitemap/0.9\">\n", entries, "\n</urlset>")
+     )));
+
+// // robots.txt（对齐 generator.py:739-744）
+     LET(ROBOTS, FUN((opts), (
+               // opts 键：site_url（**直接**给，不是 config DICT）;
+               LET(site_url, AT_K(IF(==(TYPE(opts), "NULL"), DICT(), opts), "site_url", ""));
+               // generator.py:740-744 —— 固定 3 行 + 结尾换行；**不回落** localhost;
+               // 也**没有** rstrip("/")（"https://ex.com/" ⇒ "//sitemap.xml"）;
+               CAT("User-agent: *\nAllow: /\nSitemap: ", site_url, "/sitemap.xml\n")
+     )));
+
+EXPORT(["RSS", "SITEMAP", "ROBOTS"]);

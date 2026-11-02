@@ -1,0 +1,475 @@
+// tp/test/test_article_page.wll —— 文章页/独立页的逐字节对照测试 + 反向守卫
+//
+// ⚠ 本文件由 tp/test/gen_test_article_page.py 生成 —— 请勿手改。
+//
+// 验收方式：每个用例都与**真 Python** 的结果逐字节对照。
+// 基准：tp/test/fixtures/article_page_baseline.json
+//   （由 tp/test/gen_article_page_baseline.py 用真 Python 生成）
+//
+// ⚠ RUN_TESTS() 的失败**不影响退出码**（规范明载）⇒ 本文件末尾自己把关。
+IMPORT("wlwl:std.test", ["TEST", "ASSERT", "ASSERT_EQ", "RUN_TESTS"]);
+IMPORT("wlwl:std.str", ["CAT", "CONTAINS_SUB"]);
+IMPORT("./../lib/article_page.wll", ["ARTICLE_PAGE", "STANDALONE_PAGE"]);
+
+// ── 用例数据（逐键来自基准；与真 Python 的实参同源）────────────────
+LET MUT(opt_a00_minimal, DICT());
+SET(opt_a00_minimal, INDEX_SET(opt_a00_minimal, "content", "<p>body</p>"));
+SET(opt_a00_minimal, INDEX_SET(opt_a00_minimal, "date", "2026-01-02 03:04"));
+SET(opt_a00_minimal, INDEX_SET(opt_a00_minimal, "slug", "hello"));
+SET(opt_a00_minimal, INDEX_SET(opt_a00_minimal, "theme_css", "body{margin:0;font-family:sans-serif}"));
+SET(opt_a00_minimal, INDEX_SET(opt_a00_minimal, "title", "Hello"));
+LET(want_a00_minimal, "<!DOCTYPE html>\n<html lang=\"zh-CN\">\n<head>\n<meta charset=\"utf-8\">\n<meta name=\"viewport\" content=\"width=device-width,initial-scale=1\">\n\n<meta name=\"theme-color\" content=\"#2c3e50\" media=\"(prefers-color-scheme: light)\"><meta name=\"theme-color\" content=\"#ffffff\" media=\"(prefers-color-scheme: dark)\">\n<meta name=\"view-transition\" content=\"same-origin\">\n<meta name=\"description\" content=\"\">\n\n\n<link rel=\"manifest\" href=\"/manifest.json\">\n<title>Hello - TinyPage</title>\n<style>\nbody{margin:0;font-family:sans-serif}\n</style>\n\n\n</head>\n<body>\n<div class=\"container\">\n  <header class=\"site-header\">\n    <a href=\"/\" class=\"site-title\">TinyPage</a>\n    <nav class=\"site-nav\" aria-label=\"站点导航\">\n      <a href=\"/\">首页</a>\n      <a href=\"/search.html\">搜索</a>\n      \n    </nav>\n  </header>\n  <main>\n<article class=\"post\">\n      <header class=\"post-header\">\n        <h1 class=\"post-title\">Hello</h1>\n        <div class=\"post-meta\">\n          \n          <time datetime=\"2026-01-02 03:04\">2026-01-02 03:04</time>\n          \n          \n        </div>\n      </header>\n      \n      <div class=\"post-content\">\n<p>body</p>\n      </div>\n      \n      \n      \n    </article>\n    \n  </main>\n  <footer class=\"site-footer\">\n    <p>Powered by TinyPage</p>\n  </footer>\n</div>\n<script src=\"/search.js\" defer></script>\n<script src=\"https://cdn.jsdelivr.net/npm/mermaid@10/dist/mermaid.min.js\"></script><script>mermaid.initialize({startOnLoad:true,theme:document.documentElement.classList.contains('dark')?'dark':'default',securityLevel:'strict'});</script>\n</body>\n</html>");
+LET MUT(opt_a01_full, DICT());
+SET(opt_a01_full, INDEX_SET(opt_a01_full, "backlinks_html", "<section class=\"backlinks\"><a href=\"/a\">引用</a></section>"));
+SET(opt_a01_full, INDEX_SET(opt_a01_full, "category", "技术"));
+SET(opt_a01_full, INDEX_SET(opt_a01_full, "config", INDEX_SET(INDEX_SET(DICT(), "site_author", "布布"), "site_url", "https://example.com")));
+SET(opt_a01_full, INDEX_SET(opt_a01_full, "content", "<p>正文</p>\n<h2 id=\"x\">小节</h2>"));
+SET(opt_a01_full, INDEX_SET(opt_a01_full, "dark_css", "@media (prefers-color-scheme: dark){body{background:#111;color:#eee}}"));
+SET(opt_a01_full, INDEX_SET(opt_a01_full, "date", "2026-01-02 03:04"));
+SET(opt_a01_full, INDEX_SET(opt_a01_full, "footnotes_html", "<section class=\"footnotes\"><p>脚注</p></section>"));
+SET(opt_a01_full, INDEX_SET(opt_a01_full, "has_dark", TRUE));
+SET(opt_a01_full, INDEX_SET(opt_a01_full, "related_articles", [INDEX_SET(INDEX_SET(INDEX_SET(DICT(), "date", "2026-01-03 10:00"), "file", "2026-01-03-second.html"), "title", "第二篇"), INDEX_SET(INDEX_SET(INDEX_SET(DICT(), "date", "2026-01-04 11:00"), "file", "2026-01-04-special.html"), "title", "A & B <i>x</i>")]));
+SET(opt_a01_full, INDEX_SET(opt_a01_full, "slug", "full"));
+SET(opt_a01_full, INDEX_SET(opt_a01_full, "standalones", [INDEX_SET(INDEX_SET(DICT(), "file", "about.html"), "title", "关于"), INDEX_SET(INDEX_SET(DICT(), "file", "projects.html"), "title", "项目列表 - 归档与说明")]));
+SET(opt_a01_full, INDEX_SET(opt_a01_full, "status", "published"));
+SET(opt_a01_full, INDEX_SET(opt_a01_full, "summary", "一段摘要"));
+SET(opt_a01_full, INDEX_SET(opt_a01_full, "tags", "wlwl, 静态站点 ,tiny"));
+SET(opt_a01_full, INDEX_SET(opt_a01_full, "theme_css", "body{margin:0;font-family:sans-serif}"));
+SET(opt_a01_full, INDEX_SET(opt_a01_full, "title", "完整用例"));
+SET(opt_a01_full, INDEX_SET(opt_a01_full, "toc_html", "<nav class=\"toc\"><a href=\"#x\">小节</a></nav>"));
+LET(want_a01_full, "<!DOCTYPE html>\n<html lang=\"zh-CN\">\n<head>\n<meta charset=\"utf-8\">\n<meta name=\"viewport\" content=\"width=device-width,initial-scale=1\">\n<meta name=\"color-scheme\" content=\"light dark\">\n<meta name=\"theme-color\" content=\"#2c3e50\" media=\"(prefers-color-scheme: light)\"><meta name=\"theme-color\" content=\"#ffffff\" media=\"(prefers-color-scheme: dark)\">\n<meta name=\"view-transition\" content=\"same-origin\">\n<meta name=\"description\" content=\"一段摘要\">\n<meta property=\"og:title\" content=\"完整用例\">\n<meta property=\"og:description\" content=\"一段摘要\">\n<meta property=\"og:type\" content=\"article\">\n<meta property=\"og:url\" content=\"https://example.com/article/full.html\">\n<meta name=\"twitter:card\" content=\"summary\">\n<meta name=\"twitter:title\" content=\"完整用例\">\n<meta name=\"twitter:description\" content=\"一段摘要\">\n<script type=\"application/ld+json\">{\"@context\": \"https://schema.org\", \"@type\": \"Article\", \"headline\": \"完整用例\", \"description\": \"一段摘要\", \"url\": \"https://example.com/article/full.html\", \"datePublished\": \"2026-01-02 03:04\", \"author\": {\"@type\": \"Person\", \"name\": \"布布\"}, \"publisher\": {\"@type\": \"Organization\", \"name\": \"https://example.com\"}, \"keywords\": \"wlwl, 静态站点, tiny\"}</script>\n<link rel=\"manifest\" href=\"/manifest.json\">\n<title>完整用例 - TinyPage</title>\n<style>\nbody{margin:0;font-family:sans-serif}\n</style>\n<style media=\"(prefers-color-scheme: dark)\">@media (prefers-color-scheme: dark){body{background:#111;color:#eee}}</style>\n<script>(function(){try{var m=localStorage.getItem('theme');if(m==='light'||(!m&&window.matchMedia('(prefers-color-scheme: light)').matches)){document.documentElement.classList.add('light')}}catch(e){}})();</script>\n</head>\n<body>\n<div class=\"container\">\n  <header class=\"site-header\">\n    <a href=\"/\" class=\"site-title\">TinyPage</a>\n    <nav class=\"site-nav\" aria-label=\"站点导航\">\n      <a href=\"/\">首页</a>\n      <a href=\"/standalone/about.html\">关于</a>\n      <a href=\"/standalone/projects.html\">项目列表 - 归档与说明</a>\n      <a href=\"/search.html\">搜索</a>\n      <button class=\"theme-toggle\" aria-label=\"切换主题\" onclick=\"var d=document.documentElement;d.classList.toggle('light');try{localStorage.setItem('theme',d.classList.contains('light')?'light':'dark')}catch(e){}\">🌓</button>\n    </nav>\n  </header>\n  <main>\n<article class=\"post\">\n      <header class=\"post-header\">\n        <h1 class=\"post-title\">完整用例</h1>\n        <div class=\"post-meta\">\n          <span class=\"post-category\"><a href=\"/category/技术.html\">技术</a></span>\n          <time datetime=\"2026-01-02 03:04\">2026-01-02 03:04</time>\n          \n          <button class=\"share-btn\" onclick=\"navigator.share?.({title:'完整用例',text:'一段摘要',url:'https://example.com/article/full.html'}).catch(()=>{})\" hidden>分享</button>\n        </div>\n      </header>\n      <nav class=\"toc\"><a href=\"#x\">小节</a></nav>\n      <div class=\"post-content\">\n<p>正文</p>\n<h2 id=\"x\">小节</h2>\n      </div>\n      <div class=\"post-tags\"><span class=\"tag\">wlwl</span> <span class=\"tag\">静态站点</span> <span class=\"tag\">tiny</span></div>\n      <section class=\"footnotes\"><p>脚注</p></section>\n      <section class=\"backlinks\"><a href=\"/a\">引用</a></section>\n    </article>\n    \n    <section class=\"related-articles\">\n      <h2>相关文章</h2>\n      <div class=\"related-list\">\n        \n      <div class=\"related-item\">\n        <a href=\"/article/2026-01-03-second.html\">第二篇</a>\n        <span class=\"related-date\">2026-01-03 10:00</span>\n      </div>\n      <div class=\"related-item\">\n        <a href=\"/article/2026-01-04-special.html\">A &amp; B &lt;i&gt;x&lt;/i&gt;</a>\n        <span class=\"related-date\">2026-01-04 11:00</span>\n      </div>\n      </div>\n    </section>\n  </main>\n  <footer class=\"site-footer\">\n    <p>Powered by TinyPage</p>\n  </footer>\n</div>\n<script src=\"/search.js\" defer></script>\n<script src=\"https://cdn.jsdelivr.net/npm/mermaid@10/dist/mermaid.min.js\"></script><script>mermaid.initialize({startOnLoad:true,theme:document.documentElement.classList.contains('dark')?'dark':'default',securityLevel:'strict'});</script>\n</body>\n</html>");
+LET MUT(opt_a02_draft, DICT());
+SET(opt_a02_draft, INDEX_SET(opt_a02_draft, "content", "<p>d</p>"));
+SET(opt_a02_draft, INDEX_SET(opt_a02_draft, "date", "2026-01-02 03:04"));
+SET(opt_a02_draft, INDEX_SET(opt_a02_draft, "slug", "draft"));
+SET(opt_a02_draft, INDEX_SET(opt_a02_draft, "status", "draft"));
+SET(opt_a02_draft, INDEX_SET(opt_a02_draft, "theme_css", "body{margin:0;font-family:sans-serif}"));
+SET(opt_a02_draft, INDEX_SET(opt_a02_draft, "title", "草稿"));
+LET(want_a02_draft, "<!DOCTYPE html>\n<html lang=\"zh-CN\">\n<head>\n<meta charset=\"utf-8\">\n<meta name=\"viewport\" content=\"width=device-width,initial-scale=1\">\n\n<meta name=\"theme-color\" content=\"#2c3e50\" media=\"(prefers-color-scheme: light)\"><meta name=\"theme-color\" content=\"#ffffff\" media=\"(prefers-color-scheme: dark)\">\n<meta name=\"view-transition\" content=\"same-origin\">\n<meta name=\"description\" content=\"\">\n\n\n<link rel=\"manifest\" href=\"/manifest.json\">\n<title>草稿 - TinyPage</title>\n<style>\nbody{margin:0;font-family:sans-serif}\n</style>\n\n\n</head>\n<body>\n<div class=\"container\">\n  <header class=\"site-header\">\n    <a href=\"/\" class=\"site-title\">TinyPage</a>\n    <nav class=\"site-nav\" aria-label=\"站点导航\">\n      <a href=\"/\">首页</a>\n      <a href=\"/search.html\">搜索</a>\n      \n    </nav>\n  </header>\n  <main>\n<article class=\"post\">\n      <header class=\"post-header\">\n        <h1 class=\"post-title\">草稿</h1>\n        <div class=\"post-meta\">\n          \n          <time datetime=\"2026-01-02 03:04\">2026-01-02 03:04</time>\n          <span class=\"draft-badge\">草稿</span>\n          \n        </div>\n      </header>\n      \n      <div class=\"post-content\">\n<p>d</p>\n      </div>\n      \n      \n      \n    </article>\n    \n  </main>\n  <footer class=\"site-footer\">\n    <p>Powered by TinyPage</p>\n  </footer>\n</div>\n<script src=\"/search.js\" defer></script>\n<script src=\"https://cdn.jsdelivr.net/npm/mermaid@10/dist/mermaid.min.js\"></script><script>mermaid.initialize({startOnLoad:true,theme:document.documentElement.classList.contains('dark')?'dark':'default',securityLevel:'strict'});</script>\n</body>\n</html>");
+LET MUT(opt_a03_status_upper, DICT());
+SET(opt_a03_status_upper, INDEX_SET(opt_a03_status_upper, "content", "<p>d</p>"));
+SET(opt_a03_status_upper, INDEX_SET(opt_a03_status_upper, "date", "2026-01-02 03:04"));
+SET(opt_a03_status_upper, INDEX_SET(opt_a03_status_upper, "slug", "draft2"));
+SET(opt_a03_status_upper, INDEX_SET(opt_a03_status_upper, "status", "DRAFT"));
+SET(opt_a03_status_upper, INDEX_SET(opt_a03_status_upper, "theme_css", "body{margin:0;font-family:sans-serif}"));
+SET(opt_a03_status_upper, INDEX_SET(opt_a03_status_upper, "title", "草稿大写"));
+LET(want_a03_status_upper, "<!DOCTYPE html>\n<html lang=\"zh-CN\">\n<head>\n<meta charset=\"utf-8\">\n<meta name=\"viewport\" content=\"width=device-width,initial-scale=1\">\n\n<meta name=\"theme-color\" content=\"#2c3e50\" media=\"(prefers-color-scheme: light)\"><meta name=\"theme-color\" content=\"#ffffff\" media=\"(prefers-color-scheme: dark)\">\n<meta name=\"view-transition\" content=\"same-origin\">\n<meta name=\"description\" content=\"\">\n\n\n<link rel=\"manifest\" href=\"/manifest.json\">\n<title>草稿大写 - TinyPage</title>\n<style>\nbody{margin:0;font-family:sans-serif}\n</style>\n\n\n</head>\n<body>\n<div class=\"container\">\n  <header class=\"site-header\">\n    <a href=\"/\" class=\"site-title\">TinyPage</a>\n    <nav class=\"site-nav\" aria-label=\"站点导航\">\n      <a href=\"/\">首页</a>\n      <a href=\"/search.html\">搜索</a>\n      \n    </nav>\n  </header>\n  <main>\n<article class=\"post\">\n      <header class=\"post-header\">\n        <h1 class=\"post-title\">草稿大写</h1>\n        <div class=\"post-meta\">\n          \n          <time datetime=\"2026-01-02 03:04\">2026-01-02 03:04</time>\n          <span class=\"draft-badge\">草稿</span>\n          \n        </div>\n      </header>\n      \n      <div class=\"post-content\">\n<p>d</p>\n      </div>\n      \n      \n      \n    </article>\n    \n  </main>\n  <footer class=\"site-footer\">\n    <p>Powered by TinyPage</p>\n  </footer>\n</div>\n<script src=\"/search.js\" defer></script>\n<script src=\"https://cdn.jsdelivr.net/npm/mermaid@10/dist/mermaid.min.js\"></script><script>mermaid.initialize({startOnLoad:true,theme:document.documentElement.classList.contains('dark')?'dark':'default',securityLevel:'strict'});</script>\n</body>\n</html>");
+LET MUT(opt_a04_no_category, DICT());
+SET(opt_a04_no_category, INDEX_SET(opt_a04_no_category, "content", "<p>n</p>"));
+SET(opt_a04_no_category, INDEX_SET(opt_a04_no_category, "date", "2026-01-02 03:04"));
+SET(opt_a04_no_category, INDEX_SET(opt_a04_no_category, "slug", "nocat"));
+SET(opt_a04_no_category, INDEX_SET(opt_a04_no_category, "tags", "a,b"));
+SET(opt_a04_no_category, INDEX_SET(opt_a04_no_category, "theme_css", "body{margin:0;font-family:sans-serif}"));
+SET(opt_a04_no_category, INDEX_SET(opt_a04_no_category, "title", "无分类"));
+LET(want_a04_no_category, "<!DOCTYPE html>\n<html lang=\"zh-CN\">\n<head>\n<meta charset=\"utf-8\">\n<meta name=\"viewport\" content=\"width=device-width,initial-scale=1\">\n\n<meta name=\"theme-color\" content=\"#2c3e50\" media=\"(prefers-color-scheme: light)\"><meta name=\"theme-color\" content=\"#ffffff\" media=\"(prefers-color-scheme: dark)\">\n<meta name=\"view-transition\" content=\"same-origin\">\n<meta name=\"description\" content=\"\">\n\n\n<link rel=\"manifest\" href=\"/manifest.json\">\n<title>无分类 - TinyPage</title>\n<style>\nbody{margin:0;font-family:sans-serif}\n</style>\n\n\n</head>\n<body>\n<div class=\"container\">\n  <header class=\"site-header\">\n    <a href=\"/\" class=\"site-title\">TinyPage</a>\n    <nav class=\"site-nav\" aria-label=\"站点导航\">\n      <a href=\"/\">首页</a>\n      <a href=\"/search.html\">搜索</a>\n      \n    </nav>\n  </header>\n  <main>\n<article class=\"post\">\n      <header class=\"post-header\">\n        <h1 class=\"post-title\">无分类</h1>\n        <div class=\"post-meta\">\n          \n          <time datetime=\"2026-01-02 03:04\">2026-01-02 03:04</time>\n          \n          \n        </div>\n      </header>\n      \n      <div class=\"post-content\">\n<p>n</p>\n      </div>\n      <div class=\"post-tags\"><span class=\"tag\">a</span> <span class=\"tag\">b</span></div>\n      \n      \n    </article>\n    \n  </main>\n  <footer class=\"site-footer\">\n    <p>Powered by TinyPage</p>\n  </footer>\n</div>\n<script src=\"/search.js\" defer></script>\n<script src=\"https://cdn.jsdelivr.net/npm/mermaid@10/dist/mermaid.min.js\"></script><script>mermaid.initialize({startOnLoad:true,theme:document.documentElement.classList.contains('dark')?'dark':'default',securityLevel:'strict'});</script>\n</body>\n</html>");
+LET MUT(opt_a05_no_tags, DICT());
+SET(opt_a05_no_tags, INDEX_SET(opt_a05_no_tags, "category", "杂项"));
+SET(opt_a05_no_tags, INDEX_SET(opt_a05_no_tags, "config", INDEX_SET(DICT(), "site_url", "https://example.com")));
+SET(opt_a05_no_tags, INDEX_SET(opt_a05_no_tags, "content", "<p>n</p>"));
+SET(opt_a05_no_tags, INDEX_SET(opt_a05_no_tags, "date", "2026-01-02 03:04"));
+SET(opt_a05_no_tags, INDEX_SET(opt_a05_no_tags, "slug", "notag"));
+SET(opt_a05_no_tags, INDEX_SET(opt_a05_no_tags, "theme_css", "body{margin:0;font-family:sans-serif}"));
+SET(opt_a05_no_tags, INDEX_SET(opt_a05_no_tags, "title", "无标签"));
+LET(want_a05_no_tags, "<!DOCTYPE html>\n<html lang=\"zh-CN\">\n<head>\n<meta charset=\"utf-8\">\n<meta name=\"viewport\" content=\"width=device-width,initial-scale=1\">\n\n<meta name=\"theme-color\" content=\"#2c3e50\" media=\"(prefers-color-scheme: light)\"><meta name=\"theme-color\" content=\"#ffffff\" media=\"(prefers-color-scheme: dark)\">\n<meta name=\"view-transition\" content=\"same-origin\">\n<meta name=\"description\" content=\"\">\n<meta property=\"og:title\" content=\"无标签\">\n<meta property=\"og:description\" content=\"\">\n<meta property=\"og:type\" content=\"article\">\n<meta property=\"og:url\" content=\"https://example.com/article/notag.html\">\n<meta name=\"twitter:card\" content=\"summary\">\n<meta name=\"twitter:title\" content=\"无标签\">\n<meta name=\"twitter:description\" content=\"\">\n<script type=\"application/ld+json\">{\"@context\": \"https://schema.org\", \"@type\": \"Article\", \"headline\": \"无标签\", \"description\": \"\", \"url\": \"https://example.com/article/notag.html\", \"datePublished\": \"2026-01-02 03:04\", \"author\": {\"@type\": \"Person\", \"name\": \"Anonymous\"}, \"publisher\": {\"@type\": \"Organization\", \"name\": \"https://example.com\"}}</script>\n<link rel=\"manifest\" href=\"/manifest.json\">\n<title>无标签 - TinyPage</title>\n<style>\nbody{margin:0;font-family:sans-serif}\n</style>\n\n\n</head>\n<body>\n<div class=\"container\">\n  <header class=\"site-header\">\n    <a href=\"/\" class=\"site-title\">TinyPage</a>\n    <nav class=\"site-nav\" aria-label=\"站点导航\">\n      <a href=\"/\">首页</a>\n      <a href=\"/search.html\">搜索</a>\n      \n    </nav>\n  </header>\n  <main>\n<article class=\"post\">\n      <header class=\"post-header\">\n        <h1 class=\"post-title\">无标签</h1>\n        <div class=\"post-meta\">\n          <span class=\"post-category\"><a href=\"/category/杂项.html\">杂项</a></span>\n          <time datetime=\"2026-01-02 03:04\">2026-01-02 03:04</time>\n          \n          <button class=\"share-btn\" onclick=\"navigator.share?.({title:'无标签',text:'',url:'https://example.com/article/notag.html'}).catch(()=>{})\" hidden>分享</button>\n        </div>\n      </header>\n      \n      <div class=\"post-content\">\n<p>n</p>\n      </div>\n      \n      \n      \n    </article>\n    \n  </main>\n  <footer class=\"site-footer\">\n    <p>Powered by TinyPage</p>\n  </footer>\n</div>\n<script src=\"/search.js\" defer></script>\n<script src=\"https://cdn.jsdelivr.net/npm/mermaid@10/dist/mermaid.min.js\"></script><script>mermaid.initialize({startOnLoad:true,theme:document.documentElement.classList.contains('dark')?'dark':'default',securityLevel:'strict'});</script>\n</body>\n</html>");
+LET MUT(opt_a06_tags_blank, DICT());
+SET(opt_a06_tags_blank, INDEX_SET(opt_a06_tags_blank, "content", "<p>b</p>"));
+SET(opt_a06_tags_blank, INDEX_SET(opt_a06_tags_blank, "date", "2026-01-02 03:04"));
+SET(opt_a06_tags_blank, INDEX_SET(opt_a06_tags_blank, "slug", "blanktag"));
+SET(opt_a06_tags_blank, INDEX_SET(opt_a06_tags_blank, "tags", " , ,, "));
+SET(opt_a06_tags_blank, INDEX_SET(opt_a06_tags_blank, "theme_css", "body{margin:0;font-family:sans-serif}"));
+SET(opt_a06_tags_blank, INDEX_SET(opt_a06_tags_blank, "title", "空标签"));
+LET(want_a06_tags_blank, "<!DOCTYPE html>\n<html lang=\"zh-CN\">\n<head>\n<meta charset=\"utf-8\">\n<meta name=\"viewport\" content=\"width=device-width,initial-scale=1\">\n\n<meta name=\"theme-color\" content=\"#2c3e50\" media=\"(prefers-color-scheme: light)\"><meta name=\"theme-color\" content=\"#ffffff\" media=\"(prefers-color-scheme: dark)\">\n<meta name=\"view-transition\" content=\"same-origin\">\n<meta name=\"description\" content=\"\">\n\n\n<link rel=\"manifest\" href=\"/manifest.json\">\n<title>空标签 - TinyPage</title>\n<style>\nbody{margin:0;font-family:sans-serif}\n</style>\n\n\n</head>\n<body>\n<div class=\"container\">\n  <header class=\"site-header\">\n    <a href=\"/\" class=\"site-title\">TinyPage</a>\n    <nav class=\"site-nav\" aria-label=\"站点导航\">\n      <a href=\"/\">首页</a>\n      <a href=\"/search.html\">搜索</a>\n      \n    </nav>\n  </header>\n  <main>\n<article class=\"post\">\n      <header class=\"post-header\">\n        <h1 class=\"post-title\">空标签</h1>\n        <div class=\"post-meta\">\n          \n          <time datetime=\"2026-01-02 03:04\">2026-01-02 03:04</time>\n          \n          \n        </div>\n      </header>\n      \n      <div class=\"post-content\">\n<p>b</p>\n      </div>\n      \n      \n      \n    </article>\n    \n  </main>\n  <footer class=\"site-footer\">\n    <p>Powered by TinyPage</p>\n  </footer>\n</div>\n<script src=\"/search.js\" defer></script>\n<script src=\"https://cdn.jsdelivr.net/npm/mermaid@10/dist/mermaid.min.js\"></script><script>mermaid.initialize({startOnLoad:true,theme:document.documentElement.classList.contains('dark')?'dark':'default',securityLevel:'strict'});</script>\n</body>\n</html>");
+LET MUT(opt_a07_escape, DICT());
+SET(opt_a07_escape, INDEX_SET(opt_a07_escape, "category", "C&D <x> \"y\""));
+SET(opt_a07_escape, INDEX_SET(opt_a07_escape, "config", INDEX_SET(INDEX_SET(DICT(), "site_author", "A & B"), "site_url", "https://example.com/?a=1&b=2")));
+SET(opt_a07_escape, INDEX_SET(opt_a07_escape, "content", "<p>c</p>"));
+SET(opt_a07_escape, INDEX_SET(opt_a07_escape, "date", "2026-01-02 03:04 \"t\""));
+SET(opt_a07_escape, INDEX_SET(opt_a07_escape, "slug", "esc"));
+SET(opt_a07_escape, INDEX_SET(opt_a07_escape, "summary", "S & <T> \"Q\" 'R'"));
+SET(opt_a07_escape, INDEX_SET(opt_a07_escape, "tags", "<x>, a&b, \"q\""));
+SET(opt_a07_escape, INDEX_SET(opt_a07_escape, "theme_css", "body{margin:0;font-family:sans-serif}"));
+SET(opt_a07_escape, INDEX_SET(opt_a07_escape, "title", "A & B <b>\"x\"</b> 'q'"));
+LET(want_a07_escape, "<!DOCTYPE html>\n<html lang=\"zh-CN\">\n<head>\n<meta charset=\"utf-8\">\n<meta name=\"viewport\" content=\"width=device-width,initial-scale=1\">\n\n<meta name=\"theme-color\" content=\"#2c3e50\" media=\"(prefers-color-scheme: light)\"><meta name=\"theme-color\" content=\"#ffffff\" media=\"(prefers-color-scheme: dark)\">\n<meta name=\"view-transition\" content=\"same-origin\">\n<meta name=\"description\" content=\"S &amp;amp; &amp;lt;T&amp;gt; &amp;quot;Q&amp;quot; &amp;#x27;R&amp;#x27;\">\n<meta property=\"og:title\" content=\"A &amp; B &lt;b&gt;&quot;x&quot;&lt;/b&gt; &#x27;q&#x27;\">\n<meta property=\"og:description\" content=\"S &amp; &lt;T&gt; &quot;Q&quot; &#x27;R&#x27;\">\n<meta property=\"og:type\" content=\"article\">\n<meta property=\"og:url\" content=\"https://example.com/?a=1&amp;b=2/article/esc.html\">\n<meta name=\"twitter:card\" content=\"summary\">\n<meta name=\"twitter:title\" content=\"A &amp; B &lt;b&gt;&quot;x&quot;&lt;/b&gt; &#x27;q&#x27;\">\n<meta name=\"twitter:description\" content=\"S &amp; &lt;T&gt; &quot;Q&quot; &#x27;R&#x27;\">\n<script type=\"application/ld+json\">{\"@context\": \"https://schema.org\", \"@type\": \"Article\", \"headline\": \"A & B <b>\\\"x\\\"</b> 'q'\", \"description\": \"S & <T> \\\"Q\\\" 'R'\", \"url\": \"https://example.com/?a=1&b=2/article/esc.html\", \"datePublished\": \"2026-01-02 03:04 \\\"t\\\"\", \"author\": {\"@type\": \"Person\", \"name\": \"A & B\"}, \"publisher\": {\"@type\": \"Organization\", \"name\": \"https://example.com/?a=1&b=2\"}, \"keywords\": \"<x>, a&b, \\\"q\\\"\"}</script>\n<link rel=\"manifest\" href=\"/manifest.json\">\n<title>A &amp;amp; B &amp;lt;b&amp;gt;&amp;quot;x&amp;quot;&amp;lt;/b&amp;gt; &amp;#x27;q&amp;#x27; - TinyPage</title>\n<style>\nbody{margin:0;font-family:sans-serif}\n</style>\n\n\n</head>\n<body>\n<div class=\"container\">\n  <header class=\"site-header\">\n    <a href=\"/\" class=\"site-title\">TinyPage</a>\n    <nav class=\"site-nav\" aria-label=\"站点导航\">\n      <a href=\"/\">首页</a>\n      <a href=\"/search.html\">搜索</a>\n      \n    </nav>\n  </header>\n  <main>\n<article class=\"post\">\n      <header class=\"post-header\">\n        <h1 class=\"post-title\">A &amp; B &lt;b&gt;&quot;x&quot;&lt;/b&gt; &#x27;q&#x27;</h1>\n        <div class=\"post-meta\">\n          <span class=\"post-category\"><a href=\"/category/C&amp;D &lt;x&gt; &quot;y&quot;.html\">C&amp;D &lt;x&gt; &quot;y&quot;</a></span>\n          <time datetime=\"2026-01-02 03:04 &quot;t&quot;\">2026-01-02 03:04 &quot;t&quot;</time>\n          \n          <button class=\"share-btn\" onclick=\"navigator.share?.({title:'A &amp; B &lt;b&gt;&quot;x&quot;&lt;/b&gt; &#x27;q&#x27;',text:'S &amp; &lt;T&gt; &quot;Q&quot; &#x27;R&#x27;',url:'https://example.com/?a=1&amp;b=2/article/esc.html'}).catch(()=>{})\" hidden>分享</button>\n        </div>\n      </header>\n      \n      <div class=\"post-content\">\n<p>c</p>\n      </div>\n      <div class=\"post-tags\"><span class=\"tag\">&lt;x&gt;</span> <span class=\"tag\">a&amp;b</span> <span class=\"tag\">&quot;q&quot;</span></div>\n      \n      \n    </article>\n    \n  </main>\n  <footer class=\"site-footer\">\n    <p>Powered by TinyPage</p>\n  </footer>\n</div>\n<script src=\"/search.js\" defer></script>\n<script src=\"https://cdn.jsdelivr.net/npm/mermaid@10/dist/mermaid.min.js\"></script><script>mermaid.initialize({startOnLoad:true,theme:document.documentElement.classList.contains('dark')?'dark':'default',securityLevel:'strict'});</script>\n</body>\n</html>");
+LET MUT(opt_a08_site_url_trailing_slash, DICT());
+SET(opt_a08_site_url_trailing_slash, INDEX_SET(opt_a08_site_url_trailing_slash, "config", INDEX_SET(DICT(), "site_url", "https://example.com/")));
+SET(opt_a08_site_url_trailing_slash, INDEX_SET(opt_a08_site_url_trailing_slash, "content", "<p>s</p>"));
+SET(opt_a08_site_url_trailing_slash, INDEX_SET(opt_a08_site_url_trailing_slash, "date", "2026-01-02 03:04"));
+SET(opt_a08_site_url_trailing_slash, INDEX_SET(opt_a08_site_url_trailing_slash, "slug", "slash"));
+SET(opt_a08_site_url_trailing_slash, INDEX_SET(opt_a08_site_url_trailing_slash, "tags", "x"));
+SET(opt_a08_site_url_trailing_slash, INDEX_SET(opt_a08_site_url_trailing_slash, "theme_css", "body{margin:0;font-family:sans-serif}"));
+SET(opt_a08_site_url_trailing_slash, INDEX_SET(opt_a08_site_url_trailing_slash, "title", "结尾斜杠"));
+LET(want_a08_site_url_trailing_slash, "<!DOCTYPE html>\n<html lang=\"zh-CN\">\n<head>\n<meta charset=\"utf-8\">\n<meta name=\"viewport\" content=\"width=device-width,initial-scale=1\">\n\n<meta name=\"theme-color\" content=\"#2c3e50\" media=\"(prefers-color-scheme: light)\"><meta name=\"theme-color\" content=\"#ffffff\" media=\"(prefers-color-scheme: dark)\">\n<meta name=\"view-transition\" content=\"same-origin\">\n<meta name=\"description\" content=\"\">\n<meta property=\"og:title\" content=\"结尾斜杠\">\n<meta property=\"og:description\" content=\"\">\n<meta property=\"og:type\" content=\"article\">\n<meta property=\"og:url\" content=\"https://example.com/article/slash.html\">\n<meta name=\"twitter:card\" content=\"summary\">\n<meta name=\"twitter:title\" content=\"结尾斜杠\">\n<meta name=\"twitter:description\" content=\"\">\n<script type=\"application/ld+json\">{\"@context\": \"https://schema.org\", \"@type\": \"Article\", \"headline\": \"结尾斜杠\", \"description\": \"\", \"url\": \"https://example.com/article/slash.html\", \"datePublished\": \"2026-01-02 03:04\", \"author\": {\"@type\": \"Person\", \"name\": \"Anonymous\"}, \"publisher\": {\"@type\": \"Organization\", \"name\": \"https://example.com/\"}, \"keywords\": \"x\"}</script>\n<link rel=\"manifest\" href=\"/manifest.json\">\n<title>结尾斜杠 - TinyPage</title>\n<style>\nbody{margin:0;font-family:sans-serif}\n</style>\n\n\n</head>\n<body>\n<div class=\"container\">\n  <header class=\"site-header\">\n    <a href=\"/\" class=\"site-title\">TinyPage</a>\n    <nav class=\"site-nav\" aria-label=\"站点导航\">\n      <a href=\"/\">首页</a>\n      <a href=\"/search.html\">搜索</a>\n      \n    </nav>\n  </header>\n  <main>\n<article class=\"post\">\n      <header class=\"post-header\">\n        <h1 class=\"post-title\">结尾斜杠</h1>\n        <div class=\"post-meta\">\n          \n          <time datetime=\"2026-01-02 03:04\">2026-01-02 03:04</time>\n          \n          <button class=\"share-btn\" onclick=\"navigator.share?.({title:'结尾斜杠',text:'',url:'https://example.com//article/slash.html'}).catch(()=>{})\" hidden>分享</button>\n        </div>\n      </header>\n      \n      <div class=\"post-content\">\n<p>s</p>\n      </div>\n      <div class=\"post-tags\"><span class=\"tag\">x</span></div>\n      \n      \n    </article>\n    \n  </main>\n  <footer class=\"site-footer\">\n    <p>Powered by TinyPage</p>\n  </footer>\n</div>\n<script src=\"/search.js\" defer></script>\n<script src=\"https://cdn.jsdelivr.net/npm/mermaid@10/dist/mermaid.min.js\"></script><script>mermaid.initialize({startOnLoad:true,theme:document.documentElement.classList.contains('dark')?'dark':'default',securityLevel:'strict'});</script>\n</body>\n</html>");
+LET MUT(opt_a09_cjk, DICT());
+SET(opt_a09_cjk, INDEX_SET(opt_a09_cjk, "category", "分类中文"));
+SET(opt_a09_cjk, INDEX_SET(opt_a09_cjk, "config", INDEX_SET(DICT(), "site_url", "https://例子.测试")));
+SET(opt_a09_cjk, INDEX_SET(opt_a09_cjk, "content", "<p>中文正文</p>"));
+SET(opt_a09_cjk, INDEX_SET(opt_a09_cjk, "dark_css", "@media (prefers-color-scheme: dark){body{background:#111;color:#eee}}"));
+SET(opt_a09_cjk, INDEX_SET(opt_a09_cjk, "date", "2026-02-03 09:08"));
+SET(opt_a09_cjk, INDEX_SET(opt_a09_cjk, "has_dark", TRUE));
+SET(opt_a09_cjk, INDEX_SET(opt_a09_cjk, "slug", "cjk"));
+SET(opt_a09_cjk, INDEX_SET(opt_a09_cjk, "standalones", [INDEX_SET(INDEX_SET(DICT(), "file", "about.html"), "title", "关于"), INDEX_SET(INDEX_SET(DICT(), "file", "projects.html"), "title", "项目列表 - 归档与说明")]));
+SET(opt_a09_cjk, INDEX_SET(opt_a09_cjk, "summary", "摘要中文"));
+SET(opt_a09_cjk, INDEX_SET(opt_a09_cjk, "tags", "中文, 标签"));
+SET(opt_a09_cjk, INDEX_SET(opt_a09_cjk, "theme_css", "body{margin:0;font-family:sans-serif}"));
+SET(opt_a09_cjk, INDEX_SET(opt_a09_cjk, "title", "中文标题·测试"));
+LET(want_a09_cjk, "<!DOCTYPE html>\n<html lang=\"zh-CN\">\n<head>\n<meta charset=\"utf-8\">\n<meta name=\"viewport\" content=\"width=device-width,initial-scale=1\">\n<meta name=\"color-scheme\" content=\"light dark\">\n<meta name=\"theme-color\" content=\"#2c3e50\" media=\"(prefers-color-scheme: light)\"><meta name=\"theme-color\" content=\"#ffffff\" media=\"(prefers-color-scheme: dark)\">\n<meta name=\"view-transition\" content=\"same-origin\">\n<meta name=\"description\" content=\"摘要中文\">\n<meta property=\"og:title\" content=\"中文标题·测试\">\n<meta property=\"og:description\" content=\"摘要中文\">\n<meta property=\"og:type\" content=\"article\">\n<meta property=\"og:url\" content=\"https://例子.测试/article/cjk.html\">\n<meta name=\"twitter:card\" content=\"summary\">\n<meta name=\"twitter:title\" content=\"中文标题·测试\">\n<meta name=\"twitter:description\" content=\"摘要中文\">\n<script type=\"application/ld+json\">{\"@context\": \"https://schema.org\", \"@type\": \"Article\", \"headline\": \"中文标题·测试\", \"description\": \"摘要中文\", \"url\": \"https://例子.测试/article/cjk.html\", \"datePublished\": \"2026-02-03 09:08\", \"author\": {\"@type\": \"Person\", \"name\": \"Anonymous\"}, \"publisher\": {\"@type\": \"Organization\", \"name\": \"https://例子.测试\"}, \"keywords\": \"中文, 标签\"}</script>\n<link rel=\"manifest\" href=\"/manifest.json\">\n<title>中文标题·测试 - TinyPage</title>\n<style>\nbody{margin:0;font-family:sans-serif}\n</style>\n<style media=\"(prefers-color-scheme: dark)\">@media (prefers-color-scheme: dark){body{background:#111;color:#eee}}</style>\n<script>(function(){try{var m=localStorage.getItem('theme');if(m==='light'||(!m&&window.matchMedia('(prefers-color-scheme: light)').matches)){document.documentElement.classList.add('light')}}catch(e){}})();</script>\n</head>\n<body>\n<div class=\"container\">\n  <header class=\"site-header\">\n    <a href=\"/\" class=\"site-title\">TinyPage</a>\n    <nav class=\"site-nav\" aria-label=\"站点导航\">\n      <a href=\"/\">首页</a>\n      <a href=\"/standalone/about.html\">关于</a>\n      <a href=\"/standalone/projects.html\">项目列表 - 归档与说明</a>\n      <a href=\"/search.html\">搜索</a>\n      <button class=\"theme-toggle\" aria-label=\"切换主题\" onclick=\"var d=document.documentElement;d.classList.toggle('light');try{localStorage.setItem('theme',d.classList.contains('light')?'light':'dark')}catch(e){}\">🌓</button>\n    </nav>\n  </header>\n  <main>\n<article class=\"post\">\n      <header class=\"post-header\">\n        <h1 class=\"post-title\">中文标题·测试</h1>\n        <div class=\"post-meta\">\n          <span class=\"post-category\"><a href=\"/category/分类中文.html\">分类中文</a></span>\n          <time datetime=\"2026-02-03 09:08\">2026-02-03 09:08</time>\n          \n          <button class=\"share-btn\" onclick=\"navigator.share?.({title:'中文标题·测试',text:'摘要中文',url:'https://例子.测试/article/cjk.html'}).catch(()=>{})\" hidden>分享</button>\n        </div>\n      </header>\n      \n      <div class=\"post-content\">\n<p>中文正文</p>\n      </div>\n      <div class=\"post-tags\"><span class=\"tag\">中文</span> <span class=\"tag\">标签</span></div>\n      \n      \n    </article>\n    \n  </main>\n  <footer class=\"site-footer\">\n    <p>Powered by TinyPage</p>\n  </footer>\n</div>\n<script src=\"/search.js\" defer></script>\n<script src=\"https://cdn.jsdelivr.net/npm/mermaid@10/dist/mermaid.min.js\"></script><script>mermaid.initialize({startOnLoad:true,theme:document.documentElement.classList.contains('dark')?'dark':'default',securityLevel:'strict'});</script>\n</body>\n</html>");
+LET MUT(opt_a10_content_specials, DICT());
+SET(opt_a10_content_specials, INDEX_SET(opt_a10_content_specials, "content", "<script>alert('x')</script>\n<p>\${title} 与 \$slug 与 \$\$ 与 \\n</p>"));
+SET(opt_a10_content_specials, INDEX_SET(opt_a10_content_specials, "date", "2026-01-02 03:04"));
+SET(opt_a10_content_specials, INDEX_SET(opt_a10_content_specials, "slug", "inject"));
+SET(opt_a10_content_specials, INDEX_SET(opt_a10_content_specials, "theme_css", "body{margin:0;font-family:sans-serif}"));
+SET(opt_a10_content_specials, INDEX_SET(opt_a10_content_specials, "title", "正文注入"));
+LET(want_a10_content_specials, "<!DOCTYPE html>\n<html lang=\"zh-CN\">\n<head>\n<meta charset=\"utf-8\">\n<meta name=\"viewport\" content=\"width=device-width,initial-scale=1\">\n\n<meta name=\"theme-color\" content=\"#2c3e50\" media=\"(prefers-color-scheme: light)\"><meta name=\"theme-color\" content=\"#ffffff\" media=\"(prefers-color-scheme: dark)\">\n<meta name=\"view-transition\" content=\"same-origin\">\n<meta name=\"description\" content=\"\">\n\n\n<link rel=\"manifest\" href=\"/manifest.json\">\n<title>正文注入 - TinyPage</title>\n<style>\nbody{margin:0;font-family:sans-serif}\n</style>\n\n\n</head>\n<body>\n<div class=\"container\">\n  <header class=\"site-header\">\n    <a href=\"/\" class=\"site-title\">TinyPage</a>\n    <nav class=\"site-nav\" aria-label=\"站点导航\">\n      <a href=\"/\">首页</a>\n      <a href=\"/search.html\">搜索</a>\n      \n    </nav>\n  </header>\n  <main>\n<article class=\"post\">\n      <header class=\"post-header\">\n        <h1 class=\"post-title\">正文注入</h1>\n        <div class=\"post-meta\">\n          \n          <time datetime=\"2026-01-02 03:04\">2026-01-02 03:04</time>\n          \n          \n        </div>\n      </header>\n      \n      <div class=\"post-content\">\n<script>alert('x')</script>\n<p>\${title} 与 \$slug 与 \$\$ 与 \\n</p>\n      </div>\n      \n      \n      \n    </article>\n    \n  </main>\n  <footer class=\"site-footer\">\n    <p>Powered by TinyPage</p>\n  </footer>\n</div>\n<script src=\"/search.js\" defer></script>\n<script src=\"https://cdn.jsdelivr.net/npm/mermaid@10/dist/mermaid.min.js\"></script><script>mermaid.initialize({startOnLoad:true,theme:document.documentElement.classList.contains('dark')?'dark':'default',securityLevel:'strict'});</script>\n</body>\n</html>");
+LET MUT(opt_a11_empty_all, DICT());
+SET(opt_a11_empty_all, INDEX_SET(opt_a11_empty_all, "content", ""));
+SET(opt_a11_empty_all, INDEX_SET(opt_a11_empty_all, "date", ""));
+SET(opt_a11_empty_all, INDEX_SET(opt_a11_empty_all, "slug", ""));
+SET(opt_a11_empty_all, INDEX_SET(opt_a11_empty_all, "theme_css", "body{margin:0;font-family:sans-serif}"));
+SET(opt_a11_empty_all, INDEX_SET(opt_a11_empty_all, "title", ""));
+LET(want_a11_empty_all, "<!DOCTYPE html>\n<html lang=\"zh-CN\">\n<head>\n<meta charset=\"utf-8\">\n<meta name=\"viewport\" content=\"width=device-width,initial-scale=1\">\n\n<meta name=\"theme-color\" content=\"#2c3e50\" media=\"(prefers-color-scheme: light)\"><meta name=\"theme-color\" content=\"#ffffff\" media=\"(prefers-color-scheme: dark)\">\n<meta name=\"view-transition\" content=\"same-origin\">\n<meta name=\"description\" content=\"\">\n\n\n<link rel=\"manifest\" href=\"/manifest.json\">\n<title> - TinyPage</title>\n<style>\nbody{margin:0;font-family:sans-serif}\n</style>\n\n\n</head>\n<body>\n<div class=\"container\">\n  <header class=\"site-header\">\n    <a href=\"/\" class=\"site-title\">TinyPage</a>\n    <nav class=\"site-nav\" aria-label=\"站点导航\">\n      <a href=\"/\">首页</a>\n      <a href=\"/search.html\">搜索</a>\n      \n    </nav>\n  </header>\n  <main>\n<article class=\"post\">\n      <header class=\"post-header\">\n        <h1 class=\"post-title\"></h1>\n        <div class=\"post-meta\">\n          \n          <time datetime=\"\"></time>\n          \n          \n        </div>\n      </header>\n      \n      <div class=\"post-content\">\n\n      </div>\n      \n      \n      \n    </article>\n    \n  </main>\n  <footer class=\"site-footer\">\n    <p>Powered by TinyPage</p>\n  </footer>\n</div>\n<script src=\"/search.js\" defer></script>\n<script src=\"https://cdn.jsdelivr.net/npm/mermaid@10/dist/mermaid.min.js\"></script><script>mermaid.initialize({startOnLoad:true,theme:document.documentElement.classList.contains('dark')?'dark':'default',securityLevel:'strict'});</script>\n</body>\n</html>");
+LET MUT(opt_a12_tags_unicode_ws, DICT());
+SET(opt_a12_tags_unicode_ws, INDEX_SET(opt_a12_tags_unicode_ws, "content", "<p>u</p>"));
+SET(opt_a12_tags_unicode_ws, INDEX_SET(opt_a12_tags_unicode_ws, "date", "2026-01-02 03:04"));
+SET(opt_a12_tags_unicode_ws, INDEX_SET(opt_a12_tags_unicode_ws, "slug", "uws"));
+SET(opt_a12_tags_unicode_ws, INDEX_SET(opt_a12_tags_unicode_ws, "tags", "　甲　,  乙  ,\t丙\t"));
+SET(opt_a12_tags_unicode_ws, INDEX_SET(opt_a12_tags_unicode_ws, "theme_css", "body{margin:0;font-family:sans-serif}"));
+SET(opt_a12_tags_unicode_ws, INDEX_SET(opt_a12_tags_unicode_ws, "title", "Unicode 空白"));
+LET(want_a12_tags_unicode_ws, "<!DOCTYPE html>\n<html lang=\"zh-CN\">\n<head>\n<meta charset=\"utf-8\">\n<meta name=\"viewport\" content=\"width=device-width,initial-scale=1\">\n\n<meta name=\"theme-color\" content=\"#2c3e50\" media=\"(prefers-color-scheme: light)\"><meta name=\"theme-color\" content=\"#ffffff\" media=\"(prefers-color-scheme: dark)\">\n<meta name=\"view-transition\" content=\"same-origin\">\n<meta name=\"description\" content=\"\">\n\n\n<link rel=\"manifest\" href=\"/manifest.json\">\n<title>Unicode 空白 - TinyPage</title>\n<style>\nbody{margin:0;font-family:sans-serif}\n</style>\n\n\n</head>\n<body>\n<div class=\"container\">\n  <header class=\"site-header\">\n    <a href=\"/\" class=\"site-title\">TinyPage</a>\n    <nav class=\"site-nav\" aria-label=\"站点导航\">\n      <a href=\"/\">首页</a>\n      <a href=\"/search.html\">搜索</a>\n      \n    </nav>\n  </header>\n  <main>\n<article class=\"post\">\n      <header class=\"post-header\">\n        <h1 class=\"post-title\">Unicode 空白</h1>\n        <div class=\"post-meta\">\n          \n          <time datetime=\"2026-01-02 03:04\">2026-01-02 03:04</time>\n          \n          \n        </div>\n      </header>\n      \n      <div class=\"post-content\">\n<p>u</p>\n      </div>\n      <div class=\"post-tags\"><span class=\"tag\">甲</span> <span class=\"tag\">乙</span> <span class=\"tag\">丙</span></div>\n      \n      \n    </article>\n    \n  </main>\n  <footer class=\"site-footer\">\n    <p>Powered by TinyPage</p>\n  </footer>\n</div>\n<script src=\"/search.js\" defer></script>\n<script src=\"https://cdn.jsdelivr.net/npm/mermaid@10/dist/mermaid.min.js\"></script><script>mermaid.initialize({startOnLoad:true,theme:document.documentElement.classList.contains('dark')?'dark':'default',securityLevel:'strict'});</script>\n</body>\n</html>");
+LET MUT(opt_a13_features_off, DICT());
+SET(opt_a13_features_off, INDEX_SET(opt_a13_features_off, "config", INDEX_SET(INDEX_SET(INDEX_SET(DICT(), "enable_pwa", FALSE), "enable_search", FALSE), "enable_view_transitions", FALSE)));
+SET(opt_a13_features_off, INDEX_SET(opt_a13_features_off, "content", "<p>o</p>"));
+SET(opt_a13_features_off, INDEX_SET(opt_a13_features_off, "date", "2026-01-02 03:04"));
+SET(opt_a13_features_off, INDEX_SET(opt_a13_features_off, "slug", "off"));
+SET(opt_a13_features_off, INDEX_SET(opt_a13_features_off, "theme_css", "body{margin:0;font-family:sans-serif}"));
+SET(opt_a13_features_off, INDEX_SET(opt_a13_features_off, "title", "开关全关"));
+LET(want_a13_features_off, "<!DOCTYPE html>\n<html lang=\"zh-CN\">\n<head>\n<meta charset=\"utf-8\">\n<meta name=\"viewport\" content=\"width=device-width,initial-scale=1\">\n\n\n\n<meta name=\"description\" content=\"\">\n\n\n\n<title>开关全关 - TinyPage</title>\n<style>\nbody{margin:0;font-family:sans-serif}\n</style>\n\n\n</head>\n<body>\n<div class=\"container\">\n  <header class=\"site-header\">\n    <a href=\"/\" class=\"site-title\">TinyPage</a>\n    <nav class=\"site-nav\" aria-label=\"站点导航\">\n      <a href=\"/\">首页</a>\n      \n    </nav>\n  </header>\n  <main>\n<article class=\"post\">\n      <header class=\"post-header\">\n        <h1 class=\"post-title\">开关全关</h1>\n        <div class=\"post-meta\">\n          \n          <time datetime=\"2026-01-02 03:04\">2026-01-02 03:04</time>\n          \n          \n        </div>\n      </header>\n      \n      <div class=\"post-content\">\n<p>o</p>\n      </div>\n      \n      \n      \n    </article>\n    \n  </main>\n  <footer class=\"site-footer\">\n    <p>Powered by TinyPage</p>\n  </footer>\n</div>\n\n<script src=\"https://cdn.jsdelivr.net/npm/mermaid@10/dist/mermaid.min.js\"></script><script>mermaid.initialize({startOnLoad:true,theme:document.documentElement.classList.contains('dark')?'dark':'default',securityLevel:'strict'});</script>\n</body>\n</html>");
+LET MUT(opt_a14_partial_config, DICT());
+SET(opt_a14_partial_config, INDEX_SET(opt_a14_partial_config, "config", INDEX_SET(DICT(), "site_url", "https://p.example")));
+SET(opt_a14_partial_config, INDEX_SET(opt_a14_partial_config, "content", "<p>p</p>"));
+SET(opt_a14_partial_config, INDEX_SET(opt_a14_partial_config, "date", "2026-01-02 03:04"));
+SET(opt_a14_partial_config, INDEX_SET(opt_a14_partial_config, "slug", "partial"));
+SET(opt_a14_partial_config, INDEX_SET(opt_a14_partial_config, "theme_css", "body{margin:0;font-family:sans-serif}"));
+SET(opt_a14_partial_config, INDEX_SET(opt_a14_partial_config, "title", "部分配置"));
+LET(want_a14_partial_config, "<!DOCTYPE html>\n<html lang=\"zh-CN\">\n<head>\n<meta charset=\"utf-8\">\n<meta name=\"viewport\" content=\"width=device-width,initial-scale=1\">\n\n<meta name=\"theme-color\" content=\"#2c3e50\" media=\"(prefers-color-scheme: light)\"><meta name=\"theme-color\" content=\"#ffffff\" media=\"(prefers-color-scheme: dark)\">\n<meta name=\"view-transition\" content=\"same-origin\">\n<meta name=\"description\" content=\"\">\n<meta property=\"og:title\" content=\"部分配置\">\n<meta property=\"og:description\" content=\"\">\n<meta property=\"og:type\" content=\"article\">\n<meta property=\"og:url\" content=\"https://p.example/article/partial.html\">\n<meta name=\"twitter:card\" content=\"summary\">\n<meta name=\"twitter:title\" content=\"部分配置\">\n<meta name=\"twitter:description\" content=\"\">\n<script type=\"application/ld+json\">{\"@context\": \"https://schema.org\", \"@type\": \"Article\", \"headline\": \"部分配置\", \"description\": \"\", \"url\": \"https://p.example/article/partial.html\", \"datePublished\": \"2026-01-02 03:04\", \"author\": {\"@type\": \"Person\", \"name\": \"Anonymous\"}, \"publisher\": {\"@type\": \"Organization\", \"name\": \"https://p.example\"}}</script>\n<link rel=\"manifest\" href=\"/manifest.json\">\n<title>部分配置 - TinyPage</title>\n<style>\nbody{margin:0;font-family:sans-serif}\n</style>\n\n\n</head>\n<body>\n<div class=\"container\">\n  <header class=\"site-header\">\n    <a href=\"/\" class=\"site-title\">TinyPage</a>\n    <nav class=\"site-nav\" aria-label=\"站点导航\">\n      <a href=\"/\">首页</a>\n      <a href=\"/search.html\">搜索</a>\n      \n    </nav>\n  </header>\n  <main>\n<article class=\"post\">\n      <header class=\"post-header\">\n        <h1 class=\"post-title\">部分配置</h1>\n        <div class=\"post-meta\">\n          \n          <time datetime=\"2026-01-02 03:04\">2026-01-02 03:04</time>\n          \n          <button class=\"share-btn\" onclick=\"navigator.share?.({title:'部分配置',text:'',url:'https://p.example/article/partial.html'}).catch(()=>{})\" hidden>分享</button>\n        </div>\n      </header>\n      \n      <div class=\"post-content\">\n<p>p</p>\n      </div>\n      \n      \n      \n    </article>\n    \n  </main>\n  <footer class=\"site-footer\">\n    <p>Powered by TinyPage</p>\n  </footer>\n</div>\n<script src=\"/search.js\" defer></script>\n<script src=\"https://cdn.jsdelivr.net/npm/mermaid@10/dist/mermaid.min.js\"></script><script>mermaid.initialize({startOnLoad:true,theme:document.documentElement.classList.contains('dark')?'dark':'default',securityLevel:'strict'});</script>\n</body>\n</html>");
+LET MUT(opt_a15_related_empty, DICT());
+SET(opt_a15_related_empty, INDEX_SET(opt_a15_related_empty, "content", "<p>r</p>"));
+SET(opt_a15_related_empty, INDEX_SET(opt_a15_related_empty, "date", "2026-01-02 03:04"));
+SET(opt_a15_related_empty, INDEX_SET(opt_a15_related_empty, "related_articles", []));
+SET(opt_a15_related_empty, INDEX_SET(opt_a15_related_empty, "slug", "rel0"));
+SET(opt_a15_related_empty, INDEX_SET(opt_a15_related_empty, "theme_css", "body{margin:0;font-family:sans-serif}"));
+SET(opt_a15_related_empty, INDEX_SET(opt_a15_related_empty, "title", "空相关"));
+LET(want_a15_related_empty, "<!DOCTYPE html>\n<html lang=\"zh-CN\">\n<head>\n<meta charset=\"utf-8\">\n<meta name=\"viewport\" content=\"width=device-width,initial-scale=1\">\n\n<meta name=\"theme-color\" content=\"#2c3e50\" media=\"(prefers-color-scheme: light)\"><meta name=\"theme-color\" content=\"#ffffff\" media=\"(prefers-color-scheme: dark)\">\n<meta name=\"view-transition\" content=\"same-origin\">\n<meta name=\"description\" content=\"\">\n\n\n<link rel=\"manifest\" href=\"/manifest.json\">\n<title>空相关 - TinyPage</title>\n<style>\nbody{margin:0;font-family:sans-serif}\n</style>\n\n\n</head>\n<body>\n<div class=\"container\">\n  <header class=\"site-header\">\n    <a href=\"/\" class=\"site-title\">TinyPage</a>\n    <nav class=\"site-nav\" aria-label=\"站点导航\">\n      <a href=\"/\">首页</a>\n      <a href=\"/search.html\">搜索</a>\n      \n    </nav>\n  </header>\n  <main>\n<article class=\"post\">\n      <header class=\"post-header\">\n        <h1 class=\"post-title\">空相关</h1>\n        <div class=\"post-meta\">\n          \n          <time datetime=\"2026-01-02 03:04\">2026-01-02 03:04</time>\n          \n          \n        </div>\n      </header>\n      \n      <div class=\"post-content\">\n<p>r</p>\n      </div>\n      \n      \n      \n    </article>\n    \n  </main>\n  <footer class=\"site-footer\">\n    <p>Powered by TinyPage</p>\n  </footer>\n</div>\n<script src=\"/search.js\" defer></script>\n<script src=\"https://cdn.jsdelivr.net/npm/mermaid@10/dist/mermaid.min.js\"></script><script>mermaid.initialize({startOnLoad:true,theme:document.documentElement.classList.contains('dark')?'dark':'default',securityLevel:'strict'});</script>\n</body>\n</html>");
+LET MUT(opt_a16_no_dark, DICT());
+SET(opt_a16_no_dark, INDEX_SET(opt_a16_no_dark, "config", INDEX_SET(DICT(), "site_url", "https://example.com")));
+SET(opt_a16_no_dark, INDEX_SET(opt_a16_no_dark, "content", "<p>n</p>"));
+SET(opt_a16_no_dark, INDEX_SET(opt_a16_no_dark, "dark_css", ""));
+SET(opt_a16_no_dark, INDEX_SET(opt_a16_no_dark, "date", "2026-01-02 03:04"));
+SET(opt_a16_no_dark, INDEX_SET(opt_a16_no_dark, "has_dark", FALSE));
+SET(opt_a16_no_dark, INDEX_SET(opt_a16_no_dark, "related_articles", [INDEX_SET(INDEX_SET(INDEX_SET(DICT(), "date", "2026-01-03 10:00"), "file", "2026-01-03-second.html"), "title", "第二篇"), INDEX_SET(INDEX_SET(INDEX_SET(DICT(), "date", "2026-01-04 11:00"), "file", "2026-01-04-special.html"), "title", "A & B <i>x</i>")]));
+SET(opt_a16_no_dark, INDEX_SET(opt_a16_no_dark, "slug", "nodark"));
+SET(opt_a16_no_dark, INDEX_SET(opt_a16_no_dark, "theme_css", "body{margin:0;font-family:sans-serif}"));
+SET(opt_a16_no_dark, INDEX_SET(opt_a16_no_dark, "title", "无暗色"));
+LET(want_a16_no_dark, "<!DOCTYPE html>\n<html lang=\"zh-CN\">\n<head>\n<meta charset=\"utf-8\">\n<meta name=\"viewport\" content=\"width=device-width,initial-scale=1\">\n\n<meta name=\"theme-color\" content=\"#2c3e50\" media=\"(prefers-color-scheme: light)\"><meta name=\"theme-color\" content=\"#ffffff\" media=\"(prefers-color-scheme: dark)\">\n<meta name=\"view-transition\" content=\"same-origin\">\n<meta name=\"description\" content=\"\">\n<meta property=\"og:title\" content=\"无暗色\">\n<meta property=\"og:description\" content=\"\">\n<meta property=\"og:type\" content=\"article\">\n<meta property=\"og:url\" content=\"https://example.com/article/nodark.html\">\n<meta name=\"twitter:card\" content=\"summary\">\n<meta name=\"twitter:title\" content=\"无暗色\">\n<meta name=\"twitter:description\" content=\"\">\n<script type=\"application/ld+json\">{\"@context\": \"https://schema.org\", \"@type\": \"Article\", \"headline\": \"无暗色\", \"description\": \"\", \"url\": \"https://example.com/article/nodark.html\", \"datePublished\": \"2026-01-02 03:04\", \"author\": {\"@type\": \"Person\", \"name\": \"Anonymous\"}, \"publisher\": {\"@type\": \"Organization\", \"name\": \"https://example.com\"}}</script>\n<link rel=\"manifest\" href=\"/manifest.json\">\n<title>无暗色 - TinyPage</title>\n<style>\nbody{margin:0;font-family:sans-serif}\n</style>\n\n\n</head>\n<body>\n<div class=\"container\">\n  <header class=\"site-header\">\n    <a href=\"/\" class=\"site-title\">TinyPage</a>\n    <nav class=\"site-nav\" aria-label=\"站点导航\">\n      <a href=\"/\">首页</a>\n      <a href=\"/search.html\">搜索</a>\n      \n    </nav>\n  </header>\n  <main>\n<article class=\"post\">\n      <header class=\"post-header\">\n        <h1 class=\"post-title\">无暗色</h1>\n        <div class=\"post-meta\">\n          \n          <time datetime=\"2026-01-02 03:04\">2026-01-02 03:04</time>\n          \n          <button class=\"share-btn\" onclick=\"navigator.share?.({title:'无暗色',text:'',url:'https://example.com/article/nodark.html'}).catch(()=>{})\" hidden>分享</button>\n        </div>\n      </header>\n      \n      <div class=\"post-content\">\n<p>n</p>\n      </div>\n      \n      \n      \n    </article>\n    \n    <section class=\"related-articles\">\n      <h2>相关文章</h2>\n      <div class=\"related-list\">\n        \n      <div class=\"related-item\">\n        <a href=\"/article/2026-01-03-second.html\">第二篇</a>\n        <span class=\"related-date\">2026-01-03 10:00</span>\n      </div>\n      <div class=\"related-item\">\n        <a href=\"/article/2026-01-04-special.html\">A &amp; B &lt;i&gt;x&lt;/i&gt;</a>\n        <span class=\"related-date\">2026-01-04 11:00</span>\n      </div>\n      </div>\n    </section>\n  </main>\n  <footer class=\"site-footer\">\n    <p>Powered by TinyPage</p>\n  </footer>\n</div>\n<script src=\"/search.js\" defer></script>\n<script src=\"https://cdn.jsdelivr.net/npm/mermaid@10/dist/mermaid.min.js\"></script><script>mermaid.initialize({startOnLoad:true,theme:document.documentElement.classList.contains('dark')?'dark':'default',securityLevel:'strict'});</script>\n</body>\n</html>");
+LET MUT(opt_a17_lang_footer, DICT());
+SET(opt_a17_lang_footer, INDEX_SET(opt_a17_lang_footer, "config", INDEX_SET(INDEX_SET(DICT(), "footer_text", "F & <b>x</b> \"q\""), "lang", "en")));
+SET(opt_a17_lang_footer, INDEX_SET(opt_a17_lang_footer, "content", "<p>l</p>"));
+SET(opt_a17_lang_footer, INDEX_SET(opt_a17_lang_footer, "date", "2026-01-02 03:04"));
+SET(opt_a17_lang_footer, INDEX_SET(opt_a17_lang_footer, "slug", "lang"));
+SET(opt_a17_lang_footer, INDEX_SET(opt_a17_lang_footer, "theme_css", "body{margin:0;font-family:sans-serif}"));
+SET(opt_a17_lang_footer, INDEX_SET(opt_a17_lang_footer, "title", "页脚 & 语言"));
+LET(want_a17_lang_footer, "<!DOCTYPE html>\n<html lang=\"en\">\n<head>\n<meta charset=\"utf-8\">\n<meta name=\"viewport\" content=\"width=device-width,initial-scale=1\">\n\n<meta name=\"theme-color\" content=\"#2c3e50\" media=\"(prefers-color-scheme: light)\"><meta name=\"theme-color\" content=\"#ffffff\" media=\"(prefers-color-scheme: dark)\">\n<meta name=\"view-transition\" content=\"same-origin\">\n<meta name=\"description\" content=\"\">\n\n\n<link rel=\"manifest\" href=\"/manifest.json\">\n<title>页脚 &amp;amp; 语言 - TinyPage</title>\n<style>\nbody{margin:0;font-family:sans-serif}\n</style>\n\n\n</head>\n<body>\n<div class=\"container\">\n  <header class=\"site-header\">\n    <a href=\"/\" class=\"site-title\">TinyPage</a>\n    <nav class=\"site-nav\" aria-label=\"站点导航\">\n      <a href=\"/\">首页</a>\n      <a href=\"/search.html\">搜索</a>\n      \n    </nav>\n  </header>\n  <main>\n<article class=\"post\">\n      <header class=\"post-header\">\n        <h1 class=\"post-title\">页脚 &amp; 语言</h1>\n        <div class=\"post-meta\">\n          \n          <time datetime=\"2026-01-02 03:04\">2026-01-02 03:04</time>\n          \n          \n        </div>\n      </header>\n      \n      <div class=\"post-content\">\n<p>l</p>\n      </div>\n      \n      \n      \n    </article>\n    \n  </main>\n  <footer class=\"site-footer\">\n    <p>F &amp; &lt;b&gt;x&lt;/b&gt; &quot;q&quot;</p>\n  </footer>\n</div>\n<script src=\"/search.js\" defer></script>\n<script src=\"https://cdn.jsdelivr.net/npm/mermaid@10/dist/mermaid.min.js\"></script><script>mermaid.initialize({startOnLoad:true,theme:document.documentElement.classList.contains('dark')?'dark':'default',securityLevel:'strict'});</script>\n</body>\n</html>");
+LET MUT(opt_a18_dark_css_without_flag, DICT());
+SET(opt_a18_dark_css_without_flag, INDEX_SET(opt_a18_dark_css_without_flag, "config", INDEX_SET(DICT(), "site_url", "https://example.com")));
+SET(opt_a18_dark_css_without_flag, INDEX_SET(opt_a18_dark_css_without_flag, "content", "<p>d</p>"));
+SET(opt_a18_dark_css_without_flag, INDEX_SET(opt_a18_dark_css_without_flag, "dark_css", "@media (prefers-color-scheme: dark){body{background:#111;color:#eee}}"));
+SET(opt_a18_dark_css_without_flag, INDEX_SET(opt_a18_dark_css_without_flag, "date", "2026-01-02 03:04"));
+SET(opt_a18_dark_css_without_flag, INDEX_SET(opt_a18_dark_css_without_flag, "has_dark", FALSE));
+SET(opt_a18_dark_css_without_flag, INDEX_SET(opt_a18_dark_css_without_flag, "slug", "dcss"));
+SET(opt_a18_dark_css_without_flag, INDEX_SET(opt_a18_dark_css_without_flag, "standalones", [INDEX_SET(INDEX_SET(DICT(), "file", "about.html"), "title", "关于"), INDEX_SET(INDEX_SET(DICT(), "file", "projects.html"), "title", "项目列表 - 归档与说明")]));
+SET(opt_a18_dark_css_without_flag, INDEX_SET(opt_a18_dark_css_without_flag, "theme_css", "body{margin:0;font-family:sans-serif}"));
+SET(opt_a18_dark_css_without_flag, INDEX_SET(opt_a18_dark_css_without_flag, "title", "有暗色样式但没有开关"));
+LET(want_a18_dark_css_without_flag, "<!DOCTYPE html>\n<html lang=\"zh-CN\">\n<head>\n<meta charset=\"utf-8\">\n<meta name=\"viewport\" content=\"width=device-width,initial-scale=1\">\n\n<meta name=\"theme-color\" content=\"#2c3e50\" media=\"(prefers-color-scheme: light)\"><meta name=\"theme-color\" content=\"#ffffff\" media=\"(prefers-color-scheme: dark)\">\n<meta name=\"view-transition\" content=\"same-origin\">\n<meta name=\"description\" content=\"\">\n<meta property=\"og:title\" content=\"有暗色样式但没有开关\">\n<meta property=\"og:description\" content=\"\">\n<meta property=\"og:type\" content=\"article\">\n<meta property=\"og:url\" content=\"https://example.com/article/dcss.html\">\n<meta name=\"twitter:card\" content=\"summary\">\n<meta name=\"twitter:title\" content=\"有暗色样式但没有开关\">\n<meta name=\"twitter:description\" content=\"\">\n<script type=\"application/ld+json\">{\"@context\": \"https://schema.org\", \"@type\": \"Article\", \"headline\": \"有暗色样式但没有开关\", \"description\": \"\", \"url\": \"https://example.com/article/dcss.html\", \"datePublished\": \"2026-01-02 03:04\", \"author\": {\"@type\": \"Person\", \"name\": \"Anonymous\"}, \"publisher\": {\"@type\": \"Organization\", \"name\": \"https://example.com\"}}</script>\n<link rel=\"manifest\" href=\"/manifest.json\">\n<title>有暗色样式但没有开关 - TinyPage</title>\n<style>\nbody{margin:0;font-family:sans-serif}\n</style>\n<style media=\"(prefers-color-scheme: dark)\">@media (prefers-color-scheme: dark){body{background:#111;color:#eee}}</style>\n\n</head>\n<body>\n<div class=\"container\">\n  <header class=\"site-header\">\n    <a href=\"/\" class=\"site-title\">TinyPage</a>\n    <nav class=\"site-nav\" aria-label=\"站点导航\">\n      <a href=\"/\">首页</a>\n      <a href=\"/standalone/about.html\">关于</a>\n      <a href=\"/standalone/projects.html\">项目列表 - 归档与说明</a>\n      <a href=\"/search.html\">搜索</a>\n      \n    </nav>\n  </header>\n  <main>\n<article class=\"post\">\n      <header class=\"post-header\">\n        <h1 class=\"post-title\">有暗色样式但没有开关</h1>\n        <div class=\"post-meta\">\n          \n          <time datetime=\"2026-01-02 03:04\">2026-01-02 03:04</time>\n          \n          <button class=\"share-btn\" onclick=\"navigator.share?.({title:'有暗色样式但没有开关',text:'',url:'https://example.com/article/dcss.html'}).catch(()=>{})\" hidden>分享</button>\n        </div>\n      </header>\n      \n      <div class=\"post-content\">\n<p>d</p>\n      </div>\n      \n      \n      \n    </article>\n    \n  </main>\n  <footer class=\"site-footer\">\n    <p>Powered by TinyPage</p>\n  </footer>\n</div>\n<script src=\"/search.js\" defer></script>\n<script src=\"https://cdn.jsdelivr.net/npm/mermaid@10/dist/mermaid.min.js\"></script><script>mermaid.initialize({startOnLoad:true,theme:document.documentElement.classList.contains('dark')?'dark':'default',securityLevel:'strict'});</script>\n</body>\n</html>");
+
+LET MUT(opt_s00_minimal, DICT());
+SET(opt_s00_minimal, INDEX_SET(opt_s00_minimal, "content", "<p>about</p>"));
+SET(opt_s00_minimal, INDEX_SET(opt_s00_minimal, "theme_css", "body{margin:0;font-family:sans-serif}"));
+SET(opt_s00_minimal, INDEX_SET(opt_s00_minimal, "title", "About"));
+LET(want_s00_minimal, "<!DOCTYPE html>\n<html lang=\"zh-CN\">\n<head>\n<meta charset=\"utf-8\">\n<meta name=\"viewport\" content=\"width=device-width,initial-scale=1\">\n\n<meta name=\"theme-color\" content=\"#2c3e50\" media=\"(prefers-color-scheme: light)\"><meta name=\"theme-color\" content=\"#ffffff\" media=\"(prefers-color-scheme: dark)\">\n<meta name=\"view-transition\" content=\"same-origin\">\n<meta name=\"description\" content=\"\">\n\n\n<link rel=\"manifest\" href=\"/manifest.json\">\n<title>About - TinyPage</title>\n<style>\nbody{margin:0;font-family:sans-serif}\n</style>\n\n\n</head>\n<body>\n<div class=\"container\">\n  <header class=\"site-header\">\n    <a href=\"/\" class=\"site-title\">TinyPage</a>\n    <nav class=\"site-nav\" aria-label=\"站点导航\">\n      <a href=\"/\">首页</a>\n      <a href=\"/search.html\">搜索</a>\n      \n    </nav>\n  </header>\n  <main>\n<article class=\"post standalone\">\n      <header class=\"post-header\">\n        <h1 class=\"post-title\">About</h1>\n      </header>\n      <div class=\"post-content\">\n<p>about</p>\n      </div>\n    </article>\n  </main>\n  <footer class=\"site-footer\">\n    <p>Powered by TinyPage</p>\n  </footer>\n</div>\n<script src=\"/search.js\" defer></script>\n\n</body>\n</html>");
+LET MUT(opt_s01_full, DICT());
+SET(opt_s01_full, INDEX_SET(opt_s01_full, "config", INDEX_SET(DICT(), "site_url", "https://example.com")));
+SET(opt_s01_full, INDEX_SET(opt_s01_full, "content", "<p>说明</p>"));
+SET(opt_s01_full, INDEX_SET(opt_s01_full, "dark_css", "@media (prefers-color-scheme: dark){body{background:#111;color:#eee}}"));
+SET(opt_s01_full, INDEX_SET(opt_s01_full, "has_dark", TRUE));
+SET(opt_s01_full, INDEX_SET(opt_s01_full, "standalones", [INDEX_SET(INDEX_SET(DICT(), "file", "about.html"), "title", "关于"), INDEX_SET(INDEX_SET(DICT(), "file", "projects.html"), "title", "项目列表 - 归档与说明")]));
+SET(opt_s01_full, INDEX_SET(opt_s01_full, "summary", "本站说明 & <x>"));
+SET(opt_s01_full, INDEX_SET(opt_s01_full, "theme_css", "body{margin:0;font-family:sans-serif}"));
+SET(opt_s01_full, INDEX_SET(opt_s01_full, "title", "关于本站"));
+LET(want_s01_full, "<!DOCTYPE html>\n<html lang=\"zh-CN\">\n<head>\n<meta charset=\"utf-8\">\n<meta name=\"viewport\" content=\"width=device-width,initial-scale=1\">\n<meta name=\"color-scheme\" content=\"light dark\">\n<meta name=\"theme-color\" content=\"#2c3e50\" media=\"(prefers-color-scheme: light)\"><meta name=\"theme-color\" content=\"#ffffff\" media=\"(prefers-color-scheme: dark)\">\n<meta name=\"view-transition\" content=\"same-origin\">\n<meta name=\"description\" content=\"本站说明 &amp;amp; &amp;lt;x&amp;gt;\">\n<meta property=\"og:title\" content=\"关于本站\">\n<meta property=\"og:description\" content=\"本站说明 &amp; &lt;x&gt;\">\n<meta property=\"og:type\" content=\"website\">\n<meta name=\"twitter:card\" content=\"summary\">\n\n<link rel=\"manifest\" href=\"/manifest.json\">\n<title>关于本站 - TinyPage</title>\n<style>\nbody{margin:0;font-family:sans-serif}\n</style>\n<style media=\"(prefers-color-scheme: dark)\">@media (prefers-color-scheme: dark){body{background:#111;color:#eee}}</style>\n<script>(function(){try{var m=localStorage.getItem('theme');if(m==='light'||(!m&&window.matchMedia('(prefers-color-scheme: light)').matches)){document.documentElement.classList.add('light')}}catch(e){}})();</script>\n</head>\n<body>\n<div class=\"container\">\n  <header class=\"site-header\">\n    <a href=\"/\" class=\"site-title\">TinyPage</a>\n    <nav class=\"site-nav\" aria-label=\"站点导航\">\n      <a href=\"/\">首页</a>\n      <a href=\"/standalone/about.html\">关于</a>\n      <a href=\"/standalone/projects.html\">项目列表 - 归档与说明</a>\n      <a href=\"/search.html\">搜索</a>\n      <button class=\"theme-toggle\" aria-label=\"切换主题\" onclick=\"var d=document.documentElement;d.classList.toggle('light');try{localStorage.setItem('theme',d.classList.contains('light')?'light':'dark')}catch(e){}\">🌓</button>\n    </nav>\n  </header>\n  <main>\n<article class=\"post standalone\">\n      <header class=\"post-header\">\n        <h1 class=\"post-title\">关于本站</h1>\n      </header>\n      <div class=\"post-content\">\n<p>说明</p>\n      </div>\n    </article>\n  </main>\n  <footer class=\"site-footer\">\n    <p>Powered by TinyPage</p>\n  </footer>\n</div>\n<script src=\"/search.js\" defer></script>\n\n</body>\n</html>");
+LET MUT(opt_s02_empty_summary, DICT());
+SET(opt_s02_empty_summary, INDEX_SET(opt_s02_empty_summary, "config", INDEX_SET(DICT(), "site_url", "https://example.com")));
+SET(opt_s02_empty_summary, INDEX_SET(opt_s02_empty_summary, "content", "<p>e</p>"));
+SET(opt_s02_empty_summary, INDEX_SET(opt_s02_empty_summary, "summary", ""));
+SET(opt_s02_empty_summary, INDEX_SET(opt_s02_empty_summary, "theme_css", "body{margin:0;font-family:sans-serif}"));
+SET(opt_s02_empty_summary, INDEX_SET(opt_s02_empty_summary, "title", "Empty"));
+LET(want_s02_empty_summary, "<!DOCTYPE html>\n<html lang=\"zh-CN\">\n<head>\n<meta charset=\"utf-8\">\n<meta name=\"viewport\" content=\"width=device-width,initial-scale=1\">\n\n<meta name=\"theme-color\" content=\"#2c3e50\" media=\"(prefers-color-scheme: light)\"><meta name=\"theme-color\" content=\"#ffffff\" media=\"(prefers-color-scheme: dark)\">\n<meta name=\"view-transition\" content=\"same-origin\">\n<meta name=\"description\" content=\"\">\n<meta property=\"og:title\" content=\"Empty\">\n<meta property=\"og:description\" content=\"\">\n<meta property=\"og:type\" content=\"website\">\n<meta name=\"twitter:card\" content=\"summary\">\n\n<link rel=\"manifest\" href=\"/manifest.json\">\n<title>Empty - TinyPage</title>\n<style>\nbody{margin:0;font-family:sans-serif}\n</style>\n\n\n</head>\n<body>\n<div class=\"container\">\n  <header class=\"site-header\">\n    <a href=\"/\" class=\"site-title\">TinyPage</a>\n    <nav class=\"site-nav\" aria-label=\"站点导航\">\n      <a href=\"/\">首页</a>\n      <a href=\"/search.html\">搜索</a>\n      \n    </nav>\n  </header>\n  <main>\n<article class=\"post standalone\">\n      <header class=\"post-header\">\n        <h1 class=\"post-title\">Empty</h1>\n      </header>\n      <div class=\"post-content\">\n<p>e</p>\n      </div>\n    </article>\n  </main>\n  <footer class=\"site-footer\">\n    <p>Powered by TinyPage</p>\n  </footer>\n</div>\n<script src=\"/search.js\" defer></script>\n\n</body>\n</html>");
+LET MUT(opt_s03_escape, DICT());
+SET(opt_s03_escape, INDEX_SET(opt_s03_escape, "config", INDEX_SET(DICT(), "site_url", "https://example.com/?a&b")));
+SET(opt_s03_escape, INDEX_SET(opt_s03_escape, "content", "<p>c & d</p>"));
+SET(opt_s03_escape, INDEX_SET(opt_s03_escape, "summary", "S & <T>"));
+SET(opt_s03_escape, INDEX_SET(opt_s03_escape, "theme_css", "body{margin:0;font-family:sans-serif}"));
+SET(opt_s03_escape, INDEX_SET(opt_s03_escape, "title", "A & B <i>\"x\"</i>"));
+LET(want_s03_escape, "<!DOCTYPE html>\n<html lang=\"zh-CN\">\n<head>\n<meta charset=\"utf-8\">\n<meta name=\"viewport\" content=\"width=device-width,initial-scale=1\">\n\n<meta name=\"theme-color\" content=\"#2c3e50\" media=\"(prefers-color-scheme: light)\"><meta name=\"theme-color\" content=\"#ffffff\" media=\"(prefers-color-scheme: dark)\">\n<meta name=\"view-transition\" content=\"same-origin\">\n<meta name=\"description\" content=\"S &amp;amp; &amp;lt;T&amp;gt;\">\n<meta property=\"og:title\" content=\"A &amp; B &lt;i&gt;&quot;x&quot;&lt;/i&gt;\">\n<meta property=\"og:description\" content=\"S &amp; &lt;T&gt;\">\n<meta property=\"og:type\" content=\"website\">\n<meta name=\"twitter:card\" content=\"summary\">\n\n<link rel=\"manifest\" href=\"/manifest.json\">\n<title>A &amp;amp; B &amp;lt;i&amp;gt;&amp;quot;x&amp;quot;&amp;lt;/i&amp;gt; - TinyPage</title>\n<style>\nbody{margin:0;font-family:sans-serif}\n</style>\n\n\n</head>\n<body>\n<div class=\"container\">\n  <header class=\"site-header\">\n    <a href=\"/\" class=\"site-title\">TinyPage</a>\n    <nav class=\"site-nav\" aria-label=\"站点导航\">\n      <a href=\"/\">首页</a>\n      <a href=\"/search.html\">搜索</a>\n      \n    </nav>\n  </header>\n  <main>\n<article class=\"post standalone\">\n      <header class=\"post-header\">\n        <h1 class=\"post-title\">A &amp; B &lt;i&gt;&quot;x&quot;&lt;/i&gt;</h1>\n      </header>\n      <div class=\"post-content\">\n<p>c & d</p>\n      </div>\n    </article>\n  </main>\n  <footer class=\"site-footer\">\n    <p>Powered by TinyPage</p>\n  </footer>\n</div>\n<script src=\"/search.js\" defer></script>\n\n</body>\n</html>");
+LET MUT(opt_s04_content_specials, DICT());
+SET(opt_s04_content_specials, INDEX_SET(opt_s04_content_specials, "content", "<script>alert('x')</script>\n<p>\${title}</p>"));
+SET(opt_s04_content_specials, INDEX_SET(opt_s04_content_specials, "theme_css", "body{margin:0;font-family:sans-serif}"));
+SET(opt_s04_content_specials, INDEX_SET(opt_s04_content_specials, "title", "注入"));
+LET(want_s04_content_specials, "<!DOCTYPE html>\n<html lang=\"zh-CN\">\n<head>\n<meta charset=\"utf-8\">\n<meta name=\"viewport\" content=\"width=device-width,initial-scale=1\">\n\n<meta name=\"theme-color\" content=\"#2c3e50\" media=\"(prefers-color-scheme: light)\"><meta name=\"theme-color\" content=\"#ffffff\" media=\"(prefers-color-scheme: dark)\">\n<meta name=\"view-transition\" content=\"same-origin\">\n<meta name=\"description\" content=\"\">\n\n\n<link rel=\"manifest\" href=\"/manifest.json\">\n<title>注入 - TinyPage</title>\n<style>\nbody{margin:0;font-family:sans-serif}\n</style>\n\n\n</head>\n<body>\n<div class=\"container\">\n  <header class=\"site-header\">\n    <a href=\"/\" class=\"site-title\">TinyPage</a>\n    <nav class=\"site-nav\" aria-label=\"站点导航\">\n      <a href=\"/\">首页</a>\n      <a href=\"/search.html\">搜索</a>\n      \n    </nav>\n  </header>\n  <main>\n<article class=\"post standalone\">\n      <header class=\"post-header\">\n        <h1 class=\"post-title\">注入</h1>\n      </header>\n      <div class=\"post-content\">\n<script>alert('x')</script>\n<p>\${title}</p>\n      </div>\n    </article>\n  </main>\n  <footer class=\"site-footer\">\n    <p>Powered by TinyPage</p>\n  </footer>\n</div>\n<script src=\"/search.js\" defer></script>\n\n</body>\n</html>");
+LET MUT(opt_s05_no_url_dark, DICT());
+SET(opt_s05_no_url_dark, INDEX_SET(opt_s05_no_url_dark, "content", "<p>n</p>"));
+SET(opt_s05_no_url_dark, INDEX_SET(opt_s05_no_url_dark, "dark_css", "@media (prefers-color-scheme: dark){body{background:#111;color:#eee}}"));
+SET(opt_s05_no_url_dark, INDEX_SET(opt_s05_no_url_dark, "has_dark", TRUE));
+SET(opt_s05_no_url_dark, INDEX_SET(opt_s05_no_url_dark, "standalones", [INDEX_SET(INDEX_SET(DICT(), "file", "about.html"), "title", "关于"), INDEX_SET(INDEX_SET(DICT(), "file", "projects.html"), "title", "项目列表 - 归档与说明")]));
+SET(opt_s05_no_url_dark, INDEX_SET(opt_s05_no_url_dark, "summary", "s"));
+SET(opt_s05_no_url_dark, INDEX_SET(opt_s05_no_url_dark, "theme_css", "body{margin:0;font-family:sans-serif}"));
+SET(opt_s05_no_url_dark, INDEX_SET(opt_s05_no_url_dark, "title", "无 URL"));
+LET(want_s05_no_url_dark, "<!DOCTYPE html>\n<html lang=\"zh-CN\">\n<head>\n<meta charset=\"utf-8\">\n<meta name=\"viewport\" content=\"width=device-width,initial-scale=1\">\n<meta name=\"color-scheme\" content=\"light dark\">\n<meta name=\"theme-color\" content=\"#2c3e50\" media=\"(prefers-color-scheme: light)\"><meta name=\"theme-color\" content=\"#ffffff\" media=\"(prefers-color-scheme: dark)\">\n<meta name=\"view-transition\" content=\"same-origin\">\n<meta name=\"description\" content=\"s\">\n\n\n<link rel=\"manifest\" href=\"/manifest.json\">\n<title>无 URL - TinyPage</title>\n<style>\nbody{margin:0;font-family:sans-serif}\n</style>\n<style media=\"(prefers-color-scheme: dark)\">@media (prefers-color-scheme: dark){body{background:#111;color:#eee}}</style>\n<script>(function(){try{var m=localStorage.getItem('theme');if(m==='light'||(!m&&window.matchMedia('(prefers-color-scheme: light)').matches)){document.documentElement.classList.add('light')}}catch(e){}})();</script>\n</head>\n<body>\n<div class=\"container\">\n  <header class=\"site-header\">\n    <a href=\"/\" class=\"site-title\">TinyPage</a>\n    <nav class=\"site-nav\" aria-label=\"站点导航\">\n      <a href=\"/\">首页</a>\n      <a href=\"/standalone/about.html\">关于</a>\n      <a href=\"/standalone/projects.html\">项目列表 - 归档与说明</a>\n      <a href=\"/search.html\">搜索</a>\n      <button class=\"theme-toggle\" aria-label=\"切换主题\" onclick=\"var d=document.documentElement;d.classList.toggle('light');try{localStorage.setItem('theme',d.classList.contains('light')?'light':'dark')}catch(e){}\">🌓</button>\n    </nav>\n  </header>\n  <main>\n<article class=\"post standalone\">\n      <header class=\"post-header\">\n        <h1 class=\"post-title\">无 URL</h1>\n      </header>\n      <div class=\"post-content\">\n<p>n</p>\n      </div>\n    </article>\n  </main>\n  <footer class=\"site-footer\">\n    <p>Powered by TinyPage</p>\n  </footer>\n</div>\n<script src=\"/search.js\" defer></script>\n\n</body>\n</html>");
+LET MUT(opt_s06_features_off, DICT());
+SET(opt_s06_features_off, INDEX_SET(opt_s06_features_off, "config", INDEX_SET(INDEX_SET(INDEX_SET(INDEX_SET(DICT(), "enable_pwa", FALSE), "enable_search", FALSE), "enable_view_transitions", FALSE), "site_url", "https://o.example")));
+SET(opt_s06_features_off, INDEX_SET(opt_s06_features_off, "content", "<p>o</p>"));
+SET(opt_s06_features_off, INDEX_SET(opt_s06_features_off, "theme_css", "body{margin:0;font-family:sans-serif}"));
+SET(opt_s06_features_off, INDEX_SET(opt_s06_features_off, "title", "开关全关"));
+LET(want_s06_features_off, "<!DOCTYPE html>\n<html lang=\"zh-CN\">\n<head>\n<meta charset=\"utf-8\">\n<meta name=\"viewport\" content=\"width=device-width,initial-scale=1\">\n\n\n\n<meta name=\"description\" content=\"\">\n<meta property=\"og:title\" content=\"开关全关\">\n<meta property=\"og:description\" content=\"\">\n<meta property=\"og:type\" content=\"website\">\n<meta name=\"twitter:card\" content=\"summary\">\n\n\n<title>开关全关 - TinyPage</title>\n<style>\nbody{margin:0;font-family:sans-serif}\n</style>\n\n\n</head>\n<body>\n<div class=\"container\">\n  <header class=\"site-header\">\n    <a href=\"/\" class=\"site-title\">TinyPage</a>\n    <nav class=\"site-nav\" aria-label=\"站点导航\">\n      <a href=\"/\">首页</a>\n      \n    </nav>\n  </header>\n  <main>\n<article class=\"post standalone\">\n      <header class=\"post-header\">\n        <h1 class=\"post-title\">开关全关</h1>\n      </header>\n      <div class=\"post-content\">\n<p>o</p>\n      </div>\n    </article>\n  </main>\n  <footer class=\"site-footer\">\n    <p>Powered by TinyPage</p>\n  </footer>\n</div>\n\n\n</body>\n</html>");
+
+// ── 产出与 ERR 判别 ───────────────────────────────────────────
+// ⚠ `LET(x, <ERR>)` 绑定不算消费 ERR（README 坑 25）⇒ 先 IS_ERR，再在分支里重算。
+LET(iserr_a00_minimal, IS_ERR(ARTICLE_PAGE(opt_a00_minimal)));
+LET(out_a00_minimal, IF(iserr_a00_minimal, "", ARTICLE_PAGE(opt_a00_minimal)));
+LET(iserr_a01_full, IS_ERR(ARTICLE_PAGE(opt_a01_full)));
+LET(out_a01_full, IF(iserr_a01_full, "", ARTICLE_PAGE(opt_a01_full)));
+LET(iserr_a02_draft, IS_ERR(ARTICLE_PAGE(opt_a02_draft)));
+LET(out_a02_draft, IF(iserr_a02_draft, "", ARTICLE_PAGE(opt_a02_draft)));
+LET(iserr_a03_status_upper, IS_ERR(ARTICLE_PAGE(opt_a03_status_upper)));
+LET(out_a03_status_upper, IF(iserr_a03_status_upper, "", ARTICLE_PAGE(opt_a03_status_upper)));
+LET(iserr_a04_no_category, IS_ERR(ARTICLE_PAGE(opt_a04_no_category)));
+LET(out_a04_no_category, IF(iserr_a04_no_category, "", ARTICLE_PAGE(opt_a04_no_category)));
+LET(iserr_a05_no_tags, IS_ERR(ARTICLE_PAGE(opt_a05_no_tags)));
+LET(out_a05_no_tags, IF(iserr_a05_no_tags, "", ARTICLE_PAGE(opt_a05_no_tags)));
+LET(iserr_a06_tags_blank, IS_ERR(ARTICLE_PAGE(opt_a06_tags_blank)));
+LET(out_a06_tags_blank, IF(iserr_a06_tags_blank, "", ARTICLE_PAGE(opt_a06_tags_blank)));
+LET(iserr_a07_escape, IS_ERR(ARTICLE_PAGE(opt_a07_escape)));
+LET(out_a07_escape, IF(iserr_a07_escape, "", ARTICLE_PAGE(opt_a07_escape)));
+LET(iserr_a08_site_url_trailing_slash, IS_ERR(ARTICLE_PAGE(opt_a08_site_url_trailing_slash)));
+LET(out_a08_site_url_trailing_slash, IF(iserr_a08_site_url_trailing_slash, "", ARTICLE_PAGE(opt_a08_site_url_trailing_slash)));
+LET(iserr_a09_cjk, IS_ERR(ARTICLE_PAGE(opt_a09_cjk)));
+LET(out_a09_cjk, IF(iserr_a09_cjk, "", ARTICLE_PAGE(opt_a09_cjk)));
+LET(iserr_a10_content_specials, IS_ERR(ARTICLE_PAGE(opt_a10_content_specials)));
+LET(out_a10_content_specials, IF(iserr_a10_content_specials, "", ARTICLE_PAGE(opt_a10_content_specials)));
+LET(iserr_a11_empty_all, IS_ERR(ARTICLE_PAGE(opt_a11_empty_all)));
+LET(out_a11_empty_all, IF(iserr_a11_empty_all, "", ARTICLE_PAGE(opt_a11_empty_all)));
+LET(iserr_a12_tags_unicode_ws, IS_ERR(ARTICLE_PAGE(opt_a12_tags_unicode_ws)));
+LET(out_a12_tags_unicode_ws, IF(iserr_a12_tags_unicode_ws, "", ARTICLE_PAGE(opt_a12_tags_unicode_ws)));
+LET(iserr_a13_features_off, IS_ERR(ARTICLE_PAGE(opt_a13_features_off)));
+LET(out_a13_features_off, IF(iserr_a13_features_off, "", ARTICLE_PAGE(opt_a13_features_off)));
+LET(iserr_a14_partial_config, IS_ERR(ARTICLE_PAGE(opt_a14_partial_config)));
+LET(out_a14_partial_config, IF(iserr_a14_partial_config, "", ARTICLE_PAGE(opt_a14_partial_config)));
+LET(iserr_a15_related_empty, IS_ERR(ARTICLE_PAGE(opt_a15_related_empty)));
+LET(out_a15_related_empty, IF(iserr_a15_related_empty, "", ARTICLE_PAGE(opt_a15_related_empty)));
+LET(iserr_a16_no_dark, IS_ERR(ARTICLE_PAGE(opt_a16_no_dark)));
+LET(out_a16_no_dark, IF(iserr_a16_no_dark, "", ARTICLE_PAGE(opt_a16_no_dark)));
+LET(iserr_a17_lang_footer, IS_ERR(ARTICLE_PAGE(opt_a17_lang_footer)));
+LET(out_a17_lang_footer, IF(iserr_a17_lang_footer, "", ARTICLE_PAGE(opt_a17_lang_footer)));
+LET(iserr_a18_dark_css_without_flag, IS_ERR(ARTICLE_PAGE(opt_a18_dark_css_without_flag)));
+LET(out_a18_dark_css_without_flag, IF(iserr_a18_dark_css_without_flag, "", ARTICLE_PAGE(opt_a18_dark_css_without_flag)));
+LET(iserr_s00_minimal, IS_ERR(STANDALONE_PAGE(opt_s00_minimal)));
+LET(out_s00_minimal, IF(iserr_s00_minimal, "", STANDALONE_PAGE(opt_s00_minimal)));
+LET(iserr_s01_full, IS_ERR(STANDALONE_PAGE(opt_s01_full)));
+LET(out_s01_full, IF(iserr_s01_full, "", STANDALONE_PAGE(opt_s01_full)));
+LET(iserr_s02_empty_summary, IS_ERR(STANDALONE_PAGE(opt_s02_empty_summary)));
+LET(out_s02_empty_summary, IF(iserr_s02_empty_summary, "", STANDALONE_PAGE(opt_s02_empty_summary)));
+LET(iserr_s03_escape, IS_ERR(STANDALONE_PAGE(opt_s03_escape)));
+LET(out_s03_escape, IF(iserr_s03_escape, "", STANDALONE_PAGE(opt_s03_escape)));
+LET(iserr_s04_content_specials, IS_ERR(STANDALONE_PAGE(opt_s04_content_specials)));
+LET(out_s04_content_specials, IF(iserr_s04_content_specials, "", STANDALONE_PAGE(opt_s04_content_specials)));
+LET(iserr_s05_no_url_dark, IS_ERR(STANDALONE_PAGE(opt_s05_no_url_dark)));
+LET(out_s05_no_url_dark, IF(iserr_s05_no_url_dark, "", STANDALONE_PAGE(opt_s05_no_url_dark)));
+LET(iserr_s06_features_off, IS_ERR(STANDALONE_PAGE(opt_s06_features_off)));
+LET(out_s06_features_off, IF(iserr_s06_features_off, "", STANDALONE_PAGE(opt_s06_features_off)));
+
+// ── 逐字节对照 ────────────────────────────────────────────────
+TEST("article/a00_minimal", FUN(() ,
+    (ASSERT(!iserr_a00_minimal);
+     ASSERT_EQ(out_a00_minimal, want_a00_minimal));
+    TRUE));
+TEST("article/a01_full", FUN(() ,
+    (ASSERT(!iserr_a01_full);
+     ASSERT_EQ(out_a01_full, want_a01_full));
+    TRUE));
+TEST("article/a02_draft", FUN(() ,
+    (ASSERT(!iserr_a02_draft);
+     ASSERT_EQ(out_a02_draft, want_a02_draft));
+    TRUE));
+TEST("article/a03_status_upper", FUN(() ,
+    (ASSERT(!iserr_a03_status_upper);
+     ASSERT_EQ(out_a03_status_upper, want_a03_status_upper));
+    TRUE));
+TEST("article/a04_no_category", FUN(() ,
+    (ASSERT(!iserr_a04_no_category);
+     ASSERT_EQ(out_a04_no_category, want_a04_no_category));
+    TRUE));
+TEST("article/a05_no_tags", FUN(() ,
+    (ASSERT(!iserr_a05_no_tags);
+     ASSERT_EQ(out_a05_no_tags, want_a05_no_tags));
+    TRUE));
+TEST("article/a06_tags_blank", FUN(() ,
+    (ASSERT(!iserr_a06_tags_blank);
+     ASSERT_EQ(out_a06_tags_blank, want_a06_tags_blank));
+    TRUE));
+TEST("article/a07_escape", FUN(() ,
+    (ASSERT(!iserr_a07_escape);
+     ASSERT_EQ(out_a07_escape, want_a07_escape));
+    TRUE));
+TEST("article/a08_site_url_trailing_slash", FUN(() ,
+    (ASSERT(!iserr_a08_site_url_trailing_slash);
+     ASSERT_EQ(out_a08_site_url_trailing_slash, want_a08_site_url_trailing_slash));
+    TRUE));
+TEST("article/a09_cjk", FUN(() ,
+    (ASSERT(!iserr_a09_cjk);
+     ASSERT_EQ(out_a09_cjk, want_a09_cjk));
+    TRUE));
+TEST("article/a10_content_specials", FUN(() ,
+    (ASSERT(!iserr_a10_content_specials);
+     ASSERT_EQ(out_a10_content_specials, want_a10_content_specials));
+    TRUE));
+TEST("article/a11_empty_all", FUN(() ,
+    (ASSERT(!iserr_a11_empty_all);
+     ASSERT_EQ(out_a11_empty_all, want_a11_empty_all));
+    TRUE));
+TEST("article/a12_tags_unicode_ws", FUN(() ,
+    (ASSERT(!iserr_a12_tags_unicode_ws);
+     ASSERT_EQ(out_a12_tags_unicode_ws, want_a12_tags_unicode_ws));
+    TRUE));
+TEST("article/a13_features_off", FUN(() ,
+    (ASSERT(!iserr_a13_features_off);
+     ASSERT_EQ(out_a13_features_off, want_a13_features_off));
+    TRUE));
+TEST("article/a14_partial_config", FUN(() ,
+    (ASSERT(!iserr_a14_partial_config);
+     ASSERT_EQ(out_a14_partial_config, want_a14_partial_config));
+    TRUE));
+TEST("article/a15_related_empty", FUN(() ,
+    (ASSERT(!iserr_a15_related_empty);
+     ASSERT_EQ(out_a15_related_empty, want_a15_related_empty));
+    TRUE));
+TEST("article/a16_no_dark", FUN(() ,
+    (ASSERT(!iserr_a16_no_dark);
+     ASSERT_EQ(out_a16_no_dark, want_a16_no_dark));
+    TRUE));
+TEST("article/a17_lang_footer", FUN(() ,
+    (ASSERT(!iserr_a17_lang_footer);
+     ASSERT_EQ(out_a17_lang_footer, want_a17_lang_footer));
+    TRUE));
+TEST("article/a18_dark_css_without_flag", FUN(() ,
+    (ASSERT(!iserr_a18_dark_css_without_flag);
+     ASSERT_EQ(out_a18_dark_css_without_flag, want_a18_dark_css_without_flag));
+    TRUE));
+TEST("standalone/s00_minimal", FUN(() ,
+    (ASSERT(!iserr_s00_minimal);
+     ASSERT_EQ(out_s00_minimal, want_s00_minimal));
+    TRUE));
+TEST("standalone/s01_full", FUN(() ,
+    (ASSERT(!iserr_s01_full);
+     ASSERT_EQ(out_s01_full, want_s01_full));
+    TRUE));
+TEST("standalone/s02_empty_summary", FUN(() ,
+    (ASSERT(!iserr_s02_empty_summary);
+     ASSERT_EQ(out_s02_empty_summary, want_s02_empty_summary));
+    TRUE));
+TEST("standalone/s03_escape", FUN(() ,
+    (ASSERT(!iserr_s03_escape);
+     ASSERT_EQ(out_s03_escape, want_s03_escape));
+    TRUE));
+TEST("standalone/s04_content_specials", FUN(() ,
+    (ASSERT(!iserr_s04_content_specials);
+     ASSERT_EQ(out_s04_content_specials, want_s04_content_specials));
+    TRUE));
+TEST("standalone/s05_no_url_dark", FUN(() ,
+    (ASSERT(!iserr_s05_no_url_dark);
+     ASSERT_EQ(out_s05_no_url_dark, want_s05_no_url_dark));
+    TRUE));
+TEST("standalone/s06_features_off", FUN(() ,
+    (ASSERT(!iserr_s06_features_off);
+     ASSERT_EQ(out_s06_features_off, want_s06_features_off));
+    TRUE));
+
+// ── 反向守卫（卡 S2-4 的要求）──────────────────────────────────
+// g1：content 里的 <script> **原样嵌入**（content 是已渲染 HTML、不 escape），
+//     而 title 的 <script> 必须被 escape —— 「谁 escape、谁不 escape」两侧都钉。
+LET MUT(g1, DICT());
+SET(g1, INDEX_SET(g1, "title", "<script>alert(\"T\")</script>"));
+SET(g1, INDEX_SET(g1, "date", "2026-01-02 03:04"));
+SET(g1, INDEX_SET(g1, "slug", "g1"));
+SET(g1, INDEX_SET(g1, "content", "<script>alert('x')</script>"));
+LET(out_g1, ARTICLE_PAGE(g1));
+TEST("guard/content_verbatim", FUN(() ,
+    (ASSERT(CONTAINS_SUB(out_g1, "<script>alert('x')</script>")));
+    (ASSERT(CONTAINS_SUB(out_g1, "<h1 class=\"post-title\">&lt;script&gt;")));
+    (ASSERT(!CONTAINS_SUB(out_g1, "<h1 class=\"post-title\"><script>")));
+    TRUE));
+
+// g2：独立页 content 里的 `${title}` 不被二次替换（值只经 SUBSTITUTE 一遍）。
+//     若被二次展开，产物里会只剩标题文本而不见占位符。
+LET MUT(g2, DICT());
+SET(g2, INDEX_SET(g2, "title", "TITLE"));
+SET(g2, INDEX_SET(g2, "content", "<p>\${title}</p>"));
+LET(out_g2, STANDALONE_PAGE(g2));
+TEST("guard/content_no_double_substitution", FUN(() ,
+    (ASSERT(CONTAINS_SUB(out_g2, "<p>\${title}</p>")));
+    TRUE));
+
+// g3：site_url 为空 ⇒ 不得出现 JSON-LD / og / share。
+//     （默认 config 的 site_url 就是 ""）
+LET(out_g3, ARTICLE_PAGE(opt_a00_minimal));
+TEST("guard/no_jsonld_without_site_url", FUN(() ,
+    (ASSERT(!CONTAINS_SUB(out_g3, "application/ld+json")));
+    (ASSERT(!CONTAINS_SUB(out_g3, "og:title")));
+    (ASSERT(!CONTAINS_SUB(out_g3, "share-btn")));
+    TRUE));
+
+// g4：对照组 —— site_url 非空时这三样必须出现（否则 g3 是空断言）。
+LET(out_g4, ARTICLE_PAGE(opt_a05_no_tags));
+TEST("guard/jsonld_present_with_site_url", FUN(() ,
+    (ASSERT(CONTAINS_SUB(out_g4, "application/ld+json")));
+    (ASSERT(CONTAINS_SUB(out_g4, "og:title")));
+    (ASSERT(CONTAINS_SUB(out_g4, "share-btn")));
+    TRUE));
+
+// g5：mermaid 只在文章页（独立页 Python 侧没传 mermaid_script）。
+TEST("guard/mermaid_only_on_article", FUN(() ,
+    (ASSERT(CONTAINS_SUB(out_g3, "cdn.jsdelivr.net/npm/mermaid@10")));
+    (ASSERT(!CONTAINS_SUB(out_g2, "mermaid")));
+    TRUE));
+
+// g6：enable_search=false ⇒ 导航里不得出现 /search.html。
+LET(out_g6, ARTICLE_PAGE(opt_a13_features_off));
+TEST("guard/no_search_link_when_disabled", FUN(() ,
+    (ASSERT(!CONTAINS_SUB(out_g6, "/search.html")));
+    TRUE));
+
+// g7：对照组 —— 默认 config（enable_search=true）时导航里必须有 /search.html。
+TEST("guard/search_link_by_default", FUN(() ,
+    (ASSERT(CONTAINS_SUB(out_g3, "/search.html")));
+    TRUE));
+
+// ── 跑测试 ────────────────────────────────────────────────────
+LET(records, RUN_TESTS());
+PRINT("test_article_page: ", LEN(records), " test(s) run");
+
+LET MUT(failed, 0);
+FOR(rec, records,
+    (IF(AT_K(rec, "passed", FALSE),
+        PRINT("  PASS ", AT_K(rec, "name", "?")),
+        (SET(failed, +(failed, 1));
+         PRINT("  FAIL ", AT_K(rec, "name", "?"))))));
+PRINT("test_article_page: failed=", failed);
+IF(>(failed, 0), (PRINT_ERR("test_article_page: FAILED"); PANIC("article_page tests failed")), NULL);
+PRINT("test_article_page: OK");

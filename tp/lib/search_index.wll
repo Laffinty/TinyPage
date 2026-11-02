@@ -1,0 +1,138 @@
+// tp/lib/search_index.wll —— 搜索索引（卡 S2-4 的 search-index.json）
+//
+// ⚠ 本文件由 tp/test/gen_search_index.py 生成 —— 请勿手改。
+//   改实现请改生成器（WLWL 的括号诊断不告诉你缺了几层）。
+//
+// 对齐目标（真 Python 源码树）：
+//   SEARCH_INDEX(opts) == tinypage/generator.py:599 generate_search_index
+//
+// opts 键：articles（ARRAY[DICT]）/ standalones（ARRAY[DICT]，缺省 ⇒ 空）
+// 记录字段：title / date / slug / tags / summary / category / status / file
+// 索引字段：title / summary / url / date / tags / category（**不含正文**）
+//
+// ⚠ JSON 的字节口径（本机实测）：
+//   Python 用 json.dumps(data, ensure_ascii=False) ⇒ 插入序 + ", " / ": "，
+//   **紧凑**（不是 indent=2），键序 title, summary, url, date, tags, category。
+//   而 STRINGIFY 对**容器**是紧凑分隔符 + **键名字典序** ⇒ 整体序列化必然不同；
+//   对**单个字符串**却与 Python 的转义逐字一致 ⇒ 本模块「骨架手工拼装 +
+//   标量走 JSON_STR」。
+//
+// 草稿：**本模块不过滤**（与 generate_search_index 一一对应）。
+//   Python 的函数不对 articles 做任何过滤（generator.py:604-624）；
+//   排除在调用方上一层完成（cli.py:139 → list_articles(include_drafts=False)，
+//   过滤点在 content.py:187-189）。generate_rss 同此（generator.py:730 调用方过滤）。
+//   ⇒ 本模块原样遍历 ⇒ 反向守卫 guard/drafts_pass_through 钉住这条。
+//
+// 逐字节对照基准：tp/test/fixtures/search_index_baseline.json
+
+IMPORT("wlwl:std.json", ["STRINGIFY"]);
+IMPORT("wlwl:std.str", ["CAT"]);
+
+// JSON 字符串标量（复用 STRINGIFY 的单字符串转义）
+     LET(JSON_STR, FUN((s), (
+               // JSON 字符串标量 —— 复用 STRINGIFY：实测它对**单个字符串**的转义与;
+               // Python 的 json.dumps(ensure_ascii=False) 逐字一致（含 \u00XX 控制字符）。;
+               // ⚠ 不要拿它序列化**容器**：那会变成紧凑分隔符 + 键名字典序。;
+               STRINGIFY(s)
+     )));
+
+// String[] ← tags 串（对齐 ArticleMeta.tag_list）
+     LET(TAG_LIST, FUN((s), (
+               // 对齐 ArticleMeta.tag_list：按 "," 切、逐个 strip、丢掉空串;
+               LET(parts, SPLIT(s, ","));
+               LET MUT(out, []);
+               LET MUT(n, LEN(parts));
+               LET MUT(i, 0);
+               WHILE(<(i, n), (
+                    LET(t, TRIM(AT(parts, i, "")));
+                    IF(!=(t, ""), (
+                         SET(out, PUSH(out, t))
+                    ), (
+                         NULL
+                    ));
+                    SET(i, +(i, 1))
+               ));
+               out
+     )));
+
+// JSON 字符串数组（分隔符 ", "）
+     LET(JSON_ARRAY, FUN((items), (
+               // JSON 字符串数组：["a", "b"]；空数组 "[]";
+               // ⚠ 分隔符是 ", "（Python json.dumps 的默认 item separator），不是 ",";
+               LET MUT(out, "");
+               LET MUT(n, LEN(items));
+               LET MUT(i, 0);
+               WHILE(<(i, n), (
+                    IF(>(i, 0), (
+                         SET(out, CAT(out, ", "))
+                    ), (
+                         NULL
+                    ));
+                    SET(out, CAT(out, JSON_STR(AT(items, i, ""))));
+                    SET(i, +(i, 1))
+               ));
+               CAT("[", out, "]")
+     )));
+
+// 单条索引记录（对齐 generator.py:604-624）
+     LET(RECORD, FUN((art, kind), (
+               // kind == "standalone" ⇒ url 用 /standalone/、date/tags/category 硬编码空;
+               LET(is_sa, ==(kind, "standalone"));
+               LET(title, AT_K(art, "title", ""));
+               LET(summary, AT_K(art, "summary", ""));
+               LET(file, AT_K(art, "file", ""));
+               LET(url, CAT(IF(is_sa, "/standalone/", "/article/"), file));
+               LET(date, IF(is_sa, "", AT_K(art, "date", "")));
+               LET(tags, IF(is_sa, [], TAG_LIST(AT_K(art, "tags", ""))));
+               LET(cat, IF(is_sa, "", AT_K(art, "category", "")));
+               CAT("{\"title\": ", JSON_STR(title), ", \"summary\": ", JSON_STR(summary), ", \"url\": ", JSON_STR(url), ", \"date\": ", JSON_STR(date), ", \"tags\": ", JSON_ARRAY(tags), ", \"category\": ", JSON_STR(cat), "}")
+     )));
+
+// 非 NULL 的数组（NULL/缺省 ⇒ []）
+     LET(AS_LIST, FUN((v), (
+               // 缺省 / NULL ⇒ 空数组（Python 的 `standalones=None` 等价于"没有"）;
+               // ⚠ AT_K(NULL, k, d) 是运行时 E0030 ⇒ 默认值兜不住 NULL 基值（坑 #35），;
+               //   这里兜的是**值**本身为 NULL 的情况;
+               IF(==(TYPE(v), "NULL"), [], v)
+     )));
+
+// 搜索索引 JSON（对齐 generator.py:599 generate_search_index）
+     LET(SEARCH_INDEX, FUN((opts), (
+               // opts 键：articles（ARRAY[DICT]）/ standalones（ARRAY[DICT]）;
+               LET(arts, AS_LIST(AT_K(opts, "articles", [])));
+               LET(pages, AS_LIST(AT_K(opts, "standalones", [])));
+               // 记录之间的分隔符是 ", "（Python json.dumps 的默认值）;
+               LET MUT(out, "");
+               LET MUT(k, 0);
+               // ① 文章：**原样**遍历（不过滤草稿 —— 与 generator.py:604-614 的推导式一致）;
+               LET MUT(na, LEN(arts));
+               LET MUT(i, 0);
+               WHILE(<(i, na), (
+                    LET(art, AT(arts, i, DICT()));
+                    IF(>(k, 0), (
+                         SET(out, CAT(out, ", "))
+                    ), (
+                         NULL
+                    ));
+                    SET(out, CAT(out, RECORD(art, "article")));
+                    SET(k, +(k, 1));
+                    SET(i, +(i, 1))
+               ));
+               // ② 独立页：同样原样 append（generator.py:615-624）;
+               LET MUT(np, LEN(pages));
+               LET MUT(j, 0);
+               WHILE(<(j, np), (
+                    LET(p, AT(pages, j, DICT()));
+                    IF(>(k, 0), (
+                         SET(out, CAT(out, ", "))
+                    ), (
+                         NULL
+                    ));
+                    SET(out, CAT(out, RECORD(p, "standalone")));
+                    SET(k, +(k, 1));
+                    SET(j, +(j, 1))
+               ));
+               CAT("[", out, "]")
+     )));
+
+EXPORT(["SEARCH_INDEX"]);
