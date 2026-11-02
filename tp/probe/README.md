@@ -36,6 +36,8 @@
 | `probe_s21m.wll` | `safe_path_check` 的中间值 | `PATH_JOIN(base, 绝对路径)` **只拼接不覆盖**；`PATH_CONTAINS` 逐段判定、挡得住 `..`；`PATH_EXT` 不含点 |
 | `probe_s21o.wll` | `IF` / 语句分组的**返回值**语义 | 分组与 `IF` 的值 = **最后一个语句的值**（`(stmt; 7)`→7，`(7; stmt)`→NULL）⇒ 分支用语句列表是对的写法 |
 | `probe_s21p.wll` | `ERR` 的**消费**语义 | ⚠ **`LET(r, <ERR>)` 绑定不算消费**：`E0103` 报在绑定那一行，事后再 `IS_ERR(r)` 无效 ⇒ 必须让调用**直接**进 `IS_ERR(...)` |
+| `probe_s23_theme.wll` | 用**真实** `themes/default` 验 CRLF 归一化与主题三层接口 | `css_len=19517`、`css_CR_hits=0`、`dark_len=498`、`has_dark=TRUE`、`../etc` 返 NULL（D5）、`LIST_THEMES` 给 1 个 —— 与 Python `read_text` 逐项吻合 |
+| `probe_s23_template.wll` | 用**父进程独立另算**的 Python hash 交叉核验 `RENDER_SKELETON` | 四组渲染（554/572/574/513 字符）与 WLWL 产物 **SHA256 全 MATCH** ⇒ 骨架 + escape 口径 + `dark_css_block` 派生均逐字节一致 |
 
 ## 怎么跑
 

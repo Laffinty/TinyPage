@@ -1,0 +1,65 @@
+// 探针 S2-3-template：用**独立算好的 Python 参考值**交叉核验 RENDER_SKELETON 的逐字节一致性。
+// 用法：wlwl run tp/probe/probe_s23_template.wll （在仓库根执行）
+//
+// ⚠ 本文件里每一个「字面美元符」都写成 \$ —— WLWL 的字符串字面量把 ${...} 当**插值**，
+//   不转义就会去解析变量名（未定义即报错）。这正是本卡的核心坑。
+//
+// 期望（父会话用真 Python 独立算出）：
+//   minimal      554 字符  sha256 f9604f0daaf8f7b8cc5323706b716b53138c9d600c0cd468922241ef52965e88
+//   with_dark    572 字符  sha256 3a5ca7bd6ab2341ef06b64a3a37560878b988863d6bb1a173a067964870f3694
+//   escaped      574 字符  sha256 31ec6a9f8d7cadecbc7aa7a723a6b4f2b31fa1a10925ad06b1af9a2f7da60bb9
+//   empty_footer 513 字符  sha256 c5d7ac1e940bbd657a92141bd078f59c0e953aea3a68258b3d4b11fc5c2e6f33
+IMPORT("wlwl:std.fs", ["WRITE_FILE", "MKDIRS"]);
+IMPORT("./../lib/template.wll", ["RENDER_SKELETON", "SUBSTITUTE", "SAFE_SUBSTITUTE"]);
+
+MKDIRS("D:/Project/TinyPage/.scratch/s23out");
+
+// ① 最小页面
+LET(o1, INDEX_SET(INDEX_SET(INDEX_SET(INDEX_SET(INDEX_SET(DICT(),
+    "site_title", "My Site"), "page_title", "Hello"), "description", "desc"),
+    "body_content", "<p>hi</p>"), "theme_css", "body{color:red}"));
+LET(h1, RENDER_SKELETON("article", o1));
+PRINT("minimal_len  = ", LEN(h1), "  (expect 554)");
+IF(IS_ERR(WRITE_FILE("D:/Project/TinyPage/.scratch/s23out/minimal.html", h1)),
+   PRINT("w1 FAILED"), PRINT("w1 ok"));
+
+// ② 含 dark_css
+LET(o2, INDEX_SET(INDEX_SET(INDEX_SET(INDEX_SET(INDEX_SET(INDEX_SET(DICT(),
+    "site_title", "S"), "page_title", "P"), "description", "D"),
+    "body_content", "B"), "theme_css", "T"), "dark_css", "DARKCSS"));
+LET(h2, RENDER_SKELETON("article", o2));
+PRINT("with_dark_len= ", LEN(h2), "  (expect 572)");
+IF(IS_ERR(WRITE_FILE("D:/Project/TinyPage/.scratch/s23out/with_dark.html", h2)),
+   PRINT("w2 FAILED"), PRINT("w2 ok"));
+
+// ③ 需 escape 的特殊字符 + footer 条件 escape
+LET(o3, INDEX_SET(INDEX_SET(INDEX_SET(INDEX_SET(INDEX_SET(INDEX_SET(INDEX_SET(DICT(),
+    "site_title", "A & B"), "page_title", "<tag>"), "description", "q\"q'q"),
+    "body_content", "RAW & <b>"), "theme_css", ""), "lang", "en\"US"),
+    "footer_text", "F & G"));
+LET(h3, RENDER_SKELETON("list", o3));
+PRINT("escaped_len  = ", LEN(h3), "  (expect 574)");
+IF(IS_ERR(WRITE_FILE("D:/Project/TinyPage/.scratch/s23out/escaped.html", h3)),
+   PRINT("w3 FAILED"), PRINT("w3 ok"));
+
+// ④ 空 footer
+LET(o4, INDEX_SET(INDEX_SET(INDEX_SET(INDEX_SET(INDEX_SET(INDEX_SET(DICT(),
+    "site_title", "s"), "page_title", "p"), "description", "d"),
+    "body_content", "b"), "theme_css", "t"), "footer_text", ""));
+LET(h4, RENDER_SKELETON("x", o4));
+PRINT("empty_footer = ", LEN(h4), "  (expect 513)");
+IF(IS_ERR(WRITE_FILE("D:/Project/TinyPage/.scratch/s23out/empty_footer.html", h4)),
+   PRINT("w4 FAILED"), PRINT("w4 ok"));
+
+// ⑤ string.Template 边界的独立核对（⚠ 字面 $ 一律写 \$）
+LET(m1, INDEX_SET(INDEX_SET(DICT(), "a", "1"), "b", "2"));
+PRINT("brace        = [", SUBSTITUTE("\${a}-\${b}", m1), "]  (expect 1-2)");
+LET(me, DICT());
+PRINT("dollar       = [", SUBSTITUTE("cost \$\$5", me), "]  (expect cost \$5)");
+PRINT("missing_iserr= ", IS_ERR(SUBSTITUTE("x=\$a", me)), "  (expect TRUE)");
+PRINT("safe_missing = [", SAFE_SUBSTITUTE("x=\$a", me), "]  (expect x=\$a)");
+PRINT("invalid_iserr= ", IS_ERR(SUBSTITUTE("\$", me)), "  (expect TRUE)");
+PRINT("safe_invalid = [", SAFE_SUBSTITUTE("\$", me), "]  (expect \$)");
+LET(mi, INDEX_SET(INDEX_SET(INDEX_SET(DICT(), "a1", "A"), "_b", "B"), "c", "C"));
+PRINT("ident        = [", SUBSTITUTE("\$a1/\$_b/\${c}", mi), "]  (expect A/B/C)");
+PRINT("digit_first  = ", IS_ERR(SUBSTITUTE("\$1x", me)), "  (expect TRUE)");

@@ -1,0 +1,1560 @@
+// tp/test/test_template.wll —— 模板模块的逐字节对照测试 + 反向守卫
+//
+// ⚠ 本文件由 tp/test/gen_test_template.py 生成 —— 请勿手改。
+//
+// 验收方式：每个用例都与**真 Python** 的结果逐字节对照。
+// 基准：tp/test/fixtures/template_baseline.json
+//   （由 tp/test/gen_template_baseline.py 用真 Python 生成）
+//
+// ⚠ RUN_TESTS() 的失败**不影响退出码**（规范明载）⇒ 本文件自己把关（见尾段）。
+//
+// ⚠ `LET(r, <ERR>)` 绑定**不算**消费（§8.6.3）⇒ 这里只有两种形态：
+//   ① 期望字符串：`IS_ERR(...)` 判别 + 分支里再算一次；
+//   ② 期望错误：`TAKE_ERR(...)`（一步取载荷、并消费掉那个 ERR）。
+IMPORT("wlwl:std.test", ["TEST", "ASSERT", "ASSERT_EQ", "RUN_TESTS"]);
+IMPORT("wlwl:std.result", ["TAKE_ERR"]);
+IMPORT("./../lib/template.wll", ["SUBSTITUTE", "SAFE_SUBSTITUTE", "RENDER_SKELETON"]);
+
+// ── substitute / safe_substitute 的用例数据（逐字节来自基准）──────
+LET(in_sub_s00, "hello world");
+LET(map_sub_s00, DICT());
+LET(want_sub_s00, "hello world");
+LET(in_sub_s01, "");
+LET(map_sub_s01, DICT());
+LET(want_sub_s01, "");
+LET(in_sub_s02, "\$a");
+LET(map_sub_s02, INDEX_SET(DICT(), "a", "X"));
+LET(want_sub_s02, "X");
+LET(in_sub_s03, "a \$a b");
+LET(map_sub_s03, INDEX_SET(DICT(), "a", "X"));
+LET(want_sub_s03, "a X b");
+LET(in_sub_s04, "\$a\$b");
+LET(map_sub_s04, INDEX_SET(INDEX_SET(DICT(), "a", "X"), "b", "Y"));
+LET(want_sub_s04, "XY");
+LET(in_sub_s05, "\$a\$a");
+LET(map_sub_s05, INDEX_SET(DICT(), "a", "X"));
+LET(want_sub_s05, "XX");
+LET(in_sub_s06, "\$a1");
+LET(map_sub_s06, INDEX_SET(DICT(), "a1", "one"));
+LET(want_sub_s06, "one");
+LET(in_sub_s07, "\$a_1");
+LET(map_sub_s07, INDEX_SET(DICT(), "a_1", "under"));
+LET(want_sub_s07, "under");
+LET(in_sub_s08, "\$_a");
+LET(map_sub_s08, INDEX_SET(DICT(), "_a", "us"));
+LET(want_sub_s08, "us");
+LET(in_sub_s09, "\$_");
+LET(map_sub_s09, INDEX_SET(DICT(), "_", "u"));
+LET(want_sub_s09, "u");
+LET(in_sub_s10, "\$_1");
+LET(map_sub_s10, INDEX_SET(DICT(), "_1", "u1"));
+LET(want_sub_s10, "u1");
+LET(in_sub_s11, "\$A");
+LET(map_sub_s11, INDEX_SET(DICT(), "A", "up"));
+LET(want_sub_s11, "up");
+LET(in_sub_s12, "\$aB");
+LET(map_sub_s12, INDEX_SET(DICT(), "aB", "mixed"));
+LET(want_sub_s12, "mixed");
+LET(in_sub_s13, "\$a-b");
+LET(map_sub_s13, INDEX_SET(DICT(), "a", "X"));
+LET(want_sub_s13, "X-b");
+LET(in_sub_s14, "\$a.b");
+LET(map_sub_s14, INDEX_SET(DICT(), "a", "X"));
+LET(want_sub_s14, "X.b");
+LET(in_sub_s15, "\$a}");
+LET(map_sub_s15, INDEX_SET(DICT(), "a", "X"));
+LET(want_sub_s15, "X}");
+LET(in_sub_s16, "中文\$var中文");
+LET(map_sub_s16, INDEX_SET(DICT(), "var", "V"));
+LET(want_sub_s16, "中文V中文");
+LET(in_sub_s17, "\${a}");
+LET(map_sub_s17, INDEX_SET(DICT(), "a", "X"));
+LET(want_sub_s17, "X");
+LET(in_sub_s18, "\$a\${b}");
+LET(map_sub_s18, INDEX_SET(INDEX_SET(DICT(), "a", "X"), "b", "Y"));
+LET(want_sub_s18, "XY");
+LET(in_sub_s19, "\${a}\${b}");
+LET(map_sub_s19, INDEX_SET(INDEX_SET(DICT(), "a", "X"), "b", "Y"));
+LET(want_sub_s19, "XY");
+LET(in_sub_s20, "\${_}");
+LET(map_sub_s20, INDEX_SET(DICT(), "_", "u"));
+LET(want_sub_s20, "u");
+LET(in_sub_s21, "\${A}");
+LET(map_sub_s21, INDEX_SET(DICT(), "A", "up"));
+LET(want_sub_s21, "up");
+LET(in_sub_s22, "\${A_b1}");
+LET(map_sub_s22, INDEX_SET(DICT(), "A_b1", "z"));
+LET(want_sub_s22, "z");
+LET(in_sub_s23, "\${a}x");
+LET(map_sub_s23, INDEX_SET(DICT(), "a", "X"));
+LET(want_sub_s23, "Xx");
+LET(in_sub_s24, "\${a}{b}");
+LET(map_sub_s24, INDEX_SET(DICT(), "a", "X"));
+LET(want_sub_s24, "X{b}");
+LET(in_sub_s25, "x\${a}y\$b");
+LET(map_sub_s25, INDEX_SET(INDEX_SET(DICT(), "a", "1"), "b", "2"));
+LET(want_sub_s25, "x1y2");
+LET(in_sub_s26, "\$a\${a}");
+LET(map_sub_s26, INDEX_SET(DICT(), "a", "X"));
+LET(want_sub_s26, "XX");
+LET(in_sub_s27, "\$\$");
+LET(map_sub_s27, DICT());
+LET(want_sub_s27, "\$");
+LET(in_sub_s28, "\$\$a");
+LET(map_sub_s28, INDEX_SET(DICT(), "a", "X"));
+LET(want_sub_s28, "\$a");
+LET(in_sub_s29, "a\$\$b");
+LET(map_sub_s29, INDEX_SET(DICT(), "a", "X"));
+LET(want_sub_s29, "a\$b");
+LET(in_sub_s30, "\$\$\$a");
+LET(map_sub_s30, INDEX_SET(DICT(), "a", "X"));
+LET(want_sub_s30, "\$X");
+LET(in_sub_s31, "\$\$\$\$");
+LET(map_sub_s31, DICT());
+LET(want_sub_s31, "\$\$");
+LET(in_sub_s32, "\$\$\${a}");
+LET(map_sub_s32, INDEX_SET(DICT(), "a", "X"));
+LET(want_sub_s32, "\$X");
+LET(in_sub_s33, "\$\${");
+LET(map_sub_s33, INDEX_SET(DICT(), "a", "X"));
+LET(want_sub_s33, "\${");
+LET(in_sub_s34, "\$1x");
+LET(map_sub_s34, DICT());
+LET(want_sub_s34, INDEX_SET(INDEX_SET(INDEX_SET(DICT(), "kind", "ValueError"), "pos", 0), "what", "invalid_placeholder"));
+LET(in_sub_s35, "\$-");
+LET(map_sub_s35, DICT());
+LET(want_sub_s35, INDEX_SET(INDEX_SET(INDEX_SET(DICT(), "kind", "ValueError"), "pos", 0), "what", "invalid_placeholder"));
+LET(in_sub_s36, "\$ ");
+LET(map_sub_s36, DICT());
+LET(want_sub_s36, INDEX_SET(INDEX_SET(INDEX_SET(DICT(), "kind", "ValueError"), "pos", 0), "what", "invalid_placeholder"));
+LET(in_sub_s37, "\$\t");
+LET(map_sub_s37, DICT());
+LET(want_sub_s37, INDEX_SET(INDEX_SET(INDEX_SET(DICT(), "kind", "ValueError"), "pos", 0), "what", "invalid_placeholder"));
+LET(in_sub_s38, "\$(x)");
+LET(map_sub_s38, DICT());
+LET(want_sub_s38, INDEX_SET(INDEX_SET(INDEX_SET(DICT(), "kind", "ValueError"), "pos", 0), "what", "invalid_placeholder"));
+LET(in_sub_s39, "\${}");
+LET(map_sub_s39, INDEX_SET(DICT(), "a", "X"));
+LET(want_sub_s39, INDEX_SET(INDEX_SET(INDEX_SET(DICT(), "kind", "ValueError"), "pos", 0), "what", "invalid_placeholder"));
+LET(in_sub_s40, "\${a b}");
+LET(map_sub_s40, INDEX_SET(DICT(), "a", "X"));
+LET(want_sub_s40, INDEX_SET(INDEX_SET(INDEX_SET(DICT(), "kind", "ValueError"), "pos", 0), "what", "invalid_placeholder"));
+LET(in_sub_s41, "\${a");
+LET(map_sub_s41, INDEX_SET(DICT(), "a", "X"));
+LET(want_sub_s41, INDEX_SET(INDEX_SET(INDEX_SET(DICT(), "kind", "ValueError"), "pos", 0), "what", "invalid_placeholder"));
+LET(in_sub_s42, "a\${b");
+LET(map_sub_s42, DICT());
+LET(want_sub_s42, INDEX_SET(INDEX_SET(INDEX_SET(DICT(), "kind", "ValueError"), "pos", 1), "what", "invalid_placeholder"));
+LET(in_sub_s43, "\$");
+LET(map_sub_s43, DICT());
+LET(want_sub_s43, INDEX_SET(INDEX_SET(INDEX_SET(DICT(), "kind", "ValueError"), "pos", 0), "what", "invalid_placeholder"));
+LET(in_sub_s44, "x\$");
+LET(map_sub_s44, DICT());
+LET(want_sub_s44, INDEX_SET(INDEX_SET(INDEX_SET(DICT(), "kind", "ValueError"), "pos", 1), "what", "invalid_placeholder"));
+LET(in_sub_s45, "ab\$1x");
+LET(map_sub_s45, DICT());
+LET(want_sub_s45, INDEX_SET(INDEX_SET(INDEX_SET(DICT(), "kind", "ValueError"), "pos", 2), "what", "invalid_placeholder"));
+LET(in_sub_s46, "\$b\$1");
+LET(map_sub_s46, DICT());
+LET(want_sub_s46, INDEX_SET(INDEX_SET(DICT(), "key", "b"), "kind", "KeyError"));
+LET(in_sub_s47, "cost \$5.00");
+LET(map_sub_s47, DICT());
+LET(want_sub_s47, INDEX_SET(INDEX_SET(INDEX_SET(DICT(), "kind", "ValueError"), "pos", 5), "what", "invalid_placeholder"));
+LET(in_sub_s48, "\$中文");
+LET(map_sub_s48, DICT());
+LET(want_sub_s48, INDEX_SET(INDEX_SET(INDEX_SET(DICT(), "kind", "ValueError"), "pos", 0), "what", "invalid_placeholder"));
+LET(in_sub_s49, "\$é");
+LET(map_sub_s49, DICT());
+LET(want_sub_s49, INDEX_SET(INDEX_SET(INDEX_SET(DICT(), "kind", "ValueError"), "pos", 0), "what", "invalid_placeholder"));
+LET(in_sub_s50, "\$\$\$");
+LET(map_sub_s50, DICT());
+LET(want_sub_s50, INDEX_SET(INDEX_SET(INDEX_SET(DICT(), "kind", "ValueError"), "pos", 2), "what", "invalid_placeholder"));
+LET(in_sub_s51, "\$a\$");
+LET(map_sub_s51, INDEX_SET(DICT(), "a", "X"));
+LET(want_sub_s51, INDEX_SET(INDEX_SET(INDEX_SET(DICT(), "kind", "ValueError"), "pos", 2), "what", "invalid_placeholder"));
+LET(in_sub_s52, "\${a}\$");
+LET(map_sub_s52, INDEX_SET(DICT(), "a", "X"));
+LET(want_sub_s52, INDEX_SET(INDEX_SET(INDEX_SET(DICT(), "kind", "ValueError"), "pos", 4), "what", "invalid_placeholder"));
+LET(in_sub_s53, "\$ a");
+LET(map_sub_s53, DICT());
+LET(want_sub_s53, INDEX_SET(INDEX_SET(INDEX_SET(DICT(), "kind", "ValueError"), "pos", 0), "what", "invalid_placeholder"));
+LET(in_sub_s54, "\$zz");
+LET(map_sub_s54, INDEX_SET(DICT(), "a", "X"));
+LET(want_sub_s54, INDEX_SET(INDEX_SET(DICT(), "key", "zz"), "kind", "KeyError"));
+LET(in_sub_s55, "\${missing}");
+LET(map_sub_s55, DICT());
+LET(want_sub_s55, INDEX_SET(INDEX_SET(DICT(), "key", "missing"), "kind", "KeyError"));
+LET(in_sub_s56, "\$b");
+LET(map_sub_s56, INDEX_SET(DICT(), "a", "X"));
+LET(want_sub_s56, INDEX_SET(INDEX_SET(DICT(), "key", "b"), "kind", "KeyError"));
+LET(in_sub_s57, "\$aa");
+LET(map_sub_s57, INDEX_SET(DICT(), "a", "A"));
+LET(want_sub_s57, INDEX_SET(INDEX_SET(DICT(), "key", "aa"), "kind", "KeyError"));
+LET(in_sub_s58, "pre \$nope mid \$also_nope");
+LET(map_sub_s58, DICT());
+LET(want_sub_s58, INDEX_SET(INDEX_SET(DICT(), "key", "nope"), "kind", "KeyError"));
+LET(in_sub_s59, "\$a");
+LET(map_sub_s59, INDEX_SET(DICT(), "a", "\$b"));
+LET(want_sub_s59, "\$b");
+LET(in_sub_s60, "\$a");
+LET(map_sub_s60, INDEX_SET(DICT(), "a", "\${b}"));
+LET(want_sub_s60, "\${b}");
+LET(in_sub_s61, "\${a}\$a");
+LET(map_sub_s61, INDEX_SET(DICT(), "a", "\$\$"));
+LET(want_sub_s61, "\$\$\$\$");
+LET(in_sub_s62, "\$a");
+LET(map_sub_s62, INDEX_SET(DICT(), "a", 42));
+LET(want_sub_s62, "42");
+LET(in_sub_s63, "\$a");
+LET(map_sub_s63, INDEX_SET(DICT(), "a", -7));
+LET(want_sub_s63, "-7");
+LET(in_sub_s64, "\$a");
+LET(map_sub_s64, INDEX_SET(DICT(), "a", 1.5));
+LET(want_sub_s64, "1.5");
+LET(in_sub_s65, "\$a");
+LET(map_sub_s65, INDEX_SET(DICT(), "a", ""));
+LET(want_sub_s65, "");
+LET(in_sub_s66, "\$a");
+LET(map_sub_s66, INDEX_SET(DICT(), "a", NULL));
+LET(want_sub_s66, "NULL");
+LET(in_sub_s67, "\$a");
+LET(map_sub_s67, INDEX_SET(DICT(), "a", TRUE));
+LET(want_sub_s67, "TRUE");
+LET(in_sub_s68, "\$a");
+LET(map_sub_s68, INDEX_SET(DICT(), "a", INDEX_SET(DICT(), "k", 1)));
+LET(want_sub_s68, "[k: 1]");
+LET(in_safe_s00, "hello world");
+LET(map_safe_s00, DICT());
+LET(want_safe_s00, "hello world");
+LET(in_safe_s01, "");
+LET(map_safe_s01, DICT());
+LET(want_safe_s01, "");
+LET(in_safe_s02, "\$a");
+LET(map_safe_s02, INDEX_SET(DICT(), "a", "X"));
+LET(want_safe_s02, "X");
+LET(in_safe_s03, "a \$a b");
+LET(map_safe_s03, INDEX_SET(DICT(), "a", "X"));
+LET(want_safe_s03, "a X b");
+LET(in_safe_s04, "\$a\$b");
+LET(map_safe_s04, INDEX_SET(INDEX_SET(DICT(), "a", "X"), "b", "Y"));
+LET(want_safe_s04, "XY");
+LET(in_safe_s05, "\$a\$a");
+LET(map_safe_s05, INDEX_SET(DICT(), "a", "X"));
+LET(want_safe_s05, "XX");
+LET(in_safe_s06, "\$a1");
+LET(map_safe_s06, INDEX_SET(DICT(), "a1", "one"));
+LET(want_safe_s06, "one");
+LET(in_safe_s07, "\$a_1");
+LET(map_safe_s07, INDEX_SET(DICT(), "a_1", "under"));
+LET(want_safe_s07, "under");
+LET(in_safe_s08, "\$_a");
+LET(map_safe_s08, INDEX_SET(DICT(), "_a", "us"));
+LET(want_safe_s08, "us");
+LET(in_safe_s09, "\$_");
+LET(map_safe_s09, INDEX_SET(DICT(), "_", "u"));
+LET(want_safe_s09, "u");
+LET(in_safe_s10, "\$_1");
+LET(map_safe_s10, INDEX_SET(DICT(), "_1", "u1"));
+LET(want_safe_s10, "u1");
+LET(in_safe_s11, "\$A");
+LET(map_safe_s11, INDEX_SET(DICT(), "A", "up"));
+LET(want_safe_s11, "up");
+LET(in_safe_s12, "\$aB");
+LET(map_safe_s12, INDEX_SET(DICT(), "aB", "mixed"));
+LET(want_safe_s12, "mixed");
+LET(in_safe_s13, "\$a-b");
+LET(map_safe_s13, INDEX_SET(DICT(), "a", "X"));
+LET(want_safe_s13, "X-b");
+LET(in_safe_s14, "\$a.b");
+LET(map_safe_s14, INDEX_SET(DICT(), "a", "X"));
+LET(want_safe_s14, "X.b");
+LET(in_safe_s15, "\$a}");
+LET(map_safe_s15, INDEX_SET(DICT(), "a", "X"));
+LET(want_safe_s15, "X}");
+LET(in_safe_s16, "中文\$var中文");
+LET(map_safe_s16, INDEX_SET(DICT(), "var", "V"));
+LET(want_safe_s16, "中文V中文");
+LET(in_safe_s17, "\${a}");
+LET(map_safe_s17, INDEX_SET(DICT(), "a", "X"));
+LET(want_safe_s17, "X");
+LET(in_safe_s18, "\$a\${b}");
+LET(map_safe_s18, INDEX_SET(INDEX_SET(DICT(), "a", "X"), "b", "Y"));
+LET(want_safe_s18, "XY");
+LET(in_safe_s19, "\${a}\${b}");
+LET(map_safe_s19, INDEX_SET(INDEX_SET(DICT(), "a", "X"), "b", "Y"));
+LET(want_safe_s19, "XY");
+LET(in_safe_s20, "\${_}");
+LET(map_safe_s20, INDEX_SET(DICT(), "_", "u"));
+LET(want_safe_s20, "u");
+LET(in_safe_s21, "\${A}");
+LET(map_safe_s21, INDEX_SET(DICT(), "A", "up"));
+LET(want_safe_s21, "up");
+LET(in_safe_s22, "\${A_b1}");
+LET(map_safe_s22, INDEX_SET(DICT(), "A_b1", "z"));
+LET(want_safe_s22, "z");
+LET(in_safe_s23, "\${a}x");
+LET(map_safe_s23, INDEX_SET(DICT(), "a", "X"));
+LET(want_safe_s23, "Xx");
+LET(in_safe_s24, "\${a}{b}");
+LET(map_safe_s24, INDEX_SET(DICT(), "a", "X"));
+LET(want_safe_s24, "X{b}");
+LET(in_safe_s25, "x\${a}y\$b");
+LET(map_safe_s25, INDEX_SET(INDEX_SET(DICT(), "a", "1"), "b", "2"));
+LET(want_safe_s25, "x1y2");
+LET(in_safe_s26, "\$a\${a}");
+LET(map_safe_s26, INDEX_SET(DICT(), "a", "X"));
+LET(want_safe_s26, "XX");
+LET(in_safe_s27, "\$\$");
+LET(map_safe_s27, DICT());
+LET(want_safe_s27, "\$");
+LET(in_safe_s28, "\$\$a");
+LET(map_safe_s28, INDEX_SET(DICT(), "a", "X"));
+LET(want_safe_s28, "\$a");
+LET(in_safe_s29, "a\$\$b");
+LET(map_safe_s29, INDEX_SET(DICT(), "a", "X"));
+LET(want_safe_s29, "a\$b");
+LET(in_safe_s30, "\$\$\$a");
+LET(map_safe_s30, INDEX_SET(DICT(), "a", "X"));
+LET(want_safe_s30, "\$X");
+LET(in_safe_s31, "\$\$\$\$");
+LET(map_safe_s31, DICT());
+LET(want_safe_s31, "\$\$");
+LET(in_safe_s32, "\$\$\${a}");
+LET(map_safe_s32, INDEX_SET(DICT(), "a", "X"));
+LET(want_safe_s32, "\$X");
+LET(in_safe_s33, "\$\${");
+LET(map_safe_s33, INDEX_SET(DICT(), "a", "X"));
+LET(want_safe_s33, "\${");
+LET(in_safe_s34, "\$1x");
+LET(map_safe_s34, DICT());
+LET(want_safe_s34, "\$1x");
+LET(in_safe_s35, "\$-");
+LET(map_safe_s35, DICT());
+LET(want_safe_s35, "\$-");
+LET(in_safe_s36, "\$ ");
+LET(map_safe_s36, DICT());
+LET(want_safe_s36, "\$ ");
+LET(in_safe_s37, "\$\t");
+LET(map_safe_s37, DICT());
+LET(want_safe_s37, "\$\t");
+LET(in_safe_s38, "\$(x)");
+LET(map_safe_s38, DICT());
+LET(want_safe_s38, "\$(x)");
+LET(in_safe_s39, "\${}");
+LET(map_safe_s39, INDEX_SET(DICT(), "a", "X"));
+LET(want_safe_s39, "\${}");
+LET(in_safe_s40, "\${a b}");
+LET(map_safe_s40, INDEX_SET(DICT(), "a", "X"));
+LET(want_safe_s40, "\${a b}");
+LET(in_safe_s41, "\${a");
+LET(map_safe_s41, INDEX_SET(DICT(), "a", "X"));
+LET(want_safe_s41, "\${a");
+LET(in_safe_s42, "a\${b");
+LET(map_safe_s42, DICT());
+LET(want_safe_s42, "a\${b");
+LET(in_safe_s43, "\$");
+LET(map_safe_s43, DICT());
+LET(want_safe_s43, "\$");
+LET(in_safe_s44, "x\$");
+LET(map_safe_s44, DICT());
+LET(want_safe_s44, "x\$");
+LET(in_safe_s45, "ab\$1x");
+LET(map_safe_s45, DICT());
+LET(want_safe_s45, "ab\$1x");
+LET(in_safe_s46, "\$b\$1");
+LET(map_safe_s46, DICT());
+LET(want_safe_s46, "\$b\$1");
+LET(in_safe_s47, "cost \$5.00");
+LET(map_safe_s47, DICT());
+LET(want_safe_s47, "cost \$5.00");
+LET(in_safe_s48, "\$中文");
+LET(map_safe_s48, DICT());
+LET(want_safe_s48, "\$中文");
+LET(in_safe_s49, "\$é");
+LET(map_safe_s49, DICT());
+LET(want_safe_s49, "\$é");
+LET(in_safe_s50, "\$\$\$");
+LET(map_safe_s50, DICT());
+LET(want_safe_s50, "\$\$");
+LET(in_safe_s51, "\$a\$");
+LET(map_safe_s51, INDEX_SET(DICT(), "a", "X"));
+LET(want_safe_s51, "X\$");
+LET(in_safe_s52, "\${a}\$");
+LET(map_safe_s52, INDEX_SET(DICT(), "a", "X"));
+LET(want_safe_s52, "X\$");
+LET(in_safe_s53, "\$ a");
+LET(map_safe_s53, DICT());
+LET(want_safe_s53, "\$ a");
+LET(in_safe_s54, "\$zz");
+LET(map_safe_s54, INDEX_SET(DICT(), "a", "X"));
+LET(want_safe_s54, "\$zz");
+LET(in_safe_s55, "\${missing}");
+LET(map_safe_s55, DICT());
+LET(want_safe_s55, "\${missing}");
+LET(in_safe_s56, "\$b");
+LET(map_safe_s56, INDEX_SET(DICT(), "a", "X"));
+LET(want_safe_s56, "\$b");
+LET(in_safe_s57, "\$aa");
+LET(map_safe_s57, INDEX_SET(DICT(), "a", "A"));
+LET(want_safe_s57, "\$aa");
+LET(in_safe_s58, "pre \$nope mid \$also_nope");
+LET(map_safe_s58, DICT());
+LET(want_safe_s58, "pre \$nope mid \$also_nope");
+LET(in_safe_s59, "\$a");
+LET(map_safe_s59, INDEX_SET(DICT(), "a", "\$b"));
+LET(want_safe_s59, "\$b");
+LET(in_safe_s60, "\$a");
+LET(map_safe_s60, INDEX_SET(DICT(), "a", "\${b}"));
+LET(want_safe_s60, "\${b}");
+LET(in_safe_s61, "\${a}\$a");
+LET(map_safe_s61, INDEX_SET(DICT(), "a", "\$\$"));
+LET(want_safe_s61, "\$\$\$\$");
+LET(in_safe_s62, "\$a");
+LET(map_safe_s62, INDEX_SET(DICT(), "a", 42));
+LET(want_safe_s62, "42");
+LET(in_safe_s63, "\$a");
+LET(map_safe_s63, INDEX_SET(DICT(), "a", -7));
+LET(want_safe_s63, "-7");
+LET(in_safe_s64, "\$a");
+LET(map_safe_s64, INDEX_SET(DICT(), "a", 1.5));
+LET(want_safe_s64, "1.5");
+LET(in_safe_s65, "\$a");
+LET(map_safe_s65, INDEX_SET(DICT(), "a", ""));
+LET(want_safe_s65, "");
+LET(in_safe_s66, "\$a");
+LET(map_safe_s66, INDEX_SET(DICT(), "a", NULL));
+LET(want_safe_s66, "NULL");
+LET(in_safe_s67, "\$a");
+LET(map_safe_s67, INDEX_SET(DICT(), "a", TRUE));
+LET(want_safe_s67, "TRUE");
+LET(in_safe_s68, "\$a");
+LET(map_safe_s68, INDEX_SET(DICT(), "a", INDEX_SET(DICT(), "k", 1)));
+LET(want_safe_s68, "[k: 1]");
+
+// ── 判定变量（⚠ 会返回 ERR 的调用一律**不**直接 LET 住）─────────
+LET(iserr_sub_s00, IS_ERR(SUBSTITUTE(in_sub_s00, map_sub_s00)));
+LET(out_sub_s00, IF(iserr_sub_s00, "", SUBSTITUTE(in_sub_s00, map_sub_s00)));
+LET(iserr_sub_s01, IS_ERR(SUBSTITUTE(in_sub_s01, map_sub_s01)));
+LET(out_sub_s01, IF(iserr_sub_s01, "", SUBSTITUTE(in_sub_s01, map_sub_s01)));
+LET(iserr_sub_s02, IS_ERR(SUBSTITUTE(in_sub_s02, map_sub_s02)));
+LET(out_sub_s02, IF(iserr_sub_s02, "", SUBSTITUTE(in_sub_s02, map_sub_s02)));
+LET(iserr_sub_s03, IS_ERR(SUBSTITUTE(in_sub_s03, map_sub_s03)));
+LET(out_sub_s03, IF(iserr_sub_s03, "", SUBSTITUTE(in_sub_s03, map_sub_s03)));
+LET(iserr_sub_s04, IS_ERR(SUBSTITUTE(in_sub_s04, map_sub_s04)));
+LET(out_sub_s04, IF(iserr_sub_s04, "", SUBSTITUTE(in_sub_s04, map_sub_s04)));
+LET(iserr_sub_s05, IS_ERR(SUBSTITUTE(in_sub_s05, map_sub_s05)));
+LET(out_sub_s05, IF(iserr_sub_s05, "", SUBSTITUTE(in_sub_s05, map_sub_s05)));
+LET(iserr_sub_s06, IS_ERR(SUBSTITUTE(in_sub_s06, map_sub_s06)));
+LET(out_sub_s06, IF(iserr_sub_s06, "", SUBSTITUTE(in_sub_s06, map_sub_s06)));
+LET(iserr_sub_s07, IS_ERR(SUBSTITUTE(in_sub_s07, map_sub_s07)));
+LET(out_sub_s07, IF(iserr_sub_s07, "", SUBSTITUTE(in_sub_s07, map_sub_s07)));
+LET(iserr_sub_s08, IS_ERR(SUBSTITUTE(in_sub_s08, map_sub_s08)));
+LET(out_sub_s08, IF(iserr_sub_s08, "", SUBSTITUTE(in_sub_s08, map_sub_s08)));
+LET(iserr_sub_s09, IS_ERR(SUBSTITUTE(in_sub_s09, map_sub_s09)));
+LET(out_sub_s09, IF(iserr_sub_s09, "", SUBSTITUTE(in_sub_s09, map_sub_s09)));
+LET(iserr_sub_s10, IS_ERR(SUBSTITUTE(in_sub_s10, map_sub_s10)));
+LET(out_sub_s10, IF(iserr_sub_s10, "", SUBSTITUTE(in_sub_s10, map_sub_s10)));
+LET(iserr_sub_s11, IS_ERR(SUBSTITUTE(in_sub_s11, map_sub_s11)));
+LET(out_sub_s11, IF(iserr_sub_s11, "", SUBSTITUTE(in_sub_s11, map_sub_s11)));
+LET(iserr_sub_s12, IS_ERR(SUBSTITUTE(in_sub_s12, map_sub_s12)));
+LET(out_sub_s12, IF(iserr_sub_s12, "", SUBSTITUTE(in_sub_s12, map_sub_s12)));
+LET(iserr_sub_s13, IS_ERR(SUBSTITUTE(in_sub_s13, map_sub_s13)));
+LET(out_sub_s13, IF(iserr_sub_s13, "", SUBSTITUTE(in_sub_s13, map_sub_s13)));
+LET(iserr_sub_s14, IS_ERR(SUBSTITUTE(in_sub_s14, map_sub_s14)));
+LET(out_sub_s14, IF(iserr_sub_s14, "", SUBSTITUTE(in_sub_s14, map_sub_s14)));
+LET(iserr_sub_s15, IS_ERR(SUBSTITUTE(in_sub_s15, map_sub_s15)));
+LET(out_sub_s15, IF(iserr_sub_s15, "", SUBSTITUTE(in_sub_s15, map_sub_s15)));
+LET(iserr_sub_s16, IS_ERR(SUBSTITUTE(in_sub_s16, map_sub_s16)));
+LET(out_sub_s16, IF(iserr_sub_s16, "", SUBSTITUTE(in_sub_s16, map_sub_s16)));
+LET(iserr_sub_s17, IS_ERR(SUBSTITUTE(in_sub_s17, map_sub_s17)));
+LET(out_sub_s17, IF(iserr_sub_s17, "", SUBSTITUTE(in_sub_s17, map_sub_s17)));
+LET(iserr_sub_s18, IS_ERR(SUBSTITUTE(in_sub_s18, map_sub_s18)));
+LET(out_sub_s18, IF(iserr_sub_s18, "", SUBSTITUTE(in_sub_s18, map_sub_s18)));
+LET(iserr_sub_s19, IS_ERR(SUBSTITUTE(in_sub_s19, map_sub_s19)));
+LET(out_sub_s19, IF(iserr_sub_s19, "", SUBSTITUTE(in_sub_s19, map_sub_s19)));
+LET(iserr_sub_s20, IS_ERR(SUBSTITUTE(in_sub_s20, map_sub_s20)));
+LET(out_sub_s20, IF(iserr_sub_s20, "", SUBSTITUTE(in_sub_s20, map_sub_s20)));
+LET(iserr_sub_s21, IS_ERR(SUBSTITUTE(in_sub_s21, map_sub_s21)));
+LET(out_sub_s21, IF(iserr_sub_s21, "", SUBSTITUTE(in_sub_s21, map_sub_s21)));
+LET(iserr_sub_s22, IS_ERR(SUBSTITUTE(in_sub_s22, map_sub_s22)));
+LET(out_sub_s22, IF(iserr_sub_s22, "", SUBSTITUTE(in_sub_s22, map_sub_s22)));
+LET(iserr_sub_s23, IS_ERR(SUBSTITUTE(in_sub_s23, map_sub_s23)));
+LET(out_sub_s23, IF(iserr_sub_s23, "", SUBSTITUTE(in_sub_s23, map_sub_s23)));
+LET(iserr_sub_s24, IS_ERR(SUBSTITUTE(in_sub_s24, map_sub_s24)));
+LET(out_sub_s24, IF(iserr_sub_s24, "", SUBSTITUTE(in_sub_s24, map_sub_s24)));
+LET(iserr_sub_s25, IS_ERR(SUBSTITUTE(in_sub_s25, map_sub_s25)));
+LET(out_sub_s25, IF(iserr_sub_s25, "", SUBSTITUTE(in_sub_s25, map_sub_s25)));
+LET(iserr_sub_s26, IS_ERR(SUBSTITUTE(in_sub_s26, map_sub_s26)));
+LET(out_sub_s26, IF(iserr_sub_s26, "", SUBSTITUTE(in_sub_s26, map_sub_s26)));
+LET(iserr_sub_s27, IS_ERR(SUBSTITUTE(in_sub_s27, map_sub_s27)));
+LET(out_sub_s27, IF(iserr_sub_s27, "", SUBSTITUTE(in_sub_s27, map_sub_s27)));
+LET(iserr_sub_s28, IS_ERR(SUBSTITUTE(in_sub_s28, map_sub_s28)));
+LET(out_sub_s28, IF(iserr_sub_s28, "", SUBSTITUTE(in_sub_s28, map_sub_s28)));
+LET(iserr_sub_s29, IS_ERR(SUBSTITUTE(in_sub_s29, map_sub_s29)));
+LET(out_sub_s29, IF(iserr_sub_s29, "", SUBSTITUTE(in_sub_s29, map_sub_s29)));
+LET(iserr_sub_s30, IS_ERR(SUBSTITUTE(in_sub_s30, map_sub_s30)));
+LET(out_sub_s30, IF(iserr_sub_s30, "", SUBSTITUTE(in_sub_s30, map_sub_s30)));
+LET(iserr_sub_s31, IS_ERR(SUBSTITUTE(in_sub_s31, map_sub_s31)));
+LET(out_sub_s31, IF(iserr_sub_s31, "", SUBSTITUTE(in_sub_s31, map_sub_s31)));
+LET(iserr_sub_s32, IS_ERR(SUBSTITUTE(in_sub_s32, map_sub_s32)));
+LET(out_sub_s32, IF(iserr_sub_s32, "", SUBSTITUTE(in_sub_s32, map_sub_s32)));
+LET(iserr_sub_s33, IS_ERR(SUBSTITUTE(in_sub_s33, map_sub_s33)));
+LET(out_sub_s33, IF(iserr_sub_s33, "", SUBSTITUTE(in_sub_s33, map_sub_s33)));
+LET(pay_sub_s34, TAKE_ERR(SUBSTITUTE(in_sub_s34, map_sub_s34)));
+LET(pay_sub_s35, TAKE_ERR(SUBSTITUTE(in_sub_s35, map_sub_s35)));
+LET(pay_sub_s36, TAKE_ERR(SUBSTITUTE(in_sub_s36, map_sub_s36)));
+LET(pay_sub_s37, TAKE_ERR(SUBSTITUTE(in_sub_s37, map_sub_s37)));
+LET(pay_sub_s38, TAKE_ERR(SUBSTITUTE(in_sub_s38, map_sub_s38)));
+LET(pay_sub_s39, TAKE_ERR(SUBSTITUTE(in_sub_s39, map_sub_s39)));
+LET(pay_sub_s40, TAKE_ERR(SUBSTITUTE(in_sub_s40, map_sub_s40)));
+LET(pay_sub_s41, TAKE_ERR(SUBSTITUTE(in_sub_s41, map_sub_s41)));
+LET(pay_sub_s42, TAKE_ERR(SUBSTITUTE(in_sub_s42, map_sub_s42)));
+LET(pay_sub_s43, TAKE_ERR(SUBSTITUTE(in_sub_s43, map_sub_s43)));
+LET(pay_sub_s44, TAKE_ERR(SUBSTITUTE(in_sub_s44, map_sub_s44)));
+LET(pay_sub_s45, TAKE_ERR(SUBSTITUTE(in_sub_s45, map_sub_s45)));
+LET(pay_sub_s46, TAKE_ERR(SUBSTITUTE(in_sub_s46, map_sub_s46)));
+LET(pay_sub_s47, TAKE_ERR(SUBSTITUTE(in_sub_s47, map_sub_s47)));
+LET(pay_sub_s48, TAKE_ERR(SUBSTITUTE(in_sub_s48, map_sub_s48)));
+LET(pay_sub_s49, TAKE_ERR(SUBSTITUTE(in_sub_s49, map_sub_s49)));
+LET(pay_sub_s50, TAKE_ERR(SUBSTITUTE(in_sub_s50, map_sub_s50)));
+LET(pay_sub_s51, TAKE_ERR(SUBSTITUTE(in_sub_s51, map_sub_s51)));
+LET(pay_sub_s52, TAKE_ERR(SUBSTITUTE(in_sub_s52, map_sub_s52)));
+LET(pay_sub_s53, TAKE_ERR(SUBSTITUTE(in_sub_s53, map_sub_s53)));
+LET(pay_sub_s54, TAKE_ERR(SUBSTITUTE(in_sub_s54, map_sub_s54)));
+LET(pay_sub_s55, TAKE_ERR(SUBSTITUTE(in_sub_s55, map_sub_s55)));
+LET(pay_sub_s56, TAKE_ERR(SUBSTITUTE(in_sub_s56, map_sub_s56)));
+LET(pay_sub_s57, TAKE_ERR(SUBSTITUTE(in_sub_s57, map_sub_s57)));
+LET(pay_sub_s58, TAKE_ERR(SUBSTITUTE(in_sub_s58, map_sub_s58)));
+LET(iserr_sub_s59, IS_ERR(SUBSTITUTE(in_sub_s59, map_sub_s59)));
+LET(out_sub_s59, IF(iserr_sub_s59, "", SUBSTITUTE(in_sub_s59, map_sub_s59)));
+LET(iserr_sub_s60, IS_ERR(SUBSTITUTE(in_sub_s60, map_sub_s60)));
+LET(out_sub_s60, IF(iserr_sub_s60, "", SUBSTITUTE(in_sub_s60, map_sub_s60)));
+LET(iserr_sub_s61, IS_ERR(SUBSTITUTE(in_sub_s61, map_sub_s61)));
+LET(out_sub_s61, IF(iserr_sub_s61, "", SUBSTITUTE(in_sub_s61, map_sub_s61)));
+LET(iserr_sub_s62, IS_ERR(SUBSTITUTE(in_sub_s62, map_sub_s62)));
+LET(out_sub_s62, IF(iserr_sub_s62, "", SUBSTITUTE(in_sub_s62, map_sub_s62)));
+LET(iserr_sub_s63, IS_ERR(SUBSTITUTE(in_sub_s63, map_sub_s63)));
+LET(out_sub_s63, IF(iserr_sub_s63, "", SUBSTITUTE(in_sub_s63, map_sub_s63)));
+LET(iserr_sub_s64, IS_ERR(SUBSTITUTE(in_sub_s64, map_sub_s64)));
+LET(out_sub_s64, IF(iserr_sub_s64, "", SUBSTITUTE(in_sub_s64, map_sub_s64)));
+LET(iserr_sub_s65, IS_ERR(SUBSTITUTE(in_sub_s65, map_sub_s65)));
+LET(out_sub_s65, IF(iserr_sub_s65, "", SUBSTITUTE(in_sub_s65, map_sub_s65)));
+LET(iserr_sub_s66, IS_ERR(SUBSTITUTE(in_sub_s66, map_sub_s66)));
+LET(out_sub_s66, IF(iserr_sub_s66, "", SUBSTITUTE(in_sub_s66, map_sub_s66)));
+LET(iserr_sub_s67, IS_ERR(SUBSTITUTE(in_sub_s67, map_sub_s67)));
+LET(out_sub_s67, IF(iserr_sub_s67, "", SUBSTITUTE(in_sub_s67, map_sub_s67)));
+LET(iserr_sub_s68, IS_ERR(SUBSTITUTE(in_sub_s68, map_sub_s68)));
+LET(out_sub_s68, IF(iserr_sub_s68, "", SUBSTITUTE(in_sub_s68, map_sub_s68)));
+LET(iserr_safe_s00, IS_ERR(SAFE_SUBSTITUTE(in_safe_s00, map_safe_s00)));
+LET(out_safe_s00, IF(iserr_safe_s00, "", SAFE_SUBSTITUTE(in_safe_s00, map_safe_s00)));
+LET(iserr_safe_s01, IS_ERR(SAFE_SUBSTITUTE(in_safe_s01, map_safe_s01)));
+LET(out_safe_s01, IF(iserr_safe_s01, "", SAFE_SUBSTITUTE(in_safe_s01, map_safe_s01)));
+LET(iserr_safe_s02, IS_ERR(SAFE_SUBSTITUTE(in_safe_s02, map_safe_s02)));
+LET(out_safe_s02, IF(iserr_safe_s02, "", SAFE_SUBSTITUTE(in_safe_s02, map_safe_s02)));
+LET(iserr_safe_s03, IS_ERR(SAFE_SUBSTITUTE(in_safe_s03, map_safe_s03)));
+LET(out_safe_s03, IF(iserr_safe_s03, "", SAFE_SUBSTITUTE(in_safe_s03, map_safe_s03)));
+LET(iserr_safe_s04, IS_ERR(SAFE_SUBSTITUTE(in_safe_s04, map_safe_s04)));
+LET(out_safe_s04, IF(iserr_safe_s04, "", SAFE_SUBSTITUTE(in_safe_s04, map_safe_s04)));
+LET(iserr_safe_s05, IS_ERR(SAFE_SUBSTITUTE(in_safe_s05, map_safe_s05)));
+LET(out_safe_s05, IF(iserr_safe_s05, "", SAFE_SUBSTITUTE(in_safe_s05, map_safe_s05)));
+LET(iserr_safe_s06, IS_ERR(SAFE_SUBSTITUTE(in_safe_s06, map_safe_s06)));
+LET(out_safe_s06, IF(iserr_safe_s06, "", SAFE_SUBSTITUTE(in_safe_s06, map_safe_s06)));
+LET(iserr_safe_s07, IS_ERR(SAFE_SUBSTITUTE(in_safe_s07, map_safe_s07)));
+LET(out_safe_s07, IF(iserr_safe_s07, "", SAFE_SUBSTITUTE(in_safe_s07, map_safe_s07)));
+LET(iserr_safe_s08, IS_ERR(SAFE_SUBSTITUTE(in_safe_s08, map_safe_s08)));
+LET(out_safe_s08, IF(iserr_safe_s08, "", SAFE_SUBSTITUTE(in_safe_s08, map_safe_s08)));
+LET(iserr_safe_s09, IS_ERR(SAFE_SUBSTITUTE(in_safe_s09, map_safe_s09)));
+LET(out_safe_s09, IF(iserr_safe_s09, "", SAFE_SUBSTITUTE(in_safe_s09, map_safe_s09)));
+LET(iserr_safe_s10, IS_ERR(SAFE_SUBSTITUTE(in_safe_s10, map_safe_s10)));
+LET(out_safe_s10, IF(iserr_safe_s10, "", SAFE_SUBSTITUTE(in_safe_s10, map_safe_s10)));
+LET(iserr_safe_s11, IS_ERR(SAFE_SUBSTITUTE(in_safe_s11, map_safe_s11)));
+LET(out_safe_s11, IF(iserr_safe_s11, "", SAFE_SUBSTITUTE(in_safe_s11, map_safe_s11)));
+LET(iserr_safe_s12, IS_ERR(SAFE_SUBSTITUTE(in_safe_s12, map_safe_s12)));
+LET(out_safe_s12, IF(iserr_safe_s12, "", SAFE_SUBSTITUTE(in_safe_s12, map_safe_s12)));
+LET(iserr_safe_s13, IS_ERR(SAFE_SUBSTITUTE(in_safe_s13, map_safe_s13)));
+LET(out_safe_s13, IF(iserr_safe_s13, "", SAFE_SUBSTITUTE(in_safe_s13, map_safe_s13)));
+LET(iserr_safe_s14, IS_ERR(SAFE_SUBSTITUTE(in_safe_s14, map_safe_s14)));
+LET(out_safe_s14, IF(iserr_safe_s14, "", SAFE_SUBSTITUTE(in_safe_s14, map_safe_s14)));
+LET(iserr_safe_s15, IS_ERR(SAFE_SUBSTITUTE(in_safe_s15, map_safe_s15)));
+LET(out_safe_s15, IF(iserr_safe_s15, "", SAFE_SUBSTITUTE(in_safe_s15, map_safe_s15)));
+LET(iserr_safe_s16, IS_ERR(SAFE_SUBSTITUTE(in_safe_s16, map_safe_s16)));
+LET(out_safe_s16, IF(iserr_safe_s16, "", SAFE_SUBSTITUTE(in_safe_s16, map_safe_s16)));
+LET(iserr_safe_s17, IS_ERR(SAFE_SUBSTITUTE(in_safe_s17, map_safe_s17)));
+LET(out_safe_s17, IF(iserr_safe_s17, "", SAFE_SUBSTITUTE(in_safe_s17, map_safe_s17)));
+LET(iserr_safe_s18, IS_ERR(SAFE_SUBSTITUTE(in_safe_s18, map_safe_s18)));
+LET(out_safe_s18, IF(iserr_safe_s18, "", SAFE_SUBSTITUTE(in_safe_s18, map_safe_s18)));
+LET(iserr_safe_s19, IS_ERR(SAFE_SUBSTITUTE(in_safe_s19, map_safe_s19)));
+LET(out_safe_s19, IF(iserr_safe_s19, "", SAFE_SUBSTITUTE(in_safe_s19, map_safe_s19)));
+LET(iserr_safe_s20, IS_ERR(SAFE_SUBSTITUTE(in_safe_s20, map_safe_s20)));
+LET(out_safe_s20, IF(iserr_safe_s20, "", SAFE_SUBSTITUTE(in_safe_s20, map_safe_s20)));
+LET(iserr_safe_s21, IS_ERR(SAFE_SUBSTITUTE(in_safe_s21, map_safe_s21)));
+LET(out_safe_s21, IF(iserr_safe_s21, "", SAFE_SUBSTITUTE(in_safe_s21, map_safe_s21)));
+LET(iserr_safe_s22, IS_ERR(SAFE_SUBSTITUTE(in_safe_s22, map_safe_s22)));
+LET(out_safe_s22, IF(iserr_safe_s22, "", SAFE_SUBSTITUTE(in_safe_s22, map_safe_s22)));
+LET(iserr_safe_s23, IS_ERR(SAFE_SUBSTITUTE(in_safe_s23, map_safe_s23)));
+LET(out_safe_s23, IF(iserr_safe_s23, "", SAFE_SUBSTITUTE(in_safe_s23, map_safe_s23)));
+LET(iserr_safe_s24, IS_ERR(SAFE_SUBSTITUTE(in_safe_s24, map_safe_s24)));
+LET(out_safe_s24, IF(iserr_safe_s24, "", SAFE_SUBSTITUTE(in_safe_s24, map_safe_s24)));
+LET(iserr_safe_s25, IS_ERR(SAFE_SUBSTITUTE(in_safe_s25, map_safe_s25)));
+LET(out_safe_s25, IF(iserr_safe_s25, "", SAFE_SUBSTITUTE(in_safe_s25, map_safe_s25)));
+LET(iserr_safe_s26, IS_ERR(SAFE_SUBSTITUTE(in_safe_s26, map_safe_s26)));
+LET(out_safe_s26, IF(iserr_safe_s26, "", SAFE_SUBSTITUTE(in_safe_s26, map_safe_s26)));
+LET(iserr_safe_s27, IS_ERR(SAFE_SUBSTITUTE(in_safe_s27, map_safe_s27)));
+LET(out_safe_s27, IF(iserr_safe_s27, "", SAFE_SUBSTITUTE(in_safe_s27, map_safe_s27)));
+LET(iserr_safe_s28, IS_ERR(SAFE_SUBSTITUTE(in_safe_s28, map_safe_s28)));
+LET(out_safe_s28, IF(iserr_safe_s28, "", SAFE_SUBSTITUTE(in_safe_s28, map_safe_s28)));
+LET(iserr_safe_s29, IS_ERR(SAFE_SUBSTITUTE(in_safe_s29, map_safe_s29)));
+LET(out_safe_s29, IF(iserr_safe_s29, "", SAFE_SUBSTITUTE(in_safe_s29, map_safe_s29)));
+LET(iserr_safe_s30, IS_ERR(SAFE_SUBSTITUTE(in_safe_s30, map_safe_s30)));
+LET(out_safe_s30, IF(iserr_safe_s30, "", SAFE_SUBSTITUTE(in_safe_s30, map_safe_s30)));
+LET(iserr_safe_s31, IS_ERR(SAFE_SUBSTITUTE(in_safe_s31, map_safe_s31)));
+LET(out_safe_s31, IF(iserr_safe_s31, "", SAFE_SUBSTITUTE(in_safe_s31, map_safe_s31)));
+LET(iserr_safe_s32, IS_ERR(SAFE_SUBSTITUTE(in_safe_s32, map_safe_s32)));
+LET(out_safe_s32, IF(iserr_safe_s32, "", SAFE_SUBSTITUTE(in_safe_s32, map_safe_s32)));
+LET(iserr_safe_s33, IS_ERR(SAFE_SUBSTITUTE(in_safe_s33, map_safe_s33)));
+LET(out_safe_s33, IF(iserr_safe_s33, "", SAFE_SUBSTITUTE(in_safe_s33, map_safe_s33)));
+LET(iserr_safe_s34, IS_ERR(SAFE_SUBSTITUTE(in_safe_s34, map_safe_s34)));
+LET(out_safe_s34, IF(iserr_safe_s34, "", SAFE_SUBSTITUTE(in_safe_s34, map_safe_s34)));
+LET(iserr_safe_s35, IS_ERR(SAFE_SUBSTITUTE(in_safe_s35, map_safe_s35)));
+LET(out_safe_s35, IF(iserr_safe_s35, "", SAFE_SUBSTITUTE(in_safe_s35, map_safe_s35)));
+LET(iserr_safe_s36, IS_ERR(SAFE_SUBSTITUTE(in_safe_s36, map_safe_s36)));
+LET(out_safe_s36, IF(iserr_safe_s36, "", SAFE_SUBSTITUTE(in_safe_s36, map_safe_s36)));
+LET(iserr_safe_s37, IS_ERR(SAFE_SUBSTITUTE(in_safe_s37, map_safe_s37)));
+LET(out_safe_s37, IF(iserr_safe_s37, "", SAFE_SUBSTITUTE(in_safe_s37, map_safe_s37)));
+LET(iserr_safe_s38, IS_ERR(SAFE_SUBSTITUTE(in_safe_s38, map_safe_s38)));
+LET(out_safe_s38, IF(iserr_safe_s38, "", SAFE_SUBSTITUTE(in_safe_s38, map_safe_s38)));
+LET(iserr_safe_s39, IS_ERR(SAFE_SUBSTITUTE(in_safe_s39, map_safe_s39)));
+LET(out_safe_s39, IF(iserr_safe_s39, "", SAFE_SUBSTITUTE(in_safe_s39, map_safe_s39)));
+LET(iserr_safe_s40, IS_ERR(SAFE_SUBSTITUTE(in_safe_s40, map_safe_s40)));
+LET(out_safe_s40, IF(iserr_safe_s40, "", SAFE_SUBSTITUTE(in_safe_s40, map_safe_s40)));
+LET(iserr_safe_s41, IS_ERR(SAFE_SUBSTITUTE(in_safe_s41, map_safe_s41)));
+LET(out_safe_s41, IF(iserr_safe_s41, "", SAFE_SUBSTITUTE(in_safe_s41, map_safe_s41)));
+LET(iserr_safe_s42, IS_ERR(SAFE_SUBSTITUTE(in_safe_s42, map_safe_s42)));
+LET(out_safe_s42, IF(iserr_safe_s42, "", SAFE_SUBSTITUTE(in_safe_s42, map_safe_s42)));
+LET(iserr_safe_s43, IS_ERR(SAFE_SUBSTITUTE(in_safe_s43, map_safe_s43)));
+LET(out_safe_s43, IF(iserr_safe_s43, "", SAFE_SUBSTITUTE(in_safe_s43, map_safe_s43)));
+LET(iserr_safe_s44, IS_ERR(SAFE_SUBSTITUTE(in_safe_s44, map_safe_s44)));
+LET(out_safe_s44, IF(iserr_safe_s44, "", SAFE_SUBSTITUTE(in_safe_s44, map_safe_s44)));
+LET(iserr_safe_s45, IS_ERR(SAFE_SUBSTITUTE(in_safe_s45, map_safe_s45)));
+LET(out_safe_s45, IF(iserr_safe_s45, "", SAFE_SUBSTITUTE(in_safe_s45, map_safe_s45)));
+LET(iserr_safe_s46, IS_ERR(SAFE_SUBSTITUTE(in_safe_s46, map_safe_s46)));
+LET(out_safe_s46, IF(iserr_safe_s46, "", SAFE_SUBSTITUTE(in_safe_s46, map_safe_s46)));
+LET(iserr_safe_s47, IS_ERR(SAFE_SUBSTITUTE(in_safe_s47, map_safe_s47)));
+LET(out_safe_s47, IF(iserr_safe_s47, "", SAFE_SUBSTITUTE(in_safe_s47, map_safe_s47)));
+LET(iserr_safe_s48, IS_ERR(SAFE_SUBSTITUTE(in_safe_s48, map_safe_s48)));
+LET(out_safe_s48, IF(iserr_safe_s48, "", SAFE_SUBSTITUTE(in_safe_s48, map_safe_s48)));
+LET(iserr_safe_s49, IS_ERR(SAFE_SUBSTITUTE(in_safe_s49, map_safe_s49)));
+LET(out_safe_s49, IF(iserr_safe_s49, "", SAFE_SUBSTITUTE(in_safe_s49, map_safe_s49)));
+LET(iserr_safe_s50, IS_ERR(SAFE_SUBSTITUTE(in_safe_s50, map_safe_s50)));
+LET(out_safe_s50, IF(iserr_safe_s50, "", SAFE_SUBSTITUTE(in_safe_s50, map_safe_s50)));
+LET(iserr_safe_s51, IS_ERR(SAFE_SUBSTITUTE(in_safe_s51, map_safe_s51)));
+LET(out_safe_s51, IF(iserr_safe_s51, "", SAFE_SUBSTITUTE(in_safe_s51, map_safe_s51)));
+LET(iserr_safe_s52, IS_ERR(SAFE_SUBSTITUTE(in_safe_s52, map_safe_s52)));
+LET(out_safe_s52, IF(iserr_safe_s52, "", SAFE_SUBSTITUTE(in_safe_s52, map_safe_s52)));
+LET(iserr_safe_s53, IS_ERR(SAFE_SUBSTITUTE(in_safe_s53, map_safe_s53)));
+LET(out_safe_s53, IF(iserr_safe_s53, "", SAFE_SUBSTITUTE(in_safe_s53, map_safe_s53)));
+LET(iserr_safe_s54, IS_ERR(SAFE_SUBSTITUTE(in_safe_s54, map_safe_s54)));
+LET(out_safe_s54, IF(iserr_safe_s54, "", SAFE_SUBSTITUTE(in_safe_s54, map_safe_s54)));
+LET(iserr_safe_s55, IS_ERR(SAFE_SUBSTITUTE(in_safe_s55, map_safe_s55)));
+LET(out_safe_s55, IF(iserr_safe_s55, "", SAFE_SUBSTITUTE(in_safe_s55, map_safe_s55)));
+LET(iserr_safe_s56, IS_ERR(SAFE_SUBSTITUTE(in_safe_s56, map_safe_s56)));
+LET(out_safe_s56, IF(iserr_safe_s56, "", SAFE_SUBSTITUTE(in_safe_s56, map_safe_s56)));
+LET(iserr_safe_s57, IS_ERR(SAFE_SUBSTITUTE(in_safe_s57, map_safe_s57)));
+LET(out_safe_s57, IF(iserr_safe_s57, "", SAFE_SUBSTITUTE(in_safe_s57, map_safe_s57)));
+LET(iserr_safe_s58, IS_ERR(SAFE_SUBSTITUTE(in_safe_s58, map_safe_s58)));
+LET(out_safe_s58, IF(iserr_safe_s58, "", SAFE_SUBSTITUTE(in_safe_s58, map_safe_s58)));
+LET(iserr_safe_s59, IS_ERR(SAFE_SUBSTITUTE(in_safe_s59, map_safe_s59)));
+LET(out_safe_s59, IF(iserr_safe_s59, "", SAFE_SUBSTITUTE(in_safe_s59, map_safe_s59)));
+LET(iserr_safe_s60, IS_ERR(SAFE_SUBSTITUTE(in_safe_s60, map_safe_s60)));
+LET(out_safe_s60, IF(iserr_safe_s60, "", SAFE_SUBSTITUTE(in_safe_s60, map_safe_s60)));
+LET(iserr_safe_s61, IS_ERR(SAFE_SUBSTITUTE(in_safe_s61, map_safe_s61)));
+LET(out_safe_s61, IF(iserr_safe_s61, "", SAFE_SUBSTITUTE(in_safe_s61, map_safe_s61)));
+LET(iserr_safe_s62, IS_ERR(SAFE_SUBSTITUTE(in_safe_s62, map_safe_s62)));
+LET(out_safe_s62, IF(iserr_safe_s62, "", SAFE_SUBSTITUTE(in_safe_s62, map_safe_s62)));
+LET(iserr_safe_s63, IS_ERR(SAFE_SUBSTITUTE(in_safe_s63, map_safe_s63)));
+LET(out_safe_s63, IF(iserr_safe_s63, "", SAFE_SUBSTITUTE(in_safe_s63, map_safe_s63)));
+LET(iserr_safe_s64, IS_ERR(SAFE_SUBSTITUTE(in_safe_s64, map_safe_s64)));
+LET(out_safe_s64, IF(iserr_safe_s64, "", SAFE_SUBSTITUTE(in_safe_s64, map_safe_s64)));
+LET(iserr_safe_s65, IS_ERR(SAFE_SUBSTITUTE(in_safe_s65, map_safe_s65)));
+LET(out_safe_s65, IF(iserr_safe_s65, "", SAFE_SUBSTITUTE(in_safe_s65, map_safe_s65)));
+LET(iserr_safe_s66, IS_ERR(SAFE_SUBSTITUTE(in_safe_s66, map_safe_s66)));
+LET(out_safe_s66, IF(iserr_safe_s66, "", SAFE_SUBSTITUTE(in_safe_s66, map_safe_s66)));
+LET(iserr_safe_s67, IS_ERR(SAFE_SUBSTITUTE(in_safe_s67, map_safe_s67)));
+LET(out_safe_s67, IF(iserr_safe_s67, "", SAFE_SUBSTITUTE(in_safe_s67, map_safe_s67)));
+LET(iserr_safe_s68, IS_ERR(SAFE_SUBSTITUTE(in_safe_s68, map_safe_s68)));
+LET(out_safe_s68, IF(iserr_safe_s68, "", SAFE_SUBSTITUTE(in_safe_s68, map_safe_s68)));
+
+// ── render_skeleton 的用例数据 ────────────────────────────────
+// r00/minimal
+LET MUT(opt_r00, DICT());
+SET(opt_r00, INDEX_SET(opt_r00, "body_content", "<p>body</p>"));
+SET(opt_r00, INDEX_SET(opt_r00, "description", "Desc"));
+SET(opt_r00, INDEX_SET(opt_r00, "page_title", "Page"));
+SET(opt_r00, INDEX_SET(opt_r00, "site_title", "Site"));
+SET(opt_r00, INDEX_SET(opt_r00, "theme_css", "body{margin:0}"));
+LET(want_r00, "<!DOCTYPE html>\n<html lang=\"zh-CN\">\n<head>\n<meta charset=\"utf-8\">\n<meta name=\"viewport\" content=\"width=device-width,initial-scale=1\">\n\n\n\n<meta name=\"description\" content=\"Desc\">\n\n\n\n<title>Page - Site</title>\n<style>\nbody{margin:0}\n</style>\n\n\n</head>\n<body>\n<div class=\"container\">\n  <header class=\"site-header\">\n    <a href=\"/\" class=\"site-title\">Site</a>\n    <nav class=\"site-nav\" aria-label=\"站点导航\">\n      \n      \n    </nav>\n  </header>\n  <main>\n<p>body</p>\n  </main>\n  <footer class=\"site-footer\">\n    <p></p>\n  </footer>\n</div>\n\n\n</body>\n</html>");
+LET(iserr_r00, IS_ERR(RENDER_SKELETON("article", opt_r00)));
+LET(out_r00, IF(iserr_r00, "", RENDER_SKELETON("article", opt_r00)));
+// r01/dark_css
+LET MUT(opt_r01, DICT());
+SET(opt_r01, INDEX_SET(opt_r01, "body_content", "<p>body</p>"));
+SET(opt_r01, INDEX_SET(opt_r01, "dark_css", "a{color:#000}"));
+SET(opt_r01, INDEX_SET(opt_r01, "description", "Desc"));
+SET(opt_r01, INDEX_SET(opt_r01, "page_title", "Page"));
+SET(opt_r01, INDEX_SET(opt_r01, "site_title", "Site"));
+SET(opt_r01, INDEX_SET(opt_r01, "theme_css", "body{margin:0}"));
+LET(want_r01, "<!DOCTYPE html>\n<html lang=\"zh-CN\">\n<head>\n<meta charset=\"utf-8\">\n<meta name=\"viewport\" content=\"width=device-width,initial-scale=1\">\n\n\n\n<meta name=\"description\" content=\"Desc\">\n\n\n\n<title>Page - Site</title>\n<style>\nbody{margin:0}\n</style>\n<style media=\"(prefers-color-scheme: dark)\">a{color:#000}</style>\n\n</head>\n<body>\n<div class=\"container\">\n  <header class=\"site-header\">\n    <a href=\"/\" class=\"site-title\">Site</a>\n    <nav class=\"site-nav\" aria-label=\"站点导航\">\n      \n      \n    </nav>\n  </header>\n  <main>\n<p>body</p>\n  </main>\n  <footer class=\"site-footer\">\n    <p></p>\n  </footer>\n</div>\n\n\n</body>\n</html>");
+LET(iserr_r01, IS_ERR(RENDER_SKELETON("article", opt_r01)));
+LET(out_r01, IF(iserr_r01, "", RENDER_SKELETON("article", opt_r01)));
+// r02/dark_css_empty
+LET MUT(opt_r02, DICT());
+SET(opt_r02, INDEX_SET(opt_r02, "body_content", "<p>body</p>"));
+SET(opt_r02, INDEX_SET(opt_r02, "dark_css", ""));
+SET(opt_r02, INDEX_SET(opt_r02, "description", "Desc"));
+SET(opt_r02, INDEX_SET(opt_r02, "page_title", "Page"));
+SET(opt_r02, INDEX_SET(opt_r02, "site_title", "Site"));
+SET(opt_r02, INDEX_SET(opt_r02, "theme_css", "body{margin:0}"));
+LET(want_r02, "<!DOCTYPE html>\n<html lang=\"zh-CN\">\n<head>\n<meta charset=\"utf-8\">\n<meta name=\"viewport\" content=\"width=device-width,initial-scale=1\">\n\n\n\n<meta name=\"description\" content=\"Desc\">\n\n\n\n<title>Page - Site</title>\n<style>\nbody{margin:0}\n</style>\n\n\n</head>\n<body>\n<div class=\"container\">\n  <header class=\"site-header\">\n    <a href=\"/\" class=\"site-title\">Site</a>\n    <nav class=\"site-nav\" aria-label=\"站点导航\">\n      \n      \n    </nav>\n  </header>\n  <main>\n<p>body</p>\n  </main>\n  <footer class=\"site-footer\">\n    <p></p>\n  </footer>\n</div>\n\n\n</body>\n</html>");
+LET(iserr_r02, IS_ERR(RENDER_SKELETON("article", opt_r02)));
+LET(out_r02, IF(iserr_r02, "", RENDER_SKELETON("article", opt_r02)));
+// r03/dark_css_quote
+LET MUT(opt_r03, DICT());
+SET(opt_r03, INDEX_SET(opt_r03, "body_content", "<p>body</p>"));
+SET(opt_r03, INDEX_SET(opt_r03, "dark_css", "a::after{content:\"x\"}"));
+SET(opt_r03, INDEX_SET(opt_r03, "description", "Desc"));
+SET(opt_r03, INDEX_SET(opt_r03, "page_title", "Page"));
+SET(opt_r03, INDEX_SET(opt_r03, "site_title", "Site"));
+SET(opt_r03, INDEX_SET(opt_r03, "theme_css", "body{margin:0}"));
+LET(want_r03, "<!DOCTYPE html>\n<html lang=\"zh-CN\">\n<head>\n<meta charset=\"utf-8\">\n<meta name=\"viewport\" content=\"width=device-width,initial-scale=1\">\n\n\n\n<meta name=\"description\" content=\"Desc\">\n\n\n\n<title>Page - Site</title>\n<style>\nbody{margin:0}\n</style>\n<style media=\"(prefers-color-scheme: dark)\">a::after{content:\"x\"}</style>\n\n</head>\n<body>\n<div class=\"container\">\n  <header class=\"site-header\">\n    <a href=\"/\" class=\"site-title\">Site</a>\n    <nav class=\"site-nav\" aria-label=\"站点导航\">\n      \n      \n    </nav>\n  </header>\n  <main>\n<p>body</p>\n  </main>\n  <footer class=\"site-footer\">\n    <p></p>\n  </footer>\n</div>\n\n\n</body>\n</html>");
+LET(iserr_r03, IS_ERR(RENDER_SKELETON("article", opt_r03)));
+LET(out_r03, IF(iserr_r03, "", RENDER_SKELETON("article", opt_r03)));
+// r04/all_opts
+LET MUT(opt_r04, DICT());
+SET(opt_r04, INDEX_SET(opt_r04, "body_content", "<p>body</p>"));
+SET(opt_r04, INDEX_SET(opt_r04, "dark_css", "a{color:#111}"));
+SET(opt_r04, INDEX_SET(opt_r04, "dark_mode_meta", "<meta name=\"color-scheme\" content=\"dark light\">"));
+SET(opt_r04, INDEX_SET(opt_r04, "dark_mode_script", "<script>void 0;</script>"));
+SET(opt_r04, INDEX_SET(opt_r04, "description", "Desc"));
+SET(opt_r04, INDEX_SET(opt_r04, "footer_text", "© 2026 Site"));
+SET(opt_r04, INDEX_SET(opt_r04, "has_dark", TRUE));
+SET(opt_r04, INDEX_SET(opt_r04, "json_ld_html", "<script type=\"application/ld+json\">{}</script>"));
+SET(opt_r04, INDEX_SET(opt_r04, "lang", "en"));
+SET(opt_r04, INDEX_SET(opt_r04, "mermaid_script", "<script>mermaid.init();</script>"));
+SET(opt_r04, INDEX_SET(opt_r04, "nav_links", "<a href=\"/\">home</a>"));
+SET(opt_r04, INDEX_SET(opt_r04, "og_html", "<meta property=\"og:title\" content=\"T\">"));
+SET(opt_r04, INDEX_SET(opt_r04, "page_title", "Page"));
+SET(opt_r04, INDEX_SET(opt_r04, "pwa_manifest", "<link rel=\"manifest\" href=\"/m.webmanifest\">"));
+SET(opt_r04, INDEX_SET(opt_r04, "pwa_meta", "<meta name=\"theme-color\" content=\"#fff\">"));
+SET(opt_r04, INDEX_SET(opt_r04, "search_script", "<script src=\"/s.js\"></script>"));
+SET(opt_r04, INDEX_SET(opt_r04, "site_title", "Site"));
+SET(opt_r04, INDEX_SET(opt_r04, "theme_css", "body{margin:0}"));
+SET(opt_r04, INDEX_SET(opt_r04, "theme_toggle", "<button id=\"t\">T</button>"));
+SET(opt_r04, INDEX_SET(opt_r04, "vt_meta", "<meta name=\"view-transition\" content=\"same-origin\">"));
+LET(want_r04, "<!DOCTYPE html>\n<html lang=\"en\">\n<head>\n<meta charset=\"utf-8\">\n<meta name=\"viewport\" content=\"width=device-width,initial-scale=1\">\n<meta name=\"color-scheme\" content=\"dark light\">\n<meta name=\"theme-color\" content=\"#fff\">\n<meta name=\"view-transition\" content=\"same-origin\">\n<meta name=\"description\" content=\"Desc\">\n<meta property=\"og:title\" content=\"T\">\n<script type=\"application/ld+json\">{}</script>\n<link rel=\"manifest\" href=\"/m.webmanifest\">\n<title>Page - Site</title>\n<style>\nbody{margin:0}\n</style>\n<style media=\"(prefers-color-scheme: dark)\">a{color:#111}</style>\n<script>void 0;</script>\n</head>\n<body>\n<div class=\"container\">\n  <header class=\"site-header\">\n    <a href=\"/\" class=\"site-title\">Site</a>\n    <nav class=\"site-nav\" aria-label=\"站点导航\">\n      <a href=\"/\">home</a>\n      <button id=\"t\">T</button>\n    </nav>\n  </header>\n  <main>\n<p>body</p>\n  </main>\n  <footer class=\"site-footer\">\n    <p>© 2026 Site</p>\n  </footer>\n</div>\n<script src=\"/s.js\"></script>\n<script>mermaid.init();</script>\n</body>\n</html>");
+LET(iserr_r04, IS_ERR(RENDER_SKELETON("list", opt_r04)));
+LET(out_r04, IF(iserr_r04, "", RENDER_SKELETON("list", opt_r04)));
+// r05/escape_specials
+LET MUT(opt_r05, DICT());
+SET(opt_r05, INDEX_SET(opt_r05, "body_content", "<p>body</p>"));
+SET(opt_r05, INDEX_SET(opt_r05, "description", "x\"y'z&<>"));
+SET(opt_r05, INDEX_SET(opt_r05, "footer_text", "& < > \" '"));
+SET(opt_r05, INDEX_SET(opt_r05, "lang", "en\"q\""));
+SET(opt_r05, INDEX_SET(opt_r05, "page_title", "<b>&amp;</b>"));
+SET(opt_r05, INDEX_SET(opt_r05, "site_title", "A & B < C > D \" E ' F"));
+SET(opt_r05, INDEX_SET(opt_r05, "theme_css", "body{margin:0}"));
+LET(want_r05, "<!DOCTYPE html>\n<html lang=\"en&quot;q&quot;\">\n<head>\n<meta charset=\"utf-8\">\n<meta name=\"viewport\" content=\"width=device-width,initial-scale=1\">\n\n\n\n<meta name=\"description\" content=\"x&quot;y&#x27;z&amp;&lt;&gt;\">\n\n\n\n<title>&lt;b&gt;&amp;amp;&lt;/b&gt; - A &amp; B &lt; C &gt; D &quot; E &#x27; F</title>\n<style>\nbody{margin:0}\n</style>\n\n\n</head>\n<body>\n<div class=\"container\">\n  <header class=\"site-header\">\n    <a href=\"/\" class=\"site-title\">A &amp; B &lt; C &gt; D &quot; E &#x27; F</a>\n    <nav class=\"site-nav\" aria-label=\"站点导航\">\n      \n      \n    </nav>\n  </header>\n  <main>\n<p>body</p>\n  </main>\n  <footer class=\"site-footer\">\n    <p>&amp; &lt; &gt; &quot; &#x27;</p>\n  </footer>\n</div>\n\n\n</body>\n</html>");
+LET(iserr_r05, IS_ERR(RENDER_SKELETON("article", opt_r05)));
+LET(out_r05, IF(iserr_r05, "", RENDER_SKELETON("article", opt_r05)));
+// r06/footer_empty
+LET MUT(opt_r06, DICT());
+SET(opt_r06, INDEX_SET(opt_r06, "body_content", "<p>body</p>"));
+SET(opt_r06, INDEX_SET(opt_r06, "description", "Desc"));
+SET(opt_r06, INDEX_SET(opt_r06, "footer_text", ""));
+SET(opt_r06, INDEX_SET(opt_r06, "page_title", "Page"));
+SET(opt_r06, INDEX_SET(opt_r06, "site_title", "Site"));
+SET(opt_r06, INDEX_SET(opt_r06, "theme_css", "body{margin:0}"));
+LET(want_r06, "<!DOCTYPE html>\n<html lang=\"zh-CN\">\n<head>\n<meta charset=\"utf-8\">\n<meta name=\"viewport\" content=\"width=device-width,initial-scale=1\">\n\n\n\n<meta name=\"description\" content=\"Desc\">\n\n\n\n<title>Page - Site</title>\n<style>\nbody{margin:0}\n</style>\n\n\n</head>\n<body>\n<div class=\"container\">\n  <header class=\"site-header\">\n    <a href=\"/\" class=\"site-title\">Site</a>\n    <nav class=\"site-nav\" aria-label=\"站点导航\">\n      \n      \n    </nav>\n  </header>\n  <main>\n<p>body</p>\n  </main>\n  <footer class=\"site-footer\">\n    <p></p>\n  </footer>\n</div>\n\n\n</body>\n</html>");
+LET(iserr_r06, IS_ERR(RENDER_SKELETON("article", opt_r06)));
+LET(out_r06, IF(iserr_r06, "", RENDER_SKELETON("article", opt_r06)));
+// r07/footer_special
+LET MUT(opt_r07, DICT());
+SET(opt_r07, INDEX_SET(opt_r07, "body_content", "<p>body</p>"));
+SET(opt_r07, INDEX_SET(opt_r07, "description", "Desc"));
+SET(opt_r07, INDEX_SET(opt_r07, "footer_text", "f & < > \" '"));
+SET(opt_r07, INDEX_SET(opt_r07, "page_title", "Page"));
+SET(opt_r07, INDEX_SET(opt_r07, "site_title", "Site"));
+SET(opt_r07, INDEX_SET(opt_r07, "theme_css", "body{margin:0}"));
+LET(want_r07, "<!DOCTYPE html>\n<html lang=\"zh-CN\">\n<head>\n<meta charset=\"utf-8\">\n<meta name=\"viewport\" content=\"width=device-width,initial-scale=1\">\n\n\n\n<meta name=\"description\" content=\"Desc\">\n\n\n\n<title>Page - Site</title>\n<style>\nbody{margin:0}\n</style>\n\n\n</head>\n<body>\n<div class=\"container\">\n  <header class=\"site-header\">\n    <a href=\"/\" class=\"site-title\">Site</a>\n    <nav class=\"site-nav\" aria-label=\"站点导航\">\n      \n      \n    </nav>\n  </header>\n  <main>\n<p>body</p>\n  </main>\n  <footer class=\"site-footer\">\n    <p>f &amp; &lt; &gt; &quot; &#x27;</p>\n  </footer>\n</div>\n\n\n</body>\n</html>");
+LET(iserr_r07, IS_ERR(RENDER_SKELETON("article", opt_r07)));
+LET(out_r07, IF(iserr_r07, "", RENDER_SKELETON("article", opt_r07)));
+// r08/body_has_dollar
+LET MUT(opt_r08, DICT());
+SET(opt_r08, INDEX_SET(opt_r08, "body_content", "<p>cost: \$x and \${y}</p>"));
+SET(opt_r08, INDEX_SET(opt_r08, "description", "Desc"));
+SET(opt_r08, INDEX_SET(opt_r08, "page_title", "Page"));
+SET(opt_r08, INDEX_SET(opt_r08, "site_title", "Site"));
+SET(opt_r08, INDEX_SET(opt_r08, "theme_css", "body{margin:0}"));
+LET(want_r08, "<!DOCTYPE html>\n<html lang=\"zh-CN\">\n<head>\n<meta charset=\"utf-8\">\n<meta name=\"viewport\" content=\"width=device-width,initial-scale=1\">\n\n\n\n<meta name=\"description\" content=\"Desc\">\n\n\n\n<title>Page - Site</title>\n<style>\nbody{margin:0}\n</style>\n\n\n</head>\n<body>\n<div class=\"container\">\n  <header class=\"site-header\">\n    <a href=\"/\" class=\"site-title\">Site</a>\n    <nav class=\"site-nav\" aria-label=\"站点导航\">\n      \n      \n    </nav>\n  </header>\n  <main>\n<p>cost: \$x and \${y}</p>\n  </main>\n  <footer class=\"site-footer\">\n    <p></p>\n  </footer>\n</div>\n\n\n</body>\n</html>");
+LET(iserr_r08, IS_ERR(RENDER_SKELETON("standalone", opt_r08)));
+LET(out_r08, IF(iserr_r08, "", RENDER_SKELETON("standalone", opt_r08)));
+// r09/nav_and_toggle
+LET MUT(opt_r09, DICT());
+SET(opt_r09, INDEX_SET(opt_r09, "body_content", "<p>body</p>"));
+SET(opt_r09, INDEX_SET(opt_r09, "description", "Desc"));
+SET(opt_r09, INDEX_SET(opt_r09, "nav_links", "<a href=\"/a\">a</a>"));
+SET(opt_r09, INDEX_SET(opt_r09, "page_title", "Page"));
+SET(opt_r09, INDEX_SET(opt_r09, "site_title", "Site"));
+SET(opt_r09, INDEX_SET(opt_r09, "theme_css", "body{margin:0}"));
+SET(opt_r09, INDEX_SET(opt_r09, "theme_toggle", "<button>d</button>"));
+LET(want_r09, "<!DOCTYPE html>\n<html lang=\"zh-CN\">\n<head>\n<meta charset=\"utf-8\">\n<meta name=\"viewport\" content=\"width=device-width,initial-scale=1\">\n\n\n\n<meta name=\"description\" content=\"Desc\">\n\n\n\n<title>Page - Site</title>\n<style>\nbody{margin:0}\n</style>\n\n\n</head>\n<body>\n<div class=\"container\">\n  <header class=\"site-header\">\n    <a href=\"/\" class=\"site-title\">Site</a>\n    <nav class=\"site-nav\" aria-label=\"站点导航\">\n      <a href=\"/a\">a</a>\n      <button>d</button>\n    </nav>\n  </header>\n  <main>\n<p>body</p>\n  </main>\n  <footer class=\"site-footer\">\n    <p></p>\n  </footer>\n</div>\n\n\n</body>\n</html>");
+LET(iserr_r09, IS_ERR(RENDER_SKELETON("category", opt_r09)));
+LET(out_r09, IF(iserr_r09, "", RENDER_SKELETON("category", opt_r09)));
+// r10/has_dark_true
+LET MUT(opt_r10, DICT());
+SET(opt_r10, INDEX_SET(opt_r10, "body_content", "<p>body</p>"));
+SET(opt_r10, INDEX_SET(opt_r10, "description", "Desc"));
+SET(opt_r10, INDEX_SET(opt_r10, "has_dark", TRUE));
+SET(opt_r10, INDEX_SET(opt_r10, "page_title", "Page"));
+SET(opt_r10, INDEX_SET(opt_r10, "site_title", "Site"));
+SET(opt_r10, INDEX_SET(opt_r10, "theme_css", "body{margin:0}"));
+LET(want_r10, "<!DOCTYPE html>\n<html lang=\"zh-CN\">\n<head>\n<meta charset=\"utf-8\">\n<meta name=\"viewport\" content=\"width=device-width,initial-scale=1\">\n\n\n\n<meta name=\"description\" content=\"Desc\">\n\n\n\n<title>Page - Site</title>\n<style>\nbody{margin:0}\n</style>\n\n\n</head>\n<body>\n<div class=\"container\">\n  <header class=\"site-header\">\n    <a href=\"/\" class=\"site-title\">Site</a>\n    <nav class=\"site-nav\" aria-label=\"站点导航\">\n      \n      \n    </nav>\n  </header>\n  <main>\n<p>body</p>\n  </main>\n  <footer class=\"site-footer\">\n    <p></p>\n  </footer>\n</div>\n\n\n</body>\n</html>");
+LET(iserr_r10, IS_ERR(RENDER_SKELETON("article", opt_r10)));
+LET(out_r10, IF(iserr_r10, "", RENDER_SKELETON("article", opt_r10)));
+// r11/has_dark_false
+LET MUT(opt_r11, DICT());
+SET(opt_r11, INDEX_SET(opt_r11, "body_content", "<p>body</p>"));
+SET(opt_r11, INDEX_SET(opt_r11, "description", "Desc"));
+SET(opt_r11, INDEX_SET(opt_r11, "has_dark", FALSE));
+SET(opt_r11, INDEX_SET(opt_r11, "page_title", "Page"));
+SET(opt_r11, INDEX_SET(opt_r11, "site_title", "Site"));
+SET(opt_r11, INDEX_SET(opt_r11, "theme_css", "body{margin:0}"));
+LET(want_r11, "<!DOCTYPE html>\n<html lang=\"zh-CN\">\n<head>\n<meta charset=\"utf-8\">\n<meta name=\"viewport\" content=\"width=device-width,initial-scale=1\">\n\n\n\n<meta name=\"description\" content=\"Desc\">\n\n\n\n<title>Page - Site</title>\n<style>\nbody{margin:0}\n</style>\n\n\n</head>\n<body>\n<div class=\"container\">\n  <header class=\"site-header\">\n    <a href=\"/\" class=\"site-title\">Site</a>\n    <nav class=\"site-nav\" aria-label=\"站点导航\">\n      \n      \n    </nav>\n  </header>\n  <main>\n<p>body</p>\n  </main>\n  <footer class=\"site-footer\">\n    <p></p>\n  </footer>\n</div>\n\n\n</body>\n</html>");
+LET(iserr_r11, IS_ERR(RENDER_SKELETON("article", opt_r11)));
+LET(out_r11, IF(iserr_r11, "", RENDER_SKELETON("article", opt_r11)));
+// r12/empty_titles
+LET MUT(opt_r12, DICT());
+SET(opt_r12, INDEX_SET(opt_r12, "body_content", "<p>body</p>"));
+SET(opt_r12, INDEX_SET(opt_r12, "description", ""));
+SET(opt_r12, INDEX_SET(opt_r12, "page_title", ""));
+SET(opt_r12, INDEX_SET(opt_r12, "site_title", ""));
+SET(opt_r12, INDEX_SET(opt_r12, "theme_css", "body{margin:0}"));
+LET(want_r12, "<!DOCTYPE html>\n<html lang=\"zh-CN\">\n<head>\n<meta charset=\"utf-8\">\n<meta name=\"viewport\" content=\"width=device-width,initial-scale=1\">\n\n\n\n<meta name=\"description\" content=\"\">\n\n\n\n<title> - </title>\n<style>\nbody{margin:0}\n</style>\n\n\n</head>\n<body>\n<div class=\"container\">\n  <header class=\"site-header\">\n    <a href=\"/\" class=\"site-title\"></a>\n    <nav class=\"site-nav\" aria-label=\"站点导航\">\n      \n      \n    </nav>\n  </header>\n  <main>\n<p>body</p>\n  </main>\n  <footer class=\"site-footer\">\n    <p></p>\n  </footer>\n</div>\n\n\n</body>\n</html>");
+LET(iserr_r12, IS_ERR(RENDER_SKELETON("search", opt_r12)));
+LET(out_r12, IF(iserr_r12, "", RENDER_SKELETON("search", opt_r12)));
+// r13/description_newline
+LET MUT(opt_r13, DICT());
+SET(opt_r13, INDEX_SET(opt_r13, "body_content", "<p>body</p>"));
+SET(opt_r13, INDEX_SET(opt_r13, "description", "line1\nline2"));
+SET(opt_r13, INDEX_SET(opt_r13, "page_title", "Page"));
+SET(opt_r13, INDEX_SET(opt_r13, "site_title", "Site"));
+SET(opt_r13, INDEX_SET(opt_r13, "theme_css", "body{margin:0}"));
+LET(want_r13, "<!DOCTYPE html>\n<html lang=\"zh-CN\">\n<head>\n<meta charset=\"utf-8\">\n<meta name=\"viewport\" content=\"width=device-width,initial-scale=1\">\n\n\n\n<meta name=\"description\" content=\"line1\nline2\">\n\n\n\n<title>Page - Site</title>\n<style>\nbody{margin:0}\n</style>\n\n\n</head>\n<body>\n<div class=\"container\">\n  <header class=\"site-header\">\n    <a href=\"/\" class=\"site-title\">Site</a>\n    <nav class=\"site-nav\" aria-label=\"站点导航\">\n      \n      \n    </nav>\n  </header>\n  <main>\n<p>body</p>\n  </main>\n  <footer class=\"site-footer\">\n    <p></p>\n  </footer>\n</div>\n\n\n</body>\n</html>");
+LET(iserr_r13, IS_ERR(RENDER_SKELETON("article", opt_r13)));
+LET(out_r13, IF(iserr_r13, "", RENDER_SKELETON("article", opt_r13)));
+// r14/lang_custom
+LET MUT(opt_r14, DICT());
+SET(opt_r14, INDEX_SET(opt_r14, "body_content", "<p>body</p>"));
+SET(opt_r14, INDEX_SET(opt_r14, "description", "Desc"));
+SET(opt_r14, INDEX_SET(opt_r14, "lang", "ja"));
+SET(opt_r14, INDEX_SET(opt_r14, "page_title", "Page"));
+SET(opt_r14, INDEX_SET(opt_r14, "site_title", "Site"));
+SET(opt_r14, INDEX_SET(opt_r14, "theme_css", "body{margin:0}"));
+LET(want_r14, "<!DOCTYPE html>\n<html lang=\"ja\">\n<head>\n<meta charset=\"utf-8\">\n<meta name=\"viewport\" content=\"width=device-width,initial-scale=1\">\n\n\n\n<meta name=\"description\" content=\"Desc\">\n\n\n\n<title>Page - Site</title>\n<style>\nbody{margin:0}\n</style>\n\n\n</head>\n<body>\n<div class=\"container\">\n  <header class=\"site-header\">\n    <a href=\"/\" class=\"site-title\">Site</a>\n    <nav class=\"site-nav\" aria-label=\"站点导航\">\n      \n      \n    </nav>\n  </header>\n  <main>\n<p>body</p>\n  </main>\n  <footer class=\"site-footer\">\n    <p></p>\n  </footer>\n</div>\n\n\n</body>\n</html>");
+LET(iserr_r14, IS_ERR(RENDER_SKELETON("article", opt_r14)));
+LET(out_r14, IF(iserr_r14, "", RENDER_SKELETON("article", opt_r14)));
+// r15/css_with_dollar
+LET MUT(opt_r15, DICT());
+SET(opt_r15, INDEX_SET(opt_r15, "body_content", "<p>body</p>"));
+SET(opt_r15, INDEX_SET(opt_r15, "description", "Desc"));
+SET(opt_r15, INDEX_SET(opt_r15, "page_title", "Page"));
+SET(opt_r15, INDEX_SET(opt_r15, "site_title", "Site"));
+SET(opt_r15, INDEX_SET(opt_r15, "theme_css", "a::after{content:\"\$x\"}"));
+LET(want_r15, "<!DOCTYPE html>\n<html lang=\"zh-CN\">\n<head>\n<meta charset=\"utf-8\">\n<meta name=\"viewport\" content=\"width=device-width,initial-scale=1\">\n\n\n\n<meta name=\"description\" content=\"Desc\">\n\n\n\n<title>Page - Site</title>\n<style>\na::after{content:\"\$x\"}\n</style>\n\n\n</head>\n<body>\n<div class=\"container\">\n  <header class=\"site-header\">\n    <a href=\"/\" class=\"site-title\">Site</a>\n    <nav class=\"site-nav\" aria-label=\"站点导航\">\n      \n      \n    </nav>\n  </header>\n  <main>\n<p>body</p>\n  </main>\n  <footer class=\"site-footer\">\n    <p></p>\n  </footer>\n</div>\n\n\n</body>\n</html>");
+LET(iserr_r15, IS_ERR(RENDER_SKELETON("article", opt_r15)));
+LET(out_r15, IF(iserr_r15, "", RENDER_SKELETON("article", opt_r15)));
+// r16/cjk_everything
+LET MUT(opt_r16, DICT());
+SET(opt_r16, INDEX_SET(opt_r16, "body_content", "<p>中文正文</p>"));
+SET(opt_r16, INDEX_SET(opt_r16, "description", "描述"));
+SET(opt_r16, INDEX_SET(opt_r16, "footer_text", "页脚"));
+SET(opt_r16, INDEX_SET(opt_r16, "nav_links", "<a href=\"/\">首页</a>"));
+SET(opt_r16, INDEX_SET(opt_r16, "page_title", "文章标题"));
+SET(opt_r16, INDEX_SET(opt_r16, "site_title", "站点名"));
+SET(opt_r16, INDEX_SET(opt_r16, "theme_css", "body{margin:0}"));
+LET(want_r16, "<!DOCTYPE html>\n<html lang=\"zh-CN\">\n<head>\n<meta charset=\"utf-8\">\n<meta name=\"viewport\" content=\"width=device-width,initial-scale=1\">\n\n\n\n<meta name=\"description\" content=\"描述\">\n\n\n\n<title>文章标题 - 站点名</title>\n<style>\nbody{margin:0}\n</style>\n\n\n</head>\n<body>\n<div class=\"container\">\n  <header class=\"site-header\">\n    <a href=\"/\" class=\"site-title\">站点名</a>\n    <nav class=\"site-nav\" aria-label=\"站点导航\">\n      <a href=\"/\">首页</a>\n      \n    </nav>\n  </header>\n  <main>\n<p>中文正文</p>\n  </main>\n  <footer class=\"site-footer\">\n    <p>页脚</p>\n  </footer>\n</div>\n\n\n</body>\n</html>");
+LET(iserr_r16, IS_ERR(RENDER_SKELETON("article", opt_r16)));
+LET(out_r16, IF(iserr_r16, "", RENDER_SKELETON("article", opt_r16)));
+// r17/dark_css_and_meta
+LET MUT(opt_r17, DICT());
+SET(opt_r17, INDEX_SET(opt_r17, "body_content", "<p>body</p>"));
+SET(opt_r17, INDEX_SET(opt_r17, "dark_css", "@media (prefers-color-scheme: dark){body{background:#000}}"));
+SET(opt_r17, INDEX_SET(opt_r17, "dark_mode_meta", "<meta name=\"color-scheme\" content=\"dark light\">"));
+SET(opt_r17, INDEX_SET(opt_r17, "dark_mode_script", "<script>document.documentElement.classList.add(\"dark\");</script>"));
+SET(opt_r17, INDEX_SET(opt_r17, "description", "Desc"));
+SET(opt_r17, INDEX_SET(opt_r17, "page_title", "Page"));
+SET(opt_r17, INDEX_SET(opt_r17, "site_title", "Site"));
+SET(opt_r17, INDEX_SET(opt_r17, "theme_css", "body{margin:0}"));
+LET(want_r17, "<!DOCTYPE html>\n<html lang=\"zh-CN\">\n<head>\n<meta charset=\"utf-8\">\n<meta name=\"viewport\" content=\"width=device-width,initial-scale=1\">\n<meta name=\"color-scheme\" content=\"dark light\">\n\n\n<meta name=\"description\" content=\"Desc\">\n\n\n\n<title>Page - Site</title>\n<style>\nbody{margin:0}\n</style>\n<style media=\"(prefers-color-scheme: dark)\">@media (prefers-color-scheme: dark){body{background:#000}}</style>\n<script>document.documentElement.classList.add(\"dark\");</script>\n</head>\n<body>\n<div class=\"container\">\n  <header class=\"site-header\">\n    <a href=\"/\" class=\"site-title\">Site</a>\n    <nav class=\"site-nav\" aria-label=\"站点导航\">\n      \n      \n    </nav>\n  </header>\n  <main>\n<p>body</p>\n  </main>\n  <footer class=\"site-footer\">\n    <p></p>\n  </footer>\n</div>\n\n\n</body>\n</html>");
+LET(iserr_r17, IS_ERR(RENDER_SKELETON("article", opt_r17)));
+LET(out_r17, IF(iserr_r17, "", RENDER_SKELETON("article", opt_r17)));
+
+// ── 用例 ──────────────────────────────────────────────────────
+TEST("substitute/s00", FUN(() ,
+    (ASSERT(!iserr_sub_s00);
+     ASSERT_EQ(out_sub_s00, want_sub_s00));
+    TRUE));
+TEST("substitute/s01", FUN(() ,
+    (ASSERT(!iserr_sub_s01);
+     ASSERT_EQ(out_sub_s01, want_sub_s01));
+    TRUE));
+TEST("substitute/s02", FUN(() ,
+    (ASSERT(!iserr_sub_s02);
+     ASSERT_EQ(out_sub_s02, want_sub_s02));
+    TRUE));
+TEST("substitute/s03", FUN(() ,
+    (ASSERT(!iserr_sub_s03);
+     ASSERT_EQ(out_sub_s03, want_sub_s03));
+    TRUE));
+TEST("substitute/s04", FUN(() ,
+    (ASSERT(!iserr_sub_s04);
+     ASSERT_EQ(out_sub_s04, want_sub_s04));
+    TRUE));
+TEST("substitute/s05", FUN(() ,
+    (ASSERT(!iserr_sub_s05);
+     ASSERT_EQ(out_sub_s05, want_sub_s05));
+    TRUE));
+TEST("substitute/s06", FUN(() ,
+    (ASSERT(!iserr_sub_s06);
+     ASSERT_EQ(out_sub_s06, want_sub_s06));
+    TRUE));
+TEST("substitute/s07", FUN(() ,
+    (ASSERT(!iserr_sub_s07);
+     ASSERT_EQ(out_sub_s07, want_sub_s07));
+    TRUE));
+TEST("substitute/s08", FUN(() ,
+    (ASSERT(!iserr_sub_s08);
+     ASSERT_EQ(out_sub_s08, want_sub_s08));
+    TRUE));
+TEST("substitute/s09", FUN(() ,
+    (ASSERT(!iserr_sub_s09);
+     ASSERT_EQ(out_sub_s09, want_sub_s09));
+    TRUE));
+TEST("substitute/s10", FUN(() ,
+    (ASSERT(!iserr_sub_s10);
+     ASSERT_EQ(out_sub_s10, want_sub_s10));
+    TRUE));
+TEST("substitute/s11", FUN(() ,
+    (ASSERT(!iserr_sub_s11);
+     ASSERT_EQ(out_sub_s11, want_sub_s11));
+    TRUE));
+TEST("substitute/s12", FUN(() ,
+    (ASSERT(!iserr_sub_s12);
+     ASSERT_EQ(out_sub_s12, want_sub_s12));
+    TRUE));
+TEST("substitute/s13", FUN(() ,
+    (ASSERT(!iserr_sub_s13);
+     ASSERT_EQ(out_sub_s13, want_sub_s13));
+    TRUE));
+TEST("substitute/s14", FUN(() ,
+    (ASSERT(!iserr_sub_s14);
+     ASSERT_EQ(out_sub_s14, want_sub_s14));
+    TRUE));
+TEST("substitute/s15", FUN(() ,
+    (ASSERT(!iserr_sub_s15);
+     ASSERT_EQ(out_sub_s15, want_sub_s15));
+    TRUE));
+TEST("substitute/s16", FUN(() ,
+    (ASSERT(!iserr_sub_s16);
+     ASSERT_EQ(out_sub_s16, want_sub_s16));
+    TRUE));
+TEST("substitute/s17", FUN(() ,
+    (ASSERT(!iserr_sub_s17);
+     ASSERT_EQ(out_sub_s17, want_sub_s17));
+    TRUE));
+TEST("substitute/s18", FUN(() ,
+    (ASSERT(!iserr_sub_s18);
+     ASSERT_EQ(out_sub_s18, want_sub_s18));
+    TRUE));
+TEST("substitute/s19", FUN(() ,
+    (ASSERT(!iserr_sub_s19);
+     ASSERT_EQ(out_sub_s19, want_sub_s19));
+    TRUE));
+TEST("substitute/s20", FUN(() ,
+    (ASSERT(!iserr_sub_s20);
+     ASSERT_EQ(out_sub_s20, want_sub_s20));
+    TRUE));
+TEST("substitute/s21", FUN(() ,
+    (ASSERT(!iserr_sub_s21);
+     ASSERT_EQ(out_sub_s21, want_sub_s21));
+    TRUE));
+TEST("substitute/s22", FUN(() ,
+    (ASSERT(!iserr_sub_s22);
+     ASSERT_EQ(out_sub_s22, want_sub_s22));
+    TRUE));
+TEST("substitute/s23", FUN(() ,
+    (ASSERT(!iserr_sub_s23);
+     ASSERT_EQ(out_sub_s23, want_sub_s23));
+    TRUE));
+TEST("substitute/s24", FUN(() ,
+    (ASSERT(!iserr_sub_s24);
+     ASSERT_EQ(out_sub_s24, want_sub_s24));
+    TRUE));
+TEST("substitute/s25", FUN(() ,
+    (ASSERT(!iserr_sub_s25);
+     ASSERT_EQ(out_sub_s25, want_sub_s25));
+    TRUE));
+TEST("substitute/s26", FUN(() ,
+    (ASSERT(!iserr_sub_s26);
+     ASSERT_EQ(out_sub_s26, want_sub_s26));
+    TRUE));
+TEST("substitute/s27", FUN(() ,
+    (ASSERT(!iserr_sub_s27);
+     ASSERT_EQ(out_sub_s27, want_sub_s27));
+    TRUE));
+TEST("substitute/s28", FUN(() ,
+    (ASSERT(!iserr_sub_s28);
+     ASSERT_EQ(out_sub_s28, want_sub_s28));
+    TRUE));
+TEST("substitute/s29", FUN(() ,
+    (ASSERT(!iserr_sub_s29);
+     ASSERT_EQ(out_sub_s29, want_sub_s29));
+    TRUE));
+TEST("substitute/s30", FUN(() ,
+    (ASSERT(!iserr_sub_s30);
+     ASSERT_EQ(out_sub_s30, want_sub_s30));
+    TRUE));
+TEST("substitute/s31", FUN(() ,
+    (ASSERT(!iserr_sub_s31);
+     ASSERT_EQ(out_sub_s31, want_sub_s31));
+    TRUE));
+TEST("substitute/s32", FUN(() ,
+    (ASSERT(!iserr_sub_s32);
+     ASSERT_EQ(out_sub_s32, want_sub_s32));
+    TRUE));
+TEST("substitute/s33", FUN(() ,
+    (ASSERT(!iserr_sub_s33);
+     ASSERT_EQ(out_sub_s33, want_sub_s33));
+    TRUE));
+TEST("substitute/s34", FUN(() ,
+    (ASSERT_EQ(pay_sub_s34, want_sub_s34));
+    TRUE));
+TEST("substitute/s35", FUN(() ,
+    (ASSERT_EQ(pay_sub_s35, want_sub_s35));
+    TRUE));
+TEST("substitute/s36", FUN(() ,
+    (ASSERT_EQ(pay_sub_s36, want_sub_s36));
+    TRUE));
+TEST("substitute/s37", FUN(() ,
+    (ASSERT_EQ(pay_sub_s37, want_sub_s37));
+    TRUE));
+TEST("substitute/s38", FUN(() ,
+    (ASSERT_EQ(pay_sub_s38, want_sub_s38));
+    TRUE));
+TEST("substitute/s39", FUN(() ,
+    (ASSERT_EQ(pay_sub_s39, want_sub_s39));
+    TRUE));
+TEST("substitute/s40", FUN(() ,
+    (ASSERT_EQ(pay_sub_s40, want_sub_s40));
+    TRUE));
+TEST("substitute/s41", FUN(() ,
+    (ASSERT_EQ(pay_sub_s41, want_sub_s41));
+    TRUE));
+TEST("substitute/s42", FUN(() ,
+    (ASSERT_EQ(pay_sub_s42, want_sub_s42));
+    TRUE));
+TEST("substitute/s43", FUN(() ,
+    (ASSERT_EQ(pay_sub_s43, want_sub_s43));
+    TRUE));
+TEST("substitute/s44", FUN(() ,
+    (ASSERT_EQ(pay_sub_s44, want_sub_s44));
+    TRUE));
+TEST("substitute/s45", FUN(() ,
+    (ASSERT_EQ(pay_sub_s45, want_sub_s45));
+    TRUE));
+TEST("substitute/s46", FUN(() ,
+    (ASSERT_EQ(pay_sub_s46, want_sub_s46));
+    TRUE));
+TEST("substitute/s47", FUN(() ,
+    (ASSERT_EQ(pay_sub_s47, want_sub_s47));
+    TRUE));
+TEST("substitute/s48", FUN(() ,
+    (ASSERT_EQ(pay_sub_s48, want_sub_s48));
+    TRUE));
+TEST("substitute/s49", FUN(() ,
+    (ASSERT_EQ(pay_sub_s49, want_sub_s49));
+    TRUE));
+TEST("substitute/s50", FUN(() ,
+    (ASSERT_EQ(pay_sub_s50, want_sub_s50));
+    TRUE));
+TEST("substitute/s51", FUN(() ,
+    (ASSERT_EQ(pay_sub_s51, want_sub_s51));
+    TRUE));
+TEST("substitute/s52", FUN(() ,
+    (ASSERT_EQ(pay_sub_s52, want_sub_s52));
+    TRUE));
+TEST("substitute/s53", FUN(() ,
+    (ASSERT_EQ(pay_sub_s53, want_sub_s53));
+    TRUE));
+TEST("substitute/s54", FUN(() ,
+    (ASSERT_EQ(pay_sub_s54, want_sub_s54));
+    TRUE));
+TEST("substitute/s55", FUN(() ,
+    (ASSERT_EQ(pay_sub_s55, want_sub_s55));
+    TRUE));
+TEST("substitute/s56", FUN(() ,
+    (ASSERT_EQ(pay_sub_s56, want_sub_s56));
+    TRUE));
+TEST("substitute/s57", FUN(() ,
+    (ASSERT_EQ(pay_sub_s57, want_sub_s57));
+    TRUE));
+TEST("substitute/s58", FUN(() ,
+    (ASSERT_EQ(pay_sub_s58, want_sub_s58));
+    TRUE));
+TEST("substitute/s59", FUN(() ,
+    (ASSERT(!iserr_sub_s59);
+     ASSERT_EQ(out_sub_s59, want_sub_s59));
+    TRUE));
+TEST("substitute/s60", FUN(() ,
+    (ASSERT(!iserr_sub_s60);
+     ASSERT_EQ(out_sub_s60, want_sub_s60));
+    TRUE));
+TEST("substitute/s61", FUN(() ,
+    (ASSERT(!iserr_sub_s61);
+     ASSERT_EQ(out_sub_s61, want_sub_s61));
+    TRUE));
+TEST("substitute/s62", FUN(() ,
+    (ASSERT(!iserr_sub_s62);
+     ASSERT_EQ(out_sub_s62, want_sub_s62));
+    TRUE));
+TEST("substitute/s63", FUN(() ,
+    (ASSERT(!iserr_sub_s63);
+     ASSERT_EQ(out_sub_s63, want_sub_s63));
+    TRUE));
+TEST("substitute/s64", FUN(() ,
+    (ASSERT(!iserr_sub_s64);
+     ASSERT_EQ(out_sub_s64, want_sub_s64));
+    TRUE));
+TEST("substitute/s65", FUN(() ,
+    (ASSERT(!iserr_sub_s65);
+     ASSERT_EQ(out_sub_s65, want_sub_s65));
+    TRUE));
+// ⚠ sub_s66：已知差异（值类型渲染）：Python 的 `str(None)` 是 "None"，WLWL 的 `STR(NULL)` 渲染成 "NULL" ⇒ 文本不同。根因：`str()` 的容器/空值渲染是**宿主语言**的口径，与 `string.Template` 的语义无关，WLWL 侧无法逐字复刻。
+TEST("substitute/s66", FUN(() ,
+    (ASSERT(!iserr_sub_s66);
+     ASSERT_EQ(out_sub_s66, want_sub_s66));
+    TRUE));
+// ⚠ sub_s67：已知差异（值类型渲染）：Python 的 `str(True)` 是 "True"，WLWL 的 `STR(TRUE)` 是 "TRUE"（布尔的字面量口径不同）。
+TEST("substitute/s67", FUN(() ,
+    (ASSERT(!iserr_sub_s67);
+     ASSERT_EQ(out_sub_s67, want_sub_s67));
+    TRUE));
+// ⚠ sub_s68：已知差异（值类型渲染）：Python 的 `str({"k": 1})` 是 "{'k': 1}"，WLWL 的 `STR(字典)` 是 "[k: 1]"（字典的渲染语法不同）。
+TEST("substitute/s68", FUN(() ,
+    (ASSERT(!iserr_sub_s68);
+     ASSERT_EQ(out_sub_s68, want_sub_s68));
+    TRUE));
+TEST("safe_substitute/s00", FUN(() ,
+    (ASSERT(!iserr_safe_s00);
+     ASSERT_EQ(out_safe_s00, want_safe_s00));
+    TRUE));
+TEST("safe_substitute/s01", FUN(() ,
+    (ASSERT(!iserr_safe_s01);
+     ASSERT_EQ(out_safe_s01, want_safe_s01));
+    TRUE));
+TEST("safe_substitute/s02", FUN(() ,
+    (ASSERT(!iserr_safe_s02);
+     ASSERT_EQ(out_safe_s02, want_safe_s02));
+    TRUE));
+TEST("safe_substitute/s03", FUN(() ,
+    (ASSERT(!iserr_safe_s03);
+     ASSERT_EQ(out_safe_s03, want_safe_s03));
+    TRUE));
+TEST("safe_substitute/s04", FUN(() ,
+    (ASSERT(!iserr_safe_s04);
+     ASSERT_EQ(out_safe_s04, want_safe_s04));
+    TRUE));
+TEST("safe_substitute/s05", FUN(() ,
+    (ASSERT(!iserr_safe_s05);
+     ASSERT_EQ(out_safe_s05, want_safe_s05));
+    TRUE));
+TEST("safe_substitute/s06", FUN(() ,
+    (ASSERT(!iserr_safe_s06);
+     ASSERT_EQ(out_safe_s06, want_safe_s06));
+    TRUE));
+TEST("safe_substitute/s07", FUN(() ,
+    (ASSERT(!iserr_safe_s07);
+     ASSERT_EQ(out_safe_s07, want_safe_s07));
+    TRUE));
+TEST("safe_substitute/s08", FUN(() ,
+    (ASSERT(!iserr_safe_s08);
+     ASSERT_EQ(out_safe_s08, want_safe_s08));
+    TRUE));
+TEST("safe_substitute/s09", FUN(() ,
+    (ASSERT(!iserr_safe_s09);
+     ASSERT_EQ(out_safe_s09, want_safe_s09));
+    TRUE));
+TEST("safe_substitute/s10", FUN(() ,
+    (ASSERT(!iserr_safe_s10);
+     ASSERT_EQ(out_safe_s10, want_safe_s10));
+    TRUE));
+TEST("safe_substitute/s11", FUN(() ,
+    (ASSERT(!iserr_safe_s11);
+     ASSERT_EQ(out_safe_s11, want_safe_s11));
+    TRUE));
+TEST("safe_substitute/s12", FUN(() ,
+    (ASSERT(!iserr_safe_s12);
+     ASSERT_EQ(out_safe_s12, want_safe_s12));
+    TRUE));
+TEST("safe_substitute/s13", FUN(() ,
+    (ASSERT(!iserr_safe_s13);
+     ASSERT_EQ(out_safe_s13, want_safe_s13));
+    TRUE));
+TEST("safe_substitute/s14", FUN(() ,
+    (ASSERT(!iserr_safe_s14);
+     ASSERT_EQ(out_safe_s14, want_safe_s14));
+    TRUE));
+TEST("safe_substitute/s15", FUN(() ,
+    (ASSERT(!iserr_safe_s15);
+     ASSERT_EQ(out_safe_s15, want_safe_s15));
+    TRUE));
+TEST("safe_substitute/s16", FUN(() ,
+    (ASSERT(!iserr_safe_s16);
+     ASSERT_EQ(out_safe_s16, want_safe_s16));
+    TRUE));
+TEST("safe_substitute/s17", FUN(() ,
+    (ASSERT(!iserr_safe_s17);
+     ASSERT_EQ(out_safe_s17, want_safe_s17));
+    TRUE));
+TEST("safe_substitute/s18", FUN(() ,
+    (ASSERT(!iserr_safe_s18);
+     ASSERT_EQ(out_safe_s18, want_safe_s18));
+    TRUE));
+TEST("safe_substitute/s19", FUN(() ,
+    (ASSERT(!iserr_safe_s19);
+     ASSERT_EQ(out_safe_s19, want_safe_s19));
+    TRUE));
+TEST("safe_substitute/s20", FUN(() ,
+    (ASSERT(!iserr_safe_s20);
+     ASSERT_EQ(out_safe_s20, want_safe_s20));
+    TRUE));
+TEST("safe_substitute/s21", FUN(() ,
+    (ASSERT(!iserr_safe_s21);
+     ASSERT_EQ(out_safe_s21, want_safe_s21));
+    TRUE));
+TEST("safe_substitute/s22", FUN(() ,
+    (ASSERT(!iserr_safe_s22);
+     ASSERT_EQ(out_safe_s22, want_safe_s22));
+    TRUE));
+TEST("safe_substitute/s23", FUN(() ,
+    (ASSERT(!iserr_safe_s23);
+     ASSERT_EQ(out_safe_s23, want_safe_s23));
+    TRUE));
+TEST("safe_substitute/s24", FUN(() ,
+    (ASSERT(!iserr_safe_s24);
+     ASSERT_EQ(out_safe_s24, want_safe_s24));
+    TRUE));
+TEST("safe_substitute/s25", FUN(() ,
+    (ASSERT(!iserr_safe_s25);
+     ASSERT_EQ(out_safe_s25, want_safe_s25));
+    TRUE));
+TEST("safe_substitute/s26", FUN(() ,
+    (ASSERT(!iserr_safe_s26);
+     ASSERT_EQ(out_safe_s26, want_safe_s26));
+    TRUE));
+TEST("safe_substitute/s27", FUN(() ,
+    (ASSERT(!iserr_safe_s27);
+     ASSERT_EQ(out_safe_s27, want_safe_s27));
+    TRUE));
+TEST("safe_substitute/s28", FUN(() ,
+    (ASSERT(!iserr_safe_s28);
+     ASSERT_EQ(out_safe_s28, want_safe_s28));
+    TRUE));
+TEST("safe_substitute/s29", FUN(() ,
+    (ASSERT(!iserr_safe_s29);
+     ASSERT_EQ(out_safe_s29, want_safe_s29));
+    TRUE));
+TEST("safe_substitute/s30", FUN(() ,
+    (ASSERT(!iserr_safe_s30);
+     ASSERT_EQ(out_safe_s30, want_safe_s30));
+    TRUE));
+TEST("safe_substitute/s31", FUN(() ,
+    (ASSERT(!iserr_safe_s31);
+     ASSERT_EQ(out_safe_s31, want_safe_s31));
+    TRUE));
+TEST("safe_substitute/s32", FUN(() ,
+    (ASSERT(!iserr_safe_s32);
+     ASSERT_EQ(out_safe_s32, want_safe_s32));
+    TRUE));
+TEST("safe_substitute/s33", FUN(() ,
+    (ASSERT(!iserr_safe_s33);
+     ASSERT_EQ(out_safe_s33, want_safe_s33));
+    TRUE));
+TEST("safe_substitute/s34", FUN(() ,
+    (ASSERT(!iserr_safe_s34);
+     ASSERT_EQ(out_safe_s34, want_safe_s34));
+    TRUE));
+TEST("safe_substitute/s35", FUN(() ,
+    (ASSERT(!iserr_safe_s35);
+     ASSERT_EQ(out_safe_s35, want_safe_s35));
+    TRUE));
+TEST("safe_substitute/s36", FUN(() ,
+    (ASSERT(!iserr_safe_s36);
+     ASSERT_EQ(out_safe_s36, want_safe_s36));
+    TRUE));
+TEST("safe_substitute/s37", FUN(() ,
+    (ASSERT(!iserr_safe_s37);
+     ASSERT_EQ(out_safe_s37, want_safe_s37));
+    TRUE));
+TEST("safe_substitute/s38", FUN(() ,
+    (ASSERT(!iserr_safe_s38);
+     ASSERT_EQ(out_safe_s38, want_safe_s38));
+    TRUE));
+TEST("safe_substitute/s39", FUN(() ,
+    (ASSERT(!iserr_safe_s39);
+     ASSERT_EQ(out_safe_s39, want_safe_s39));
+    TRUE));
+TEST("safe_substitute/s40", FUN(() ,
+    (ASSERT(!iserr_safe_s40);
+     ASSERT_EQ(out_safe_s40, want_safe_s40));
+    TRUE));
+TEST("safe_substitute/s41", FUN(() ,
+    (ASSERT(!iserr_safe_s41);
+     ASSERT_EQ(out_safe_s41, want_safe_s41));
+    TRUE));
+TEST("safe_substitute/s42", FUN(() ,
+    (ASSERT(!iserr_safe_s42);
+     ASSERT_EQ(out_safe_s42, want_safe_s42));
+    TRUE));
+TEST("safe_substitute/s43", FUN(() ,
+    (ASSERT(!iserr_safe_s43);
+     ASSERT_EQ(out_safe_s43, want_safe_s43));
+    TRUE));
+TEST("safe_substitute/s44", FUN(() ,
+    (ASSERT(!iserr_safe_s44);
+     ASSERT_EQ(out_safe_s44, want_safe_s44));
+    TRUE));
+TEST("safe_substitute/s45", FUN(() ,
+    (ASSERT(!iserr_safe_s45);
+     ASSERT_EQ(out_safe_s45, want_safe_s45));
+    TRUE));
+TEST("safe_substitute/s46", FUN(() ,
+    (ASSERT(!iserr_safe_s46);
+     ASSERT_EQ(out_safe_s46, want_safe_s46));
+    TRUE));
+TEST("safe_substitute/s47", FUN(() ,
+    (ASSERT(!iserr_safe_s47);
+     ASSERT_EQ(out_safe_s47, want_safe_s47));
+    TRUE));
+TEST("safe_substitute/s48", FUN(() ,
+    (ASSERT(!iserr_safe_s48);
+     ASSERT_EQ(out_safe_s48, want_safe_s48));
+    TRUE));
+TEST("safe_substitute/s49", FUN(() ,
+    (ASSERT(!iserr_safe_s49);
+     ASSERT_EQ(out_safe_s49, want_safe_s49));
+    TRUE));
+TEST("safe_substitute/s50", FUN(() ,
+    (ASSERT(!iserr_safe_s50);
+     ASSERT_EQ(out_safe_s50, want_safe_s50));
+    TRUE));
+TEST("safe_substitute/s51", FUN(() ,
+    (ASSERT(!iserr_safe_s51);
+     ASSERT_EQ(out_safe_s51, want_safe_s51));
+    TRUE));
+TEST("safe_substitute/s52", FUN(() ,
+    (ASSERT(!iserr_safe_s52);
+     ASSERT_EQ(out_safe_s52, want_safe_s52));
+    TRUE));
+TEST("safe_substitute/s53", FUN(() ,
+    (ASSERT(!iserr_safe_s53);
+     ASSERT_EQ(out_safe_s53, want_safe_s53));
+    TRUE));
+TEST("safe_substitute/s54", FUN(() ,
+    (ASSERT(!iserr_safe_s54);
+     ASSERT_EQ(out_safe_s54, want_safe_s54));
+    TRUE));
+TEST("safe_substitute/s55", FUN(() ,
+    (ASSERT(!iserr_safe_s55);
+     ASSERT_EQ(out_safe_s55, want_safe_s55));
+    TRUE));
+TEST("safe_substitute/s56", FUN(() ,
+    (ASSERT(!iserr_safe_s56);
+     ASSERT_EQ(out_safe_s56, want_safe_s56));
+    TRUE));
+TEST("safe_substitute/s57", FUN(() ,
+    (ASSERT(!iserr_safe_s57);
+     ASSERT_EQ(out_safe_s57, want_safe_s57));
+    TRUE));
+TEST("safe_substitute/s58", FUN(() ,
+    (ASSERT(!iserr_safe_s58);
+     ASSERT_EQ(out_safe_s58, want_safe_s58));
+    TRUE));
+TEST("safe_substitute/s59", FUN(() ,
+    (ASSERT(!iserr_safe_s59);
+     ASSERT_EQ(out_safe_s59, want_safe_s59));
+    TRUE));
+TEST("safe_substitute/s60", FUN(() ,
+    (ASSERT(!iserr_safe_s60);
+     ASSERT_EQ(out_safe_s60, want_safe_s60));
+    TRUE));
+TEST("safe_substitute/s61", FUN(() ,
+    (ASSERT(!iserr_safe_s61);
+     ASSERT_EQ(out_safe_s61, want_safe_s61));
+    TRUE));
+TEST("safe_substitute/s62", FUN(() ,
+    (ASSERT(!iserr_safe_s62);
+     ASSERT_EQ(out_safe_s62, want_safe_s62));
+    TRUE));
+TEST("safe_substitute/s63", FUN(() ,
+    (ASSERT(!iserr_safe_s63);
+     ASSERT_EQ(out_safe_s63, want_safe_s63));
+    TRUE));
+TEST("safe_substitute/s64", FUN(() ,
+    (ASSERT(!iserr_safe_s64);
+     ASSERT_EQ(out_safe_s64, want_safe_s64));
+    TRUE));
+TEST("safe_substitute/s65", FUN(() ,
+    (ASSERT(!iserr_safe_s65);
+     ASSERT_EQ(out_safe_s65, want_safe_s65));
+    TRUE));
+// ⚠ safe_s66：已知差异（值类型渲染）：Python 的 `str(None)` 是 "None"，WLWL 的 `STR(NULL)` 渲染成 "NULL" ⇒ 文本不同。根因：`str()` 的容器/空值渲染是**宿主语言**的口径，与 `string.Template` 的语义无关，WLWL 侧无法逐字复刻。
+TEST("safe_substitute/s66", FUN(() ,
+    (ASSERT(!iserr_safe_s66);
+     ASSERT_EQ(out_safe_s66, want_safe_s66));
+    TRUE));
+// ⚠ safe_s67：已知差异（值类型渲染）：Python 的 `str(True)` 是 "True"，WLWL 的 `STR(TRUE)` 是 "TRUE"（布尔的字面量口径不同）。
+TEST("safe_substitute/s67", FUN(() ,
+    (ASSERT(!iserr_safe_s67);
+     ASSERT_EQ(out_safe_s67, want_safe_s67));
+    TRUE));
+// ⚠ safe_s68：已知差异（值类型渲染）：Python 的 `str({"k": 1})` 是 "{'k': 1}"，WLWL 的 `STR(字典)` 是 "[k: 1]"（字典的渲染语法不同）。
+TEST("safe_substitute/s68", FUN(() ,
+    (ASSERT(!iserr_safe_s68);
+     ASSERT_EQ(out_safe_s68, want_safe_s68));
+    TRUE));
+TEST("render_skeleton/r00/minimal", FUN(() ,
+    (ASSERT(!iserr_r00);
+     ASSERT_EQ(out_r00, want_r00));
+    TRUE));
+TEST("render_skeleton/r01/dark_css", FUN(() ,
+    (ASSERT(!iserr_r01);
+     ASSERT_EQ(out_r01, want_r01));
+    TRUE));
+TEST("render_skeleton/r02/dark_css_empty", FUN(() ,
+    (ASSERT(!iserr_r02);
+     ASSERT_EQ(out_r02, want_r02));
+    TRUE));
+TEST("render_skeleton/r03/dark_css_quote", FUN(() ,
+    (ASSERT(!iserr_r03);
+     ASSERT_EQ(out_r03, want_r03));
+    TRUE));
+TEST("render_skeleton/r04/all_opts", FUN(() ,
+    (ASSERT(!iserr_r04);
+     ASSERT_EQ(out_r04, want_r04));
+    TRUE));
+TEST("render_skeleton/r05/escape_specials", FUN(() ,
+    (ASSERT(!iserr_r05);
+     ASSERT_EQ(out_r05, want_r05));
+    TRUE));
+TEST("render_skeleton/r06/footer_empty", FUN(() ,
+    (ASSERT(!iserr_r06);
+     ASSERT_EQ(out_r06, want_r06));
+    TRUE));
+TEST("render_skeleton/r07/footer_special", FUN(() ,
+    (ASSERT(!iserr_r07);
+     ASSERT_EQ(out_r07, want_r07));
+    TRUE));
+TEST("render_skeleton/r08/body_has_dollar", FUN(() ,
+    (ASSERT(!iserr_r08);
+     ASSERT_EQ(out_r08, want_r08));
+    TRUE));
+TEST("render_skeleton/r09/nav_and_toggle", FUN(() ,
+    (ASSERT(!iserr_r09);
+     ASSERT_EQ(out_r09, want_r09));
+    TRUE));
+TEST("render_skeleton/r10/has_dark_true", FUN(() ,
+    (ASSERT(!iserr_r10);
+     ASSERT_EQ(out_r10, want_r10));
+    TRUE));
+TEST("render_skeleton/r11/has_dark_false", FUN(() ,
+    (ASSERT(!iserr_r11);
+     ASSERT_EQ(out_r11, want_r11));
+    TRUE));
+TEST("render_skeleton/r12/empty_titles", FUN(() ,
+    (ASSERT(!iserr_r12);
+     ASSERT_EQ(out_r12, want_r12));
+    TRUE));
+TEST("render_skeleton/r13/description_newline", FUN(() ,
+    (ASSERT(!iserr_r13);
+     ASSERT_EQ(out_r13, want_r13));
+    TRUE));
+TEST("render_skeleton/r14/lang_custom", FUN(() ,
+    (ASSERT(!iserr_r14);
+     ASSERT_EQ(out_r14, want_r14));
+    TRUE));
+TEST("render_skeleton/r15/css_with_dollar", FUN(() ,
+    (ASSERT(!iserr_r15);
+     ASSERT_EQ(out_r15, want_r15));
+    TRUE));
+TEST("render_skeleton/r16/cjk_everything", FUN(() ,
+    (ASSERT(!iserr_r16);
+     ASSERT_EQ(out_r16, want_r16));
+    TRUE));
+TEST("render_skeleton/r17/dark_css_and_meta", FUN(() ,
+    (ASSERT(!iserr_r17);
+     ASSERT_EQ(out_r17, want_r17));
+    TRUE));
+
+// ── 反向守卫（卡 S2-3 的要求）─────────────────────────────────
+// ① 缺占位符 ⇒ 严格版**必须**返回 ERR，且**不得**静默留下 `$var`
+LET(_G_TMPL_, "hi \$missing there");
+LET(_G_MAP_, DICT());
+LET(_G_PAY_, TAKE_ERR(SUBSTITUTE(_G_TMPL_, _G_MAP_)));
+LET(_G_STR_, IF(IS_ERR(SUBSTITUTE(_G_TMPL_, _G_MAP_)), "<ERR>", SUBSTITUTE(_G_TMPL_, _G_MAP_)));
+TEST("guard/strict_missing_returns_err", FUN(() ,
+    (ASSERT_EQ(TYPE(_G_PAY_), "DICT"));
+    (ASSERT_EQ(AT_K(_G_PAY_, "kind", ""), "KeyError"));
+    (ASSERT_EQ(AT_K(_G_PAY_, "key", ""), "missing"));
+    TRUE));
+TEST("guard/strict_missing_not_silently_kept", FUN(() ,
+    (ASSERT(!= (_G_STR_, _G_TMPL_)));
+    TRUE));
+
+// ② 宽容版对**同一个**输入必须原样保留（与严格版分叉的证据）
+TEST("guard/safe_missing_keeps_placeholder", FUN(() ,
+    (ASSERT_EQ(SAFE_SUBSTITUTE(_G_TMPL_, _G_MAP_), _G_TMPL_));
+    TRUE));
+
+// ③ 代入值里的 `$` **不得**被二次扫描（Python 侧是一次性扫描）
+LET(_G_DOLLAR_, INDEX_SET(DICT(), "a", "\$b \${c}"));
+TEST("guard/no_rescan_of_values", FUN(() ,
+    (ASSERT_EQ(SUBSTITUTE("\$a!", _G_DOLLAR_), "\$b \${c}!"));
+    TRUE));
+
+// ④ 骨架产物的**首尾**逐字节判定（首行无前导空白、末行 `</html>` 后无换行）
+TEST("guard/skeleton_edge_bytes", FUN(() ,
+    (ASSERT_EQ(SUB(out_r00, 0, 15), "<!DOCTYPE html>"));
+    (ASSERT_EQ(SUB(out_r00, -(LEN(out_r00), 7)), "</html>"));
+    TRUE));
+
+// ⑤ 渲染**不得**残留任何占位符（19 个 `$name` 必须全被替换）
+TEST("guard/skeleton_no_leftover_placeholder", FUN(() ,
+    (ASSERT(!CONTAINS(out_r04, "\$lang")));
+    (ASSERT(!CONTAINS(out_r04, "\$site_title")));
+    (ASSERT(!CONTAINS(out_r04, "\$nav_links")));
+    (ASSERT(!CONTAINS(out_r04, "\$theme_toggle")));
+    TRUE));
+
+// ── 跑测试 ────────────────────────────────────────────────────
+LET(records, RUN_TESTS());
+PRINT("test_template: ", LEN(records), " test(s) run");
+
+LET MUT(failed, 0);
+FOR(rec, records,
+    (IF(AT_K(rec, "passed", FALSE),
+        PRINT("  PASS ", AT_K(rec, "name", "?")),
+        (SET(failed, +(failed, 1));
+         PRINT("  FAIL ", AT_K(rec, "name", "?"))))));
+PRINT("test_template: failed=", failed);
+IF(>(failed, 0), (PRINT_ERR("test_template: FAILED"); PANIC("template tests failed")), NULL);
+PRINT("test_template: OK");

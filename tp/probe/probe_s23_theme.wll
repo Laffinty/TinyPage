@@ -1,0 +1,22 @@
+// 探针 S2-3-theme：用**真实**的 themes/default 验证 CRLF 归一化与主题三层接口。
+// 用法：wlwl run tp/probe/probe_s23_theme.wll   （在仓库根执行）
+// 期望（Python read_text 的字符数）：css=19517、dark_css=498、has_dark=TRUE、css 里 CR 命中 0
+IMPORT("wlwl:std.regex", ["RE", "RE_FIND_ALL"]);
+IMPORT("./../lib/theme.wll", ["LOAD_THEME_CSS", "LOAD_THEME_MANIFEST", "LIST_THEMES"]);
+
+LET(r, LOAD_THEME_CSS("themes/default"));
+LET(css, AT_K(r, "css", ""));
+PRINT("css_len      = ", LEN(css), "  (expect 19517)");
+PRINT("css_CR_hits  = ", LEN(RE_FIND_ALL(RE("\r"), css)), "  (expect 0)");
+PRINT("dark_len     = ", LEN(AT_K(r, "dark_css", "")), "  (expect 498)");
+PRINT("has_dark     = ", AT_K(r, "has_dark", FALSE));
+
+LET(m, LOAD_THEME_MANIFEST("default", "themes"));
+PRINT("manifest_null= ", ==(TYPE(m), "NULL"), "  (expect FALSE)");
+PRINT("m_name       = ", AT_K(m, "name", "?"));
+
+LET(m2, LOAD_THEME_MANIFEST("../etc", "themes"));
+PRINT("traversal_null=", ==(TYPE(m2), "NULL"), "  (expect TRUE / D5)");
+
+LET(l, LIST_THEMES("themes"));
+PRINT("themes_count = ", LEN(l), "  (expect 1)");

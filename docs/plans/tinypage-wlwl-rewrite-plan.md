@@ -33,7 +33,7 @@
 | S1-2 行内解析器 | ✅ 完成 | `tp/lib/md_inline.wll`（生成器产出）；**21/21 测试通过**，含 3 个反向守卫 |
 | S1-3 块级解析器 | ✅ 完成 | `tp/lib/md.wll`（生成器产出）；**28/28 对照 mistune 3.2.1 逐字节通过**（25 基准 + 3 守卫）；链接去掉自加的 `rel` 属性以逐字节对齐 |
 | S1-4 front-matter/TOC/脚注/wikilink | ✅ 完成 | `frontmatter.wll` / `toc.wll` / `footnotes.wll` / `wikilink.wll` + 共享 `esc.wll`（全部生成器产出）；**38/38 + 41/41 + 23/23 + 28/28 + esc 19/19 全绿**；本地 CI 5 步全过（21 生成器 / 21 产物无 drift） |
-| S2 内容模型与生成器 | 🔄 进行中（**S2-1 / S2-2 已完成**；余 S2-3/S2-4/S2-5） | 卡 S2-2 ✅（`sort_util.wll` 4 导出，**39/39**）；卡 S2-1 ✅（`article_store.wll` 11 导出，**277/277**，3 条已知差异 D2/D3/D4）；S2-3/S2-4/S2-5 ⬜ |
+| S2 内容模型与生成器 | 🔄 进行中（**S2-1 / S2-2 / S2-3 已完成**；余 S2-4/S2-5） | 卡 S2-1 ✅（`article_store.wll` 11 导出，**277/277**，差异 D2/D3/D4）；卡 S2-2 ✅（`sort_util.wll` 4 导出，**39/39**）；卡 S2-3 ✅（`template.wll` + `theme.wll`，**162/162 + 68/68**，差异 D5–D8，父进程独立比 SHA256 四组全 MATCH）；S2-4/S2-5 ⬜ |
 | S3 前台静态服务（TLS） | ⬜ 未开始 | `serve_public.wll`（TLS 终止 + 静态文件） |
 | S4 Admin 后台 | ⬜ 未开始 | `serve_admin.wll` + 会话/CSRF/限流/CRUD |
 | S5 AI 助手（出站 HTTPS） | ⬜ 未开始 | `ai.wll`（`tls.CONNECT` + 手写 HTTP/1.1） |
@@ -961,6 +961,33 @@ TinyPage/
     `name` / `version`（如 `3.1.0`）/ `description` / `layouts`（数组，如 `["blog"]`）/
     `variables`（对象，如 `{"primary": "#a3e635", "accent": "#22c55e"}`）——
     与卡片写的 `name/version/description/layouts/variables` 一致。
+  - **🔎 范围边界（2026-11-02 裁，避免两块地无人认领）**：本卡的「暗色模式」只做
+    **`dark_css_block` 那个派生占位符**（`template.py:104-107` 把 `dark_css` 包进
+    `<style media="(prefers-color-scheme: dark)">`）。下面这些是 `generator.py:99-115`
+    里拼好的 **HTML 片段常量**，它们作为**入参**喂给 `render_skeleton` ⇒
+    **归卡 S2-4**，不在本卡：
+    `dark_mode_meta`（`<meta name="color-scheme" …>`）、`dark_mode_script`（读
+    `localStorage.theme` 的内联 `<script>`）、`theme_toggle`（🌓 按钮 + 写
+    `localStorage.setItem('theme', …)`）、`pwa_meta` / `pwa_manifest` / `vt_meta` /
+    `search_script`、以及 `nav`（`_nav_links`）。
+    ⇒ 本卡只需保证「传进来什么就原样嵌入什么、**不 escape**」。
+
+- **✅ 实测状态（2026-11-02 完成，两个并行 worker 交付 + 父进程独立复核）**：
+  | 项 | 读数 |
+  |---|---|
+  | `tp/lib/template.wll` | 导出 `SUBSTITUTE` / `SAFE_SUBSTITUTE` / `RENDER_SKELETON`；`wlwl check` OK（20345 B） |
+  | `tp/lib/theme.wll` | 导出 `VALIDATE_THEME_NAME` / `LOAD_THEME_CSS` / `LOAD_THEME_MANIFEST` / `LIST_THEMES`；`wlwl check` OK（11271 B） |
+  | `wlwl run tp/test/test_template.wll` | **162/162**，failed=0，exit 0（基��� 156 条：substitute 69 / safe_substitute 69 / render_skeleton 18） |
+  | `wlwl run tp/test/test_theme.wll` | **68/68**，failed=0，exit 0（基准 33 条：名校验 14 / CSS 8 / 清单 7 / 列表 4） |
+  | **父进程独立逐字节复核** | 用**真 Python 另算**的四组 `render_skeleton` 输出与 WLWL 产物比 SHA256：`minimal` 554 字符 `f9604f0d…` / `with_dark` 572 `3a5ca7bd…` / `escaped` 574 `31ec6a9f…` / `empty_footer` 513 `c5d7ac1e…` ⇒ **四组全 MATCH**（这条不依赖 worker 的夹具，是独立证据） |
+  | **父进程独立复核主题** | 对**真实** `themes/default` 实测：`css_len=19517`、`css_CR_hits=0`、`dark_len=498`、`has_dark=TRUE`、`manifest` 解析出 `name=default`、`../etc` 返 `NULL`（D5）、`LIST_THEMES` 给 1 个 ⇒ 与 Python `read_text` 的字符数逐项吻合 |
+  | escape 口径（最关键的一条） | 四组渲染里 `site_title=A & B` / `page_title=<tag>` / `description=q"q'q` / `lang=en"US` / `footer_text=F & G` 全部被 escape；而 `body_content` 的 `RAW & <b>` **原样保留** ⇒ 证明只有那四个 + footer 被转义 |
+  | `Template` 边界 | `$$`→`$`；缺键 strict 版返 ERR（对齐 Python `KeyError`）、safe 版留 `$x`；`$` 与 `$ a` 两种非法占位符 strict 版返 ERR、safe 版原样；`$a1/$_b/${c}` 全通过；`$1x` 按非法处理 |
+  | 幂等 | 五个生成器重跑两次，五个产物 SHA256 全等；全仓 step1（27 生成器重跑）**无漂移** |
+  | 生成期自检 | `gen_template_baseline.py` 断言骨架字面量 `== _PAGE_SKELETON`（抄错或上游漂移立刻炸）；`ValueError` 的 `pos` 由 CPython 消息反推后逐条校验 `tmpl[pos] == '$'` |
+  | 已知差异（夹具 `note` + `_meta.known_differences`） | **D5** 主题名校验 WLWL 更严（Python 无此校验）／**D6** `LIST_THEMES` 固定名称升序（Python `iterdir` 顺序不可复现）／**D7** 不追加 Pygments CSS（D3 裁决）／**D8** mapping 值**非字符串**时的渲染口径：`NULL`⇒`"NULL"`（Python `"None"`）、`TRUE`⇒`"TRUE"`（Python `"True"`）、字典⇒`[k: 1]`（Python `"{'k': 1}"`）—— 根因是宿主 `str()` 口径，与 `Template` 语义无关（标量与整数/浮点完全一致） |
+  | 反向守卫 | 缺占位符 ⇒ 前台 `SUBSTITUTE` 返 ERR（不静默留 `$var`）；主题名 `../etc` 形态必须被拒；`_` 读出的 CSS **不含 CR**；`LIST_THEMES` 逆序建目录后仍按名升序 |
+  | 变异测试 | 去掉 `site_title` 的 escape ⇒ 变红 + PANIC + exit 1；标识符首字符放宽到数字 ⇒ 3 条精确变红；把换行归一退化成「只替 CRLF」⇒ `c05` 变红 ⇒ 证明断言不是空转 |
 
 #### 卡 S2-4：站点产物生成
 

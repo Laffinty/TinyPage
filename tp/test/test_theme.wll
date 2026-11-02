@@ -1,0 +1,534 @@
+// tp/test/test_theme.wll —— 主题模块的逐字节对照测试 + 反向守卫
+//
+// ⚠ 本文件由 tp/test/gen_test_theme.py 生成 —— 请勿手改。
+//
+// 验收方式：每个用例都与**真 Python** 的结果逐字节对照。
+// 基准：tp/test/fixtures/theme_baseline.json
+//   （由 tp/test/gen_theme_baseline.py 用真 Python 生成）
+//
+// ⚠ RUN_TESTS() 的失败**不影响退出码**（规范明载）⇒ 本文件自己把关（见尾段）。
+// ⚠ 文件内容一律 `WRITE_BYTES(UTF8_ENCODE(...))` 写入 —— 必须字节级，
+//   否则 CRLF 用例测不到东西。
+IMPORT("wlwl:std.test", ["TEST", "ASSERT", "ASSERT_EQ", "RUN_TESTS", "TEMP_DIR"]);
+IMPORT("wlwl:std.fs", ["MKDIRS", "WRITE_BYTES", "PATH_JOIN"]);
+IMPORT("wlwl:std.encode", ["UTF8_ENCODE"]);
+IMPORT("wlwl:std.json", ["PARSE", "STRINGIFY"]);
+IMPORT("wlwl:std.str", ["CONTAINS_SUB", "JOIN"]);
+IMPORT("./../lib/theme.wll", ["VALIDATE_THEME_NAME", "LOAD_THEME_CSS", "LOAD_THEME_MANIFEST", "LIST_THEMES"]);
+
+// 所有用例共用的临时根（每个用例再在其下开自己的子目录）
+LET(_TD_, TEMP_DIR());
+
+// ── validate_theme_name：数据 ─────────────────────────────────
+LET(in_vtn_n00, "default");
+LET(want_vtn_n00, TRUE);
+LET(in_vtn_n01, "my-theme");
+LET(want_vtn_n01, TRUE);
+LET(in_vtn_n02, "主题");
+LET(want_vtn_n02, TRUE);
+LET(in_vtn_n03, "theme_2");
+LET(want_vtn_n03, TRUE);
+LET(in_vtn_n04, "Dark");
+LET(want_vtn_n04, TRUE);
+LET(in_vtn_n05, "");
+LET(want_vtn_n05, FALSE);
+LET(in_vtn_n06, ".");
+LET(want_vtn_n06, FALSE);
+LET(in_vtn_n07, "..");
+LET(want_vtn_n07, FALSE);
+LET(in_vtn_n08, "../etc");
+LET(want_vtn_n08, FALSE);
+LET(in_vtn_n09, "a/b");
+LET(want_vtn_n09, FALSE);
+LET(in_vtn_n10, "a\\b");
+LET(want_vtn_n10, FALSE);
+LET(in_vtn_n11, "a..b");
+LET(want_vtn_n11, FALSE);
+LET(in_vtn_n12, "...");
+LET(want_vtn_n12, FALSE);
+LET(in_vtn_n13, "themes/..");
+LET(want_vtn_n13, FALSE);
+
+// ── load_theme_css：真实目录树 + 数据 ─────────────────────────
+LET(root_css_c00, PATH_JOIN(_TD_, "css_c00"));
+MKDIRS(root_css_c00);
+MKDIRS(PATH_JOIN(root_css_c00, "themes/t"));
+IF(IS_ERR(WRITE_BYTES(PATH_JOIN(root_css_c00, "themes/t/theme.css"), UTF8_ENCODE("body{color:red}\n"))), PRINT_ERR("setup: WRITE_BYTES failed for themes/t/theme.css"), NULL);
+IF(IS_ERR(WRITE_BYTES(PATH_JOIN(root_css_c00, "themes/t/theme.dark.css"), UTF8_ENCODE("body{color:#fff}\n"))), PRINT_ERR("setup: WRITE_BYTES failed for themes/t/theme.dark.css"), NULL);
+LET(dir_css_c00, PATH_JOIN(root_css_c00, "themes/t"));
+LET(want_css_c00_css, "body{color:red}\n");
+LET(want_css_c00_dark, "body{color:#fff}\n");
+LET(want_css_c00_has_dark, TRUE);
+LET(root_css_c01, PATH_JOIN(_TD_, "css_c01"));
+MKDIRS(root_css_c01);
+MKDIRS(PATH_JOIN(root_css_c01, "themes/t"));
+IF(IS_ERR(WRITE_BYTES(PATH_JOIN(root_css_c01, "themes/t/theme.css"), UTF8_ENCODE("a{color:blue}\n"))), PRINT_ERR("setup: WRITE_BYTES failed for themes/t/theme.css"), NULL);
+LET(dir_css_c01, PATH_JOIN(root_css_c01, "themes/t"));
+LET(want_css_c01_css, "a{color:blue}\n");
+LET(want_css_c01_dark, "");
+LET(want_css_c01_has_dark, FALSE);
+LET(root_css_c02, PATH_JOIN(_TD_, "css_c02"));
+MKDIRS(root_css_c02);
+MKDIRS(PATH_JOIN(root_css_c02, "themes/t"));
+IF(IS_ERR(WRITE_BYTES(PATH_JOIN(root_css_c02, "themes/t/theme.dark.css"), UTF8_ENCODE("b{color:#000}\n"))), PRINT_ERR("setup: WRITE_BYTES failed for themes/t/theme.dark.css"), NULL);
+LET(dir_css_c02, PATH_JOIN(root_css_c02, "themes/t"));
+LET(want_css_c02_css, "");
+LET(want_css_c02_dark, "b{color:#000}\n");
+LET(want_css_c02_has_dark, TRUE);
+LET(root_css_c03, PATH_JOIN(_TD_, "css_c03"));
+MKDIRS(root_css_c03);
+MKDIRS(PATH_JOIN(root_css_c03, "themes/t"));
+LET(dir_css_c03, PATH_JOIN(root_css_c03, "themes/t"));
+LET(want_css_c03_css, "");
+LET(want_css_c03_dark, "");
+LET(want_css_c03_has_dark, FALSE);
+LET(root_css_c04, PATH_JOIN(_TD_, "css_c04"));
+MKDIRS(root_css_c04);
+MKDIRS(PATH_JOIN(root_css_c04, "themes/t"));
+IF(IS_ERR(WRITE_BYTES(PATH_JOIN(root_css_c04, "themes/t/theme.css"), UTF8_ENCODE("a\r\nb\r\n"))), PRINT_ERR("setup: WRITE_BYTES failed for themes/t/theme.css"), NULL);
+IF(IS_ERR(WRITE_BYTES(PATH_JOIN(root_css_c04, "themes/t/theme.dark.css"), UTF8_ENCODE("c\r\nd\r\n"))), PRINT_ERR("setup: WRITE_BYTES failed for themes/t/theme.dark.css"), NULL);
+LET(dir_css_c04, PATH_JOIN(root_css_c04, "themes/t"));
+LET(want_css_c04_css, "a\nb\n");
+LET(want_css_c04_dark, "c\nd\n");
+LET(want_css_c04_has_dark, TRUE);
+LET(root_css_c05, PATH_JOIN(_TD_, "css_c05"));
+MKDIRS(root_css_c05);
+MKDIRS(PATH_JOIN(root_css_c05, "themes/t"));
+IF(IS_ERR(WRITE_BYTES(PATH_JOIN(root_css_c05, "themes/t/theme.css"), UTF8_ENCODE("a\rb\rc"))), PRINT_ERR("setup: WRITE_BYTES failed for themes/t/theme.css"), NULL);
+LET(dir_css_c05, PATH_JOIN(root_css_c05, "themes/t"));
+LET(want_css_c05_css, "a\nb\nc");
+LET(want_css_c05_dark, "");
+LET(want_css_c05_has_dark, FALSE);
+LET(root_css_c06, PATH_JOIN(_TD_, "css_c06"));
+MKDIRS(root_css_c06);
+MKDIRS(PATH_JOIN(root_css_c06, "themes/t"));
+IF(IS_ERR(WRITE_BYTES(PATH_JOIN(root_css_c06, "themes/t/theme.css"), UTF8_ENCODE(""))), PRINT_ERR("setup: WRITE_BYTES failed for themes/t/theme.css"), NULL);
+IF(IS_ERR(WRITE_BYTES(PATH_JOIN(root_css_c06, "themes/t/theme.dark.css"), UTF8_ENCODE(""))), PRINT_ERR("setup: WRITE_BYTES failed for themes/t/theme.dark.css"), NULL);
+LET(dir_css_c06, PATH_JOIN(root_css_c06, "themes/t"));
+LET(want_css_c06_css, "");
+LET(want_css_c06_dark, "");
+LET(want_css_c06_has_dark, FALSE);
+LET(root_css_c07, PATH_JOIN(_TD_, "css_c07"));
+MKDIRS(root_css_c07);
+MKDIRS(PATH_JOIN(root_css_c07, "themes/t"));
+IF(IS_ERR(WRITE_BYTES(PATH_JOIN(root_css_c07, "themes/t/theme.css"), UTF8_ENCODE("a{}\n\nb{}\n"))), PRINT_ERR("setup: WRITE_BYTES failed for themes/t/theme.css"), NULL);
+LET(dir_css_c07, PATH_JOIN(root_css_c07, "themes/t"));
+LET(want_css_c07_css, "a{}\n\nb{}\n");
+LET(want_css_c07_dark, "");
+LET(want_css_c07_has_dark, FALSE);
+
+// ── load_theme_manifest：真实目录树 + 数据 ────────────────────
+LET(root_man_m00, PATH_JOIN(_TD_, "man_m00"));
+MKDIRS(root_man_m00);
+MKDIRS(PATH_JOIN(root_man_m00, "themes/alpha"));
+IF(IS_ERR(WRITE_BYTES(PATH_JOIN(root_man_m00, "themes/alpha/manifest.json"), UTF8_ENCODE("{\"name\": \"Alpha Theme\", \"description\": \"desc\", \"layouts\": [\"blog\", \"doc\"], \"default_layout\": \"doc\"}"))), PRINT_ERR("setup: WRITE_BYTES failed for themes/alpha/manifest.json"), NULL);
+LET(dir_man_m00, PATH_JOIN(root_man_m00, "themes"));
+LET(name_man_m00, "alpha");
+LET(want_man_m00, STRINGIFY(PARSE("{\"default_layout\": \"doc\", \"description\": \"desc\", \"layouts\": [\"blog\", \"doc\"], \"name\": \"Alpha Theme\"}")));
+LET(want_man_m00_is_null, FALSE);
+LET(root_man_m01, PATH_JOIN(_TD_, "man_m01"));
+MKDIRS(root_man_m01);
+MKDIRS(PATH_JOIN(root_man_m01, "themes/alpha"));
+LET(dir_man_m01, PATH_JOIN(root_man_m01, "themes"));
+LET(name_man_m01, "alpha");
+LET(want_man_m01, NULL);
+LET(want_man_m01_is_null, TRUE);
+LET(root_man_m02, PATH_JOIN(_TD_, "man_m02"));
+MKDIRS(root_man_m02);
+MKDIRS(PATH_JOIN(root_man_m02, "themes/alpha"));
+IF(IS_ERR(WRITE_BYTES(PATH_JOIN(root_man_m02, "themes/alpha/manifest.json"), UTF8_ENCODE("{\"name\": "))), PRINT_ERR("setup: WRITE_BYTES failed for themes/alpha/manifest.json"), NULL);
+LET(dir_man_m02, PATH_JOIN(root_man_m02, "themes"));
+LET(name_man_m02, "alpha");
+LET(want_man_m02, NULL);
+LET(want_man_m02_is_null, TRUE);
+LET(root_man_m03, PATH_JOIN(_TD_, "man_m03"));
+MKDIRS(root_man_m03);
+MKDIRS(PATH_JOIN(root_man_m03, "themes/alpha"));
+IF(IS_ERR(WRITE_BYTES(PATH_JOIN(root_man_m03, "themes/alpha/manifest.json"), UTF8_ENCODE(""))), PRINT_ERR("setup: WRITE_BYTES failed for themes/alpha/manifest.json"), NULL);
+LET(dir_man_m03, PATH_JOIN(root_man_m03, "themes"));
+LET(name_man_m03, "alpha");
+LET(want_man_m03, NULL);
+LET(want_man_m03_is_null, TRUE);
+LET(root_man_m04, PATH_JOIN(_TD_, "man_m04"));
+MKDIRS(root_man_m04);
+MKDIRS(PATH_JOIN(root_man_m04, "themes/alpha"));
+IF(IS_ERR(WRITE_BYTES(PATH_JOIN(root_man_m04, "themes/alpha/manifest.json"), UTF8_ENCODE("null"))), PRINT_ERR("setup: WRITE_BYTES failed for themes/alpha/manifest.json"), NULL);
+LET(dir_man_m04, PATH_JOIN(root_man_m04, "themes"));
+LET(name_man_m04, "alpha");
+LET(want_man_m04, NULL);
+LET(want_man_m04_is_null, TRUE);
+LET(root_man_m05, PATH_JOIN(_TD_, "man_m05"));
+MKDIRS(root_man_m05);
+MKDIRS(PATH_JOIN(root_man_m05, "etc"));
+MKDIRS(PATH_JOIN(root_man_m05, "themes/alpha"));
+IF(IS_ERR(WRITE_BYTES(PATH_JOIN(root_man_m05, "etc/manifest.json"), UTF8_ENCODE("{\"name\": \"evil\"}"))), PRINT_ERR("setup: WRITE_BYTES failed for etc/manifest.json"), NULL);
+LET(dir_man_m05, PATH_JOIN(root_man_m05, "themes"));
+LET(name_man_m05, "../etc");
+LET(want_man_m05, NULL);
+LET(want_man_m05_is_null, TRUE);
+LET(root_man_m06, PATH_JOIN(_TD_, "man_m06"));
+MKDIRS(root_man_m06);
+MKDIRS(PATH_JOIN(root_man_m06, "themes/alpha/manifest.json"));
+LET(dir_man_m06, PATH_JOIN(root_man_m06, "themes"));
+LET(name_man_m06, "alpha");
+LET(want_man_m06, NULL);
+LET(want_man_m06_is_null, TRUE);
+
+// ── list_themes：真实目录树 + 数据 ────────────────────────────
+LET(root_lst_t00, PATH_JOIN(_TD_, "lst_t00"));
+MKDIRS(root_lst_t00);
+MKDIRS(PATH_JOIN(root_lst_t00, "themes"));
+MKDIRS(PATH_JOIN(root_lst_t00, "themes/alpha"));
+MKDIRS(PATH_JOIN(root_lst_t00, "themes/beta"));
+MKDIRS(PATH_JOIN(root_lst_t00, "themes/zeta"));
+IF(IS_ERR(WRITE_BYTES(PATH_JOIN(root_lst_t00, "themes/alpha/manifest.json"), UTF8_ENCODE("{\"name\": \"Alpha\", \"description\": \"A theme\", \"layouts\": [\"blog\", \"doc\"], \"default_layout\": \"doc\"}"))), PRINT_ERR("setup: WRITE_BYTES failed for themes/alpha/manifest.json"), NULL);
+IF(IS_ERR(WRITE_BYTES(PATH_JOIN(root_lst_t00, "themes/beta/manifest.json"), UTF8_ENCODE("{\"name\": \"Beta\"}"))), PRINT_ERR("setup: WRITE_BYTES failed for themes/beta/manifest.json"), NULL);
+IF(IS_ERR(WRITE_BYTES(PATH_JOIN(root_lst_t00, "themes/stray.txt"), UTF8_ENCODE("not a theme"))), PRINT_ERR("setup: WRITE_BYTES failed for themes/stray.txt"), NULL);
+LET(dir_lst_t00, PATH_JOIN(root_lst_t00, "themes"));
+LET(want_lst_t00_n, 3);
+LET(want_lst_t00_0_name, "alpha");
+LET(want_lst_t00_0_disp, "Alpha");
+LET(want_lst_t00_0_desc, "A theme");
+LET(want_lst_t00_0_dlay, "doc");
+LET(want_lst_t00_0_layouts, "blog,doc");
+LET(want_lst_t00_1_name, "beta");
+LET(want_lst_t00_1_disp, "Beta");
+LET(want_lst_t00_1_desc, "");
+LET(want_lst_t00_1_dlay, "blog");
+LET(want_lst_t00_1_layouts, "blog");
+LET(want_lst_t00_2_name, "zeta");
+LET(want_lst_t00_2_disp, "zeta");
+LET(want_lst_t00_2_desc, "");
+LET(want_lst_t00_2_dlay, "blog");
+LET(want_lst_t00_2_layouts, "blog");
+LET(root_lst_t01, PATH_JOIN(_TD_, "lst_t01"));
+MKDIRS(root_lst_t01);
+IF(IS_ERR(WRITE_BYTES(PATH_JOIN(root_lst_t01, "themes"), UTF8_ENCODE("i am a file"))), PRINT_ERR("setup: WRITE_BYTES failed for themes"), NULL);
+LET(dir_lst_t01, PATH_JOIN(root_lst_t01, "themes"));
+LET(want_lst_t01_n, 0);
+LET(root_lst_t02, PATH_JOIN(_TD_, "lst_t02"));
+MKDIRS(root_lst_t02);
+MKDIRS(PATH_JOIN(root_lst_t02, "themes"));
+LET(dir_lst_t02, PATH_JOIN(root_lst_t02, "themes"));
+LET(want_lst_t02_n, 0);
+LET(root_lst_t03, PATH_JOIN(_TD_, "lst_t03"));
+MKDIRS(root_lst_t03);
+LET(dir_lst_t03, PATH_JOIN(root_lst_t03, "themes"));
+LET(want_lst_t03_n, 0);
+
+// ── 用例：validate_theme_name ─────────────────────────────────
+TEST("validate_theme_name/n00", FUN(() ,
+    (ASSERT_EQ(VALIDATE_THEME_NAME(in_vtn_n00), want_vtn_n00));
+    TRUE));
+TEST("validate_theme_name/n01", FUN(() ,
+    (ASSERT_EQ(VALIDATE_THEME_NAME(in_vtn_n01), want_vtn_n01));
+    TRUE));
+TEST("validate_theme_name/n02", FUN(() ,
+    (ASSERT_EQ(VALIDATE_THEME_NAME(in_vtn_n02), want_vtn_n02));
+    TRUE));
+TEST("validate_theme_name/n03", FUN(() ,
+    (ASSERT_EQ(VALIDATE_THEME_NAME(in_vtn_n03), want_vtn_n03));
+    TRUE));
+TEST("validate_theme_name/n04", FUN(() ,
+    (ASSERT_EQ(VALIDATE_THEME_NAME(in_vtn_n04), want_vtn_n04));
+    TRUE));
+// ⚠ vtn_n05：已知差异 D5：Python **没有**主题名校验（它直接 `themes_dir / name / "manifest.json"`）⇒ WLWL **故意更严**。
+TEST("validate_theme_name/n05", FUN(() ,
+    (ASSERT_EQ(VALIDATE_THEME_NAME(in_vtn_n05), want_vtn_n05));
+    TRUE));
+// ⚠ vtn_n06：已知差异 D5：Python **没有**主题名校验（它直接 `themes_dir / name / "manifest.json"`）⇒ WLWL **故意更严**。
+TEST("validate_theme_name/n06", FUN(() ,
+    (ASSERT_EQ(VALIDATE_THEME_NAME(in_vtn_n06), want_vtn_n06));
+    TRUE));
+// ⚠ vtn_n07：已知差异 D5：Python **没有**主题名校验（它直接 `themes_dir / name / "manifest.json"`）⇒ WLWL **故意更严**。
+TEST("validate_theme_name/n07", FUN(() ,
+    (ASSERT_EQ(VALIDATE_THEME_NAME(in_vtn_n07), want_vtn_n07));
+    TRUE));
+// ⚠ vtn_n08：已知差异 D5：Python **没有**主题名校验（它直接 `themes_dir / name / "manifest.json"`）⇒ WLWL **故意更严**。
+TEST("validate_theme_name/n08", FUN(() ,
+    (ASSERT_EQ(VALIDATE_THEME_NAME(in_vtn_n08), want_vtn_n08));
+    TRUE));
+// ⚠ vtn_n09：已知差异 D5：Python **没有**主题名校验（它直接 `themes_dir / name / "manifest.json"`）⇒ WLWL **故意更严**。
+TEST("validate_theme_name/n09", FUN(() ,
+    (ASSERT_EQ(VALIDATE_THEME_NAME(in_vtn_n09), want_vtn_n09));
+    TRUE));
+// ⚠ vtn_n10：已知差异 D5：Python **没有**主题名校验（它直接 `themes_dir / name / "manifest.json"`）⇒ WLWL **故意更严**。
+TEST("validate_theme_name/n10", FUN(() ,
+    (ASSERT_EQ(VALIDATE_THEME_NAME(in_vtn_n10), want_vtn_n10));
+    TRUE));
+// ⚠ vtn_n11：已知差异 D5：Python **没有**主题名校验（它直接 `themes_dir / name / "manifest.json"`）⇒ WLWL **故意更严**。
+TEST("validate_theme_name/n11", FUN(() ,
+    (ASSERT_EQ(VALIDATE_THEME_NAME(in_vtn_n11), want_vtn_n11));
+    TRUE));
+// ⚠ vtn_n12：已知差异 D5：Python **没有**主题名校验（它直接 `themes_dir / name / "manifest.json"`）⇒ WLWL **故意更严**。
+TEST("validate_theme_name/n12", FUN(() ,
+    (ASSERT_EQ(VALIDATE_THEME_NAME(in_vtn_n12), want_vtn_n12));
+    TRUE));
+// ⚠ vtn_n13：已知差异 D5：Python **没有**主题名校验（它直接 `themes_dir / name / "manifest.json"`）⇒ WLWL **故意更严**。
+TEST("validate_theme_name/n13", FUN(() ,
+    (ASSERT_EQ(VALIDATE_THEME_NAME(in_vtn_n13), want_vtn_n13));
+    TRUE));
+
+// ── 用例：load_theme_css（三个键分别断言）─────────────────────
+// ⚠ css_c00：已知差异 D7：Python 在 `base_css` 后追加 `"\n/* Pygments syntax highlighting */\n" + pygments_css`（本夹具用 `<PYGMENTS_CSS>` 占位该段），WLWL **不追加**（业主裁决：代码高亮改前端 highlight.js）。
+LET(res_css_c00, LOAD_THEME_CSS(dir_css_c00));
+TEST("load_theme_css/c00_css", FUN(() ,
+    (ASSERT_EQ(AT_K(res_css_c00, "css", NULL), want_css_c00_css));
+    TRUE));
+TEST("load_theme_css/c00_dark_css", FUN(() ,
+    (ASSERT_EQ(AT_K(res_css_c00, "dark_css", NULL), want_css_c00_dark));
+    TRUE));
+TEST("load_theme_css/c00_has_dark", FUN(() ,
+    (ASSERT_EQ(AT_K(res_css_c00, "has_dark", NULL), want_css_c00_has_dark));
+    TRUE));
+// ⚠ css_c01：已知差异 D7：Python 在 `base_css` 后追加 `"\n/* Pygments syntax highlighting */\n" + pygments_css`（本夹具用 `<PYGMENTS_CSS>` 占位该段），WLWL **不追加**（业主裁决：代码高亮改前端 highlight.js）。
+LET(res_css_c01, LOAD_THEME_CSS(dir_css_c01));
+TEST("load_theme_css/c01_css", FUN(() ,
+    (ASSERT_EQ(AT_K(res_css_c01, "css", NULL), want_css_c01_css));
+    TRUE));
+TEST("load_theme_css/c01_dark_css", FUN(() ,
+    (ASSERT_EQ(AT_K(res_css_c01, "dark_css", NULL), want_css_c01_dark));
+    TRUE));
+TEST("load_theme_css/c01_has_dark", FUN(() ,
+    (ASSERT_EQ(AT_K(res_css_c01, "has_dark", NULL), want_css_c01_has_dark));
+    TRUE));
+// ⚠ css_c02：已知差异 D7：Python 在 `base_css` 后追加 `"\n/* Pygments syntax highlighting */\n" + pygments_css`（本夹具用 `<PYGMENTS_CSS>` 占位该段），WLWL **不追加**（业主裁决：代码高亮改前端 highlight.js）。
+LET(res_css_c02, LOAD_THEME_CSS(dir_css_c02));
+TEST("load_theme_css/c02_css", FUN(() ,
+    (ASSERT_EQ(AT_K(res_css_c02, "css", NULL), want_css_c02_css));
+    TRUE));
+TEST("load_theme_css/c02_dark_css", FUN(() ,
+    (ASSERT_EQ(AT_K(res_css_c02, "dark_css", NULL), want_css_c02_dark));
+    TRUE));
+TEST("load_theme_css/c02_has_dark", FUN(() ,
+    (ASSERT_EQ(AT_K(res_css_c02, "has_dark", NULL), want_css_c02_has_dark));
+    TRUE));
+// ⚠ css_c03：已知差异 D7：Python 在 `base_css` 后追加 `"\n/* Pygments syntax highlighting */\n" + pygments_css`（本夹具用 `<PYGMENTS_CSS>` 占位该段），WLWL **不追加**（业主裁决：代码高亮改前端 highlight.js）。
+LET(res_css_c03, LOAD_THEME_CSS(dir_css_c03));
+TEST("load_theme_css/c03_css", FUN(() ,
+    (ASSERT_EQ(AT_K(res_css_c03, "css", NULL), want_css_c03_css));
+    TRUE));
+TEST("load_theme_css/c03_dark_css", FUN(() ,
+    (ASSERT_EQ(AT_K(res_css_c03, "dark_css", NULL), want_css_c03_dark));
+    TRUE));
+TEST("load_theme_css/c03_has_dark", FUN(() ,
+    (ASSERT_EQ(AT_K(res_css_c03, "has_dark", NULL), want_css_c03_has_dark));
+    TRUE));
+// ⚠ css_c04：已知差异 D7：Python 在 `base_css` 后追加 `"\n/* Pygments syntax highlighting */\n" + pygments_css`（本夹具用 `<PYGMENTS_CSS>` 占位该段），WLWL **不追加**（业主裁决：代码高亮改前端 highlight.js）。
+LET(res_css_c04, LOAD_THEME_CSS(dir_css_c04));
+TEST("load_theme_css/c04_css", FUN(() ,
+    (ASSERT_EQ(AT_K(res_css_c04, "css", NULL), want_css_c04_css));
+    TRUE));
+TEST("load_theme_css/c04_dark_css", FUN(() ,
+    (ASSERT_EQ(AT_K(res_css_c04, "dark_css", NULL), want_css_c04_dark));
+    TRUE));
+TEST("load_theme_css/c04_has_dark", FUN(() ,
+    (ASSERT_EQ(AT_K(res_css_c04, "has_dark", NULL), want_css_c04_has_dark));
+    TRUE));
+// ⚠ css_c05：已知差异 D7：Python 在 `base_css` 后追加 `"\n/* Pygments syntax highlighting */\n" + pygments_css`（本夹具用 `<PYGMENTS_CSS>` 占位该段），WLWL **不追加**（业主裁决：代码高亮改前端 highlight.js）。
+LET(res_css_c05, LOAD_THEME_CSS(dir_css_c05));
+TEST("load_theme_css/c05_css", FUN(() ,
+    (ASSERT_EQ(AT_K(res_css_c05, "css", NULL), want_css_c05_css));
+    TRUE));
+TEST("load_theme_css/c05_dark_css", FUN(() ,
+    (ASSERT_EQ(AT_K(res_css_c05, "dark_css", NULL), want_css_c05_dark));
+    TRUE));
+TEST("load_theme_css/c05_has_dark", FUN(() ,
+    (ASSERT_EQ(AT_K(res_css_c05, "has_dark", NULL), want_css_c05_has_dark));
+    TRUE));
+// ⚠ css_c06：已知差异 D7：Python 在 `base_css` 后追加 `"\n/* Pygments syntax highlighting */\n" + pygments_css`（本夹具用 `<PYGMENTS_CSS>` 占位该段），WLWL **不追加**（业主裁决：代码高亮改前端 highlight.js）。
+LET(res_css_c06, LOAD_THEME_CSS(dir_css_c06));
+TEST("load_theme_css/c06_css", FUN(() ,
+    (ASSERT_EQ(AT_K(res_css_c06, "css", NULL), want_css_c06_css));
+    TRUE));
+TEST("load_theme_css/c06_dark_css", FUN(() ,
+    (ASSERT_EQ(AT_K(res_css_c06, "dark_css", NULL), want_css_c06_dark));
+    TRUE));
+TEST("load_theme_css/c06_has_dark", FUN(() ,
+    (ASSERT_EQ(AT_K(res_css_c06, "has_dark", NULL), want_css_c06_has_dark));
+    TRUE));
+// ⚠ css_c07：已知差异 D7：Python 在 `base_css` 后追加 `"\n/* Pygments syntax highlighting */\n" + pygments_css`（本夹具用 `<PYGMENTS_CSS>` 占位该段），WLWL **不追加**（业主裁决：代码高亮改前端 highlight.js）。
+LET(res_css_c07, LOAD_THEME_CSS(dir_css_c07));
+TEST("load_theme_css/c07_css", FUN(() ,
+    (ASSERT_EQ(AT_K(res_css_c07, "css", NULL), want_css_c07_css));
+    TRUE));
+TEST("load_theme_css/c07_dark_css", FUN(() ,
+    (ASSERT_EQ(AT_K(res_css_c07, "dark_css", NULL), want_css_c07_dark));
+    TRUE));
+TEST("load_theme_css/c07_has_dark", FUN(() ,
+    (ASSERT_EQ(AT_K(res_css_c07, "has_dark", NULL), want_css_c07_has_dark));
+    TRUE));
+
+// ── 用例：load_theme_manifest ────────────────────────────────
+LET(res_man_m00, LOAD_THEME_MANIFEST(name_man_m00, dir_man_m00));
+TEST("load_theme_manifest/m00", FUN(() ,
+    (IF(want_man_m00_is_null,
+        (ASSERT_EQ(TYPE(res_man_m00), "NULL")),
+        (ASSERT_EQ(STRINGIFY(res_man_m00), want_man_m00))));
+    TRUE));
+LET(res_man_m01, LOAD_THEME_MANIFEST(name_man_m01, dir_man_m01));
+TEST("load_theme_manifest/m01", FUN(() ,
+    (IF(want_man_m01_is_null,
+        (ASSERT_EQ(TYPE(res_man_m01), "NULL")),
+        (ASSERT_EQ(STRINGIFY(res_man_m01), want_man_m01))));
+    TRUE));
+LET(res_man_m02, LOAD_THEME_MANIFEST(name_man_m02, dir_man_m02));
+TEST("load_theme_manifest/m02", FUN(() ,
+    (IF(want_man_m02_is_null,
+        (ASSERT_EQ(TYPE(res_man_m02), "NULL")),
+        (ASSERT_EQ(STRINGIFY(res_man_m02), want_man_m02))));
+    TRUE));
+LET(res_man_m03, LOAD_THEME_MANIFEST(name_man_m03, dir_man_m03));
+TEST("load_theme_manifest/m03", FUN(() ,
+    (IF(want_man_m03_is_null,
+        (ASSERT_EQ(TYPE(res_man_m03), "NULL")),
+        (ASSERT_EQ(STRINGIFY(res_man_m03), want_man_m03))));
+    TRUE));
+LET(res_man_m04, LOAD_THEME_MANIFEST(name_man_m04, dir_man_m04));
+TEST("load_theme_manifest/m04", FUN(() ,
+    (IF(want_man_m04_is_null,
+        (ASSERT_EQ(TYPE(res_man_m04), "NULL")),
+        (ASSERT_EQ(STRINGIFY(res_man_m04), want_man_m04))));
+    TRUE));
+// ⚠ man_m05：已知差异 D5：Python 没有主题名校验 ⇒ `"../etc"` 真的拼出 `themes/../etc/manifest.json` 并把内容读了出来；WLWL 先做 VALIDATE_THEME_NAME ⇒ 直接 NULL。
+LET(res_man_m05, LOAD_THEME_MANIFEST(name_man_m05, dir_man_m05));
+TEST("load_theme_manifest/m05", FUN(() ,
+    (IF(want_man_m05_is_null,
+        (ASSERT_EQ(TYPE(res_man_m05), "NULL")),
+        (ASSERT_EQ(STRINGIFY(res_man_m05), want_man_m05))));
+    TRUE));
+LET(res_man_m06, LOAD_THEME_MANIFEST(name_man_m06, dir_man_m06));
+TEST("load_theme_manifest/m06", FUN(() ,
+    (IF(want_man_m06_is_null,
+        (ASSERT_EQ(TYPE(res_man_m06), "NULL")),
+        (ASSERT_EQ(STRINGIFY(res_man_m06), want_man_m06))));
+    TRUE));
+
+// ── 用例：list_themes（先断条数，再逐项断 5 个字段）───────────
+// ⚠ lst_t00：已知差异 D6（本组固定带 note）：Python 用 `iterdir()` 顺序 （随文件系统变化：NTFS 近似名称序、ext4 是哈希序）⇒ **不可复现**，故 `python` 列已**按名称排序后**登记；WLWL 固定**目录名升序**。
+LET(res_lst_t00, LIST_THEMES(dir_lst_t00));
+TEST("list_themes/t00_len", FUN(() ,
+    (ASSERT_EQ(LEN(res_lst_t00), want_lst_t00_n));
+    TRUE));
+LET(e_lst_t00_0, AT(res_lst_t00, 0, DICT()));
+TEST("list_themes/t00_0_name", FUN(() ,
+    (ASSERT_EQ(AT_K(e_lst_t00_0, "name", NULL), want_lst_t00_0_name));
+    TRUE));
+TEST("list_themes/t00_0_display_name", FUN(() ,
+    (ASSERT_EQ(AT_K(e_lst_t00_0, "display_name", NULL), want_lst_t00_0_disp));
+    TRUE));
+TEST("list_themes/t00_0_description", FUN(() ,
+    (ASSERT_EQ(AT_K(e_lst_t00_0, "description", NULL), want_lst_t00_0_desc));
+    TRUE));
+TEST("list_themes/t00_0_default_layout", FUN(() ,
+    (ASSERT_EQ(AT_K(e_lst_t00_0, "default_layout", NULL), want_lst_t00_0_dlay));
+    TRUE));
+TEST("list_themes/t00_0_layouts", FUN(() ,
+    (ASSERT_EQ(JOIN(AT_K(e_lst_t00_0, "layouts", []), ","), want_lst_t00_0_layouts));
+    TRUE));
+LET(e_lst_t00_1, AT(res_lst_t00, 1, DICT()));
+TEST("list_themes/t00_1_name", FUN(() ,
+    (ASSERT_EQ(AT_K(e_lst_t00_1, "name", NULL), want_lst_t00_1_name));
+    TRUE));
+TEST("list_themes/t00_1_display_name", FUN(() ,
+    (ASSERT_EQ(AT_K(e_lst_t00_1, "display_name", NULL), want_lst_t00_1_disp));
+    TRUE));
+TEST("list_themes/t00_1_description", FUN(() ,
+    (ASSERT_EQ(AT_K(e_lst_t00_1, "description", NULL), want_lst_t00_1_desc));
+    TRUE));
+TEST("list_themes/t00_1_default_layout", FUN(() ,
+    (ASSERT_EQ(AT_K(e_lst_t00_1, "default_layout", NULL), want_lst_t00_1_dlay));
+    TRUE));
+TEST("list_themes/t00_1_layouts", FUN(() ,
+    (ASSERT_EQ(JOIN(AT_K(e_lst_t00_1, "layouts", []), ","), want_lst_t00_1_layouts));
+    TRUE));
+LET(e_lst_t00_2, AT(res_lst_t00, 2, DICT()));
+TEST("list_themes/t00_2_name", FUN(() ,
+    (ASSERT_EQ(AT_K(e_lst_t00_2, "name", NULL), want_lst_t00_2_name));
+    TRUE));
+TEST("list_themes/t00_2_display_name", FUN(() ,
+    (ASSERT_EQ(AT_K(e_lst_t00_2, "display_name", NULL), want_lst_t00_2_disp));
+    TRUE));
+TEST("list_themes/t00_2_description", FUN(() ,
+    (ASSERT_EQ(AT_K(e_lst_t00_2, "description", NULL), want_lst_t00_2_desc));
+    TRUE));
+TEST("list_themes/t00_2_default_layout", FUN(() ,
+    (ASSERT_EQ(AT_K(e_lst_t00_2, "default_layout", NULL), want_lst_t00_2_dlay));
+    TRUE));
+TEST("list_themes/t00_2_layouts", FUN(() ,
+    (ASSERT_EQ(JOIN(AT_K(e_lst_t00_2, "layouts", []), ","), want_lst_t00_2_layouts));
+    TRUE));
+// ⚠ lst_t01：已知差异 D6（本组固定带 note）：Python 用 `iterdir()` 顺序 （随文件系统变化：NTFS 近似名称序、ext4 是哈希序）⇒ **不可复现**，故 `python` 列已**按名称排序后**登记；WLWL 固定**目录名升序**。
+LET(res_lst_t01, LIST_THEMES(dir_lst_t01));
+TEST("list_themes/t01_len", FUN(() ,
+    (ASSERT_EQ(LEN(res_lst_t01), want_lst_t01_n));
+    TRUE));
+// ⚠ lst_t02：已知差异 D6（本组固定带 note）：Python 用 `iterdir()` 顺序 （随文件系统变化：NTFS 近似名称序、ext4 是哈希序）⇒ **不可复现**，故 `python` 列已**按名称排序后**登记；WLWL 固定**目录名升序**。
+LET(res_lst_t02, LIST_THEMES(dir_lst_t02));
+TEST("list_themes/t02_len", FUN(() ,
+    (ASSERT_EQ(LEN(res_lst_t02), want_lst_t02_n));
+    TRUE));
+// ⚠ lst_t03：已知差异 D6（本组固定带 note）：Python 用 `iterdir()` 顺序 （随文件系统变化：NTFS 近似名称序、ext4 是哈希序）⇒ **不可复现**，故 `python` 列已**按名称排序后**登记；WLWL 固定**目录名升序**。
+LET(res_lst_t03, LIST_THEMES(dir_lst_t03));
+TEST("list_themes/t03_len", FUN(() ,
+    (ASSERT_EQ(LEN(res_lst_t03), want_lst_t03_n));
+    TRUE));
+
+// ── 反向守卫（卡 S2-3 的要求）─────────────────────────────────
+// ① ../etc 形态的主题名必须被拒（D5）
+TEST("guard/traversal_theme_name_rejected", FUN(() ,
+    (ASSERT_EQ(VALIDATE_THEME_NAME("../etc"), FALSE));
+    (ASSERT_EQ(VALIDATE_THEME_NAME(".."), FALSE));
+    (ASSERT_EQ(VALIDATE_THEME_NAME("a/b"), FALSE));
+    (ASSERT_EQ(VALIDATE_THEME_NAME("a\\b"), FALSE));
+    (ASSERT_EQ(VALIDATE_THEME_NAME(""), FALSE));
+    TRUE));
+// ② 即使目录里**真的**存在 themes 之外的 etc/manifest.json，
+//    恶意主题名也必须拿到 NULL —— 这是 D5 的可执行形态。
+LET(_GUARD_ROOT_, PATH_JOIN(_TD_, "guard_manifest"));
+MKDIRS(PATH_JOIN(_GUARD_ROOT_, "themes/alpha"));
+MKDIRS(PATH_JOIN(_GUARD_ROOT_, "etc"));
+WRITE_BYTES(PATH_JOIN(_GUARD_ROOT_, "etc/manifest.json"), UTF8_ENCODE("{\"name\": \"evil\"}"));
+LET(_GUARD_THEMES_, PATH_JOIN(_GUARD_ROOT_, "themes"));
+TEST("guard/traversal_manifest_is_null", FUN(() ,
+    (ASSERT_EQ(TYPE(LOAD_THEME_MANIFEST("../etc", _GUARD_THEMES_)), "NULL"));
+    TRUE));
+// ③ CRLF 文件读出的 CSS **不得**含 \r（D7 之外的另一半：换行归一）
+//    ⚠ 这条与 load_theme_css/c04 的逐字节对照互补：那条断「等于什么」，
+//      这条断「不得含什么」，防的是「两边一起错成 CRLF」。
+LET(_CRLF_DIR_, PATH_JOIN(_TD_, "guard_crlf"));
+MKDIRS(_CRLF_DIR_);
+WRITE_BYTES(PATH_JOIN(_CRLF_DIR_, "theme.css"), UTF8_ENCODE("a\r\nb\r\n"));
+LET(_CRLF_CSS_, AT_K(LOAD_THEME_CSS(_CRLF_DIR_), "css", NULL));
+TEST("guard/crlf_css_has_no_cr", FUN(() ,
+    (ASSERT(!CONTAINS_SUB(_CRLF_CSS_, "\r")));
+    (ASSERT_EQ(_CRLF_CSS_, "a\nb\n"));
+    TRUE));
+// ④ 主题列表必须**目录名升序** —— 目录按**逆序**创建（zeta, mm, alpha）
+//    ⇒ 若实现跟随文件系统/创建顺序，这里必红。这是 D6 的可执行形态。
+LET(_ORD_DIR_, PATH_JOIN(_TD_, "guard_order"));
+MKDIRS(_ORD_DIR_);
+MKDIRS(PATH_JOIN(_ORD_DIR_, "zeta"));
+MKDIRS(PATH_JOIN(_ORD_DIR_, "mm"));
+MKDIRS(PATH_JOIN(_ORD_DIR_, "alpha"));
+LET(_ORD_, LIST_THEMES(_ORD_DIR_));
+TEST("guard/themes_sorted_ascending", FUN(() ,
+    (ASSERT_EQ(LEN(_ORD_), 3));
+    (ASSERT_EQ(AT_K(AT(_ORD_, 0, DICT()), "name", NULL), "alpha"));
+    (ASSERT_EQ(AT_K(AT(_ORD_, 1, DICT()), "name", NULL), "mm"));
+    (ASSERT_EQ(AT_K(AT(_ORD_, 2, DICT()), "name", NULL), "zeta"));
+    TRUE));
+
+// ── 跑测试 ────────────────────────────────────────────────────
+LET(records, RUN_TESTS());
+PRINT("test_theme: ", LEN(records), " test(s) run");
+
+LET MUT(failed, 0);
+FOR(rec, records,
+    (IF(AT_K(rec, "passed", FALSE),
+        PRINT("  PASS ", AT_K(rec, "name", "?")),
+        (SET(failed, +(failed, 1));
+         PRINT("  FAIL ", AT_K(rec, "name", "?"))))));
+PRINT("test_theme: failed=", failed);
+IF(>(failed, 0), (PRINT_ERR("test_theme: FAILED"); PANIC("theme tests failed")), NULL);
+PRINT("test_theme: OK");

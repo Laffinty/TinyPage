@@ -131,6 +131,15 @@ powershell -File tp\test\ci_local_check.ps1
 | 29 | **多行「语句字符串」会被逐行补 `;`** ⇒ 把一条 `IF(...)` 拆成几行字符串会变成 `IF(...,;` | `E0010: expected expression, got Semicolon` | 一条表达式的**参数**不能跨行拆；要么写成**单行**字符串，要么用 `C('IF', cond, [then语句], [else语句])`（分支是**语句列表**时才用 list） |
 | 30 | **`PATH_JOIN(base, 绝对路径)` 只拼接、不覆盖**（Python 的 `base / abs` 会覆盖） | 传绝对路径进去得到 `base/C:/x/y.html` 这种废路径 | 先判绝对（`SUB(p,0,1)=="/"` 或盘符 `C:`），绝对时**直接用自身**取代 base。⚠ `TEMP_DIR()` 返回**反斜杠**形式，盘符判定要同时认 `:/` 与 `:\` |
 | 31 | **`PATH_BASE` 不剥扩展名、`PATH_EXT` 不含前导点** | 照 Python `Path.suffix`（含点）写 ⇒ 少砍一个字符 | 有后缀时砍 `LEN(ext) + 1` 个码点；`PATH_DIR` 的无父目录返回 `""`（不是 `"."`） |
+| 32 | ⚠⚠ **字符串字面量里 `${...}` / `$var` 是插值，不是字面量** | 写 `PRINT("a${d}b")` 会去取变量 `d`；`"${unclosed"` 直接 `E0002`（报错位置指到行首，极难认） | 要**字面美元符**一律写 `\$`（`"\\$x"` ⇒ 输出 `$x`）。实现 `$` 模板引擎时这一条是前提 |
+| 33 | **`wlwl check` 只解析、不解析名字** | `PRINT(TO_STRING(42))` 过 check，run 时才 `E0020: undefined name` | 「check OK」≠「符号存在」⇒ 只能靠 `wlwl run` 验证 |
+| 34 | **`+` 不做隐式转字符串** | `+(out, NULL)` ⇒ `E0030: +: cannot add string and null` | 拼接前 `STR(x)`（Python 侧靠隐式 `str()` 的地方都要补） |
+| 35 | **`AT_K(NULL, k, default)` 是运行时 `E0030`** —— 默认值**不兜** NULL 基值 | Python 的 `d.get(k, x) if d else x` 照抄过来就崩 | 先判 `TYPE(d) == "NULL"` 再取值 |
+| 36 | **`RE_TEST` 整串锚定 ⇒ 不能当「包含子串」用** | `RE_TEST(RE("[.][.]"), s)` 只匹配 `s == ".."`，判不出 `"a..b"` | 「含某子串」用 `LEN(RE_FIND_ALL(re, s)) > 0` |
+| 37 | **`LIST_DIR` 已排序 + 正斜杠 + 完整前缀；对「不存在」和「传入文件」都返 `ERR`** | 想先 `LET(x, LIST_DIR(p))` 再遍历 ⇒ E0103；顺序也不是现场顺序 | 结果**只能内联**用：`FOR(e, LIST_DIR(p), …)`；空目录返 `[]` |
+| 38 | ⚠ **`wllgen.C()` 的参数里不能放嵌套 `C()` 节点** | `render_call` 会把内层调用渲染**两遍**（`F(g(x)` / `g(x))`）⇒ 产出坏代码，再被逗号守卫误报成假阳性 | `C()` 的参数一律用**表达式字符串**（既有生成器全是这么写的，原因就在这） |
+| 39 | **`UNWRAP_OR` 只吃 OK/ERR** | 对普通串报 `E0030: expected OK/ERR, got string` | 「STRING 或 ERR」的接地用 `IS_ERR(调用)` 判别；载荷一步取用 `std.result::TAKE_ERR(调用)`（`NULL` 表示非 ERR） |
+| 40 | **Python 的 `read_text()` 还会把「孤立 CR」转成 LF** | 只做 CRLF→LF 归一化，遇到老 Mac 换行的文件仍与 Python 不一致 | CRLF **和** 孤立 CR 都要归一成 LF（`themes/default/theme.css` 本身无孤立 CR，但基准里有专门用例钉这条） |
 
 ## 参考
 

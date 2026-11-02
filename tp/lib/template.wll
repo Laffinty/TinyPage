@@ -1,0 +1,301 @@
+// tp/lib/template.wll —— 页面骨架模板与 string.Template 复刻（卡 S2-3）
+//
+// ⚠ 本文件由 tp/test/gen_template.py 生成 —— 请勿手改。
+//   改实现请改生成器（WLWL 的括号诊断不告诉你缺了几层）。
+//
+// 对齐目标（真 Python 源码树）：
+//   SUBSTITUTE(tmpl, mapping)   == string.Template(tmpl).substitute(mapping)
+//   SAFE_SUBSTITUTE(tmpl, mp)   == string.Template(tmpl).safe_substitute(mp)
+//   RENDER_SKELETON(type, opts) == core/template.py:52 render_skeleton
+//   ESCAPE_HTML                 == security.py  escape_html（复用 ./esc.wll）
+//
+// 逐字节对照基准：tp/test/fixtures/template_baseline.json
+//   （由 tp/test/gen_template_baseline.py 用真 Python 生成）
+//
+// ⚠ 两套语义**不合并**：严格与宽容是两个独立函数，运行时没有 mode 开关。
+//
+// ⚠ 本机实测的四条坑（详见生成器 docstring）：
+//   ① WLWL 字符串字面量里 `${...}` 是**插值** ⇒ 所有 `$` 写成 `\$`。
+//   ② `LET(r, <ERR>)` 绑定不算消费 ⇒ ERR 只在**返回位**构造一次。
+//   ③ `UNWRAP_OR` 只吃 OK/ERR ⇒ 测试侧用 IS_ERR + TAKE_ERR。
+//   ④ 判键存在用 `CONTAINS(KEYS(d), k)`（`AT_K(d,k,NULL)` 会误判 NULL 值）。
+//   ⑤ Python 的 convert() 是 `str(mapping[named])` ⇒ 取值必须 `STR(...)`
+//      （`+` 不隐式转串：实测 `+(out, NULL)` ⇒ E0030）。
+//      ⚠ STR 与 Python 的 str() 只在**标量**上逐字相同：NULL/布尔/字典
+//        的渲染口径不同 ⇒ 已登记 3 条已知差异（见基准的 note）。
+//
+IMPORT("wlwl:std.regex", ["RE", "RE_TEST"]);
+IMPORT("./esc.wll", ["ESCAPE_HTML"]);
+
+// 标识符字符集 —— 对齐 string.Template 的 idpattern `(?a:[_a-z][_a-z0-9]*)`
+// ⚠ **ASCII only**：`$中文` 在 Python 侧是 invalid（因为 `(?a:…)`），
+//   这里同样只认 A-Z a-z 0-9 _（不得加 CJK 区间）。
+// ⚠ 用**单字符整串锚定**的 RE_TEST（它两端都锚，正合此处需要）。
+LET(ID_START_RE, RE("^[A-Za-z_]$"));
+LET(ID_CHAR_RE, RE("^[A-Za-z0-9_]$"));
+
+// // c 是否是标识符的**起始**字符（`[A-Za-z_]`，ASCII only）
+     LET(IS_ID_START, FUN((c), (
+               RE_TEST(ID_START_RE, c)
+     )));
+
+// // c 是否是标识符的**后续**字符（`[A-Za-z0-9_]`，ASCII only）
+     LET(IS_ID_CHAR, FUN((c), (
+               RE_TEST(ID_CHAR_RE, c)
+     )));
+
+// // 字典是否有键 k（对齐 Python 的 `k in mapping`）
+     LET(HAS_KEY, FUN((d, k), (
+               // Python 侧的 `k in mapping` —— ⚠ 不用 `AT_K(d, k, NULL)`：;
+               //   那会把**值为 NULL** 的键误判成缺失（Python 会 str(None) ⇒ "None"）。;
+               CONTAINS(KEYS(d), k)
+     )));
+
+// // 严格替换（对齐 string.Template.substitute；缺键/非法 ⇒ ERR）
+     LET(SUBSTITUTE, FUN((tmpl, mapping), (
+               // 逐**码点**扫描（LEN / SUB 都是码点口径，与 Python 的 str 索引一致）;
+               LET MUT(out, "");
+               LET MUT(i, 0);
+               LET(n, LEN(tmpl));
+               LET MUT(next, "");
+               LET MUT(j, 0);
+               LET MUT(name, "");
+               // 错误状态用**普通值**携带（绝不在中途绑定 ERR —— 绑定不算消费）;
+               LET MUT(ekind, "");
+               LET MUT(ekey, "");
+               LET MUT(epos, -1);
+               WHILE(&&(<(i, n), ==(ekind, "")), (
+                    IF(!= (SUB(tmpl, i, 1), "$"), (
+                         // 普通字符 —— 原样搬过去;
+                         SET(out, +(out, SUB(tmpl, i, 1)));
+                         SET(i, +(i, 1))
+                    ), (
+                         // 命中 `$` —— 按 CPython pattern 的**分支顺序**判定：;
+                         //   `$$` → named → braced → invalid;
+                         IF(>=(+(i, 1), n), (
+                              // 结尾孤立的 `$`（后面什么都没有）;
+                              SET(ekind, "ValueError");
+                              SET(epos, i);
+                              SET(i, +(i, 1))
+                         ), (
+                              SET(next, SUB(tmpl, +(i, 1), 1));
+                              IF(==(next, "$"), (
+                                   // `$$` ⇒ 一个字面 `$`;
+                                   SET(out, +(out, "$"));
+                                   SET(i, +(i, 2))
+                              ), (
+                                   IF(==(next, "{"), (
+                                        // `${` 后面必须紧跟标识符起始字符（`${1}` / `${a b}` / `${}` 都是 invalid）;
+                                        IF(&&(<(+(i, 2), n), IS_ID_START(SUB(tmpl, +(i, 2), 1))), (
+                                             SET(j, +(i, 2));
+                                             WHILE(&&(<(j, n), IS_ID_CHAR(SUB(tmpl, j, 1))), (
+                                                  SET(j, +(j, 1))
+                                             ));
+                                             IF(&&(<(j, n), ==(SUB(tmpl, j, 1), "}")), (
+                                                  SET(name, SUB(tmpl, +(i, 2), -(j, +(i, 2))));
+                                                  IF(HAS_KEY(mapping, name), (
+                                                       // Python 的 convert() 是 `str(mapping[named])` ⇒ 这里必须 STR() 一道;
+                                                       // （不加就会对非字符串值报 `E0030: +: cannot add string and null`）。;
+                                                       // ⚠ 已知差异：NULL / 布尔 / 容器的渲染与 Python 的 str() 不同，见基准的 note。;
+                                                       SET(out, +(out, STR(AT_K(mapping, name, ""))));
+                                                       SET(i, +(j, 1))
+                                                  ), (
+                                                       SET(ekind, "KeyError");
+                                                       SET(ekey, name);
+                                                       SET(i, +(j, 1))
+                                                  ))
+                                             ), (
+                                                  SET(ekind, "ValueError");
+                                                  SET(epos, i);
+                                                  SET(i, +(i, 1))
+                                             ))
+                                        ), (
+                                             SET(ekind, "ValueError");
+                                             SET(epos, i);
+                                             SET(i, +(i, 1))
+                                        ))
+                                   ), (
+                                        IF(IS_ID_START(next), (
+                                             SET(j, +(i, 1));
+                                             WHILE(&&(<(j, n), IS_ID_CHAR(SUB(tmpl, j, 1))), (
+                                                  SET(j, +(j, 1))
+                                             ));
+                                             SET(name, SUB(tmpl, +(i, 1), -(j, +(i, 1))));
+                                             IF(HAS_KEY(mapping, name), (
+                                                  // Python 的 convert() 是 `str(mapping[named])` ⇒ 这里必须 STR() 一道;
+                                                  // （不加就会对非字符串值报 `E0030: +: cannot add string and null`）。;
+                                                  // ⚠ 已知差异：NULL / 布尔 / 容器的渲染与 Python 的 str() 不同，见基准的 note。;
+                                                  SET(out, +(out, STR(AT_K(mapping, name, ""))));
+                                                  SET(i, j)
+                                             ), (
+                                                  SET(ekind, "KeyError");
+                                                  SET(ekey, name);
+                                                  SET(i, j)
+                                             ))
+                                        ), (
+                                             SET(ekind, "ValueError");
+                                             SET(epos, i);
+                                             SET(i, +(i, 1))
+                                        ))
+                                   ))
+                              ))
+                         ))
+                    ))
+               ));
+               IF(==(ekind, ""), out, IF(==(ekind, "KeyError"), ERR(INDEX_SET(INDEX_SET(DICT(), "kind", "KeyError"), "key", ekey)), ERR(INDEX_SET(INDEX_SET(INDEX_SET(DICT(), "kind", "ValueError"), "what", "invalid_placeholder"), "pos", epos))))
+     )));
+
+// // 宽容替换（对齐 safe_substitute；缺键/非法 ⇒ 原样保留）
+     LET(SAFE_SUBSTITUTE, FUN((tmpl, mapping), (
+               // 逐**码点**扫描（LEN / SUB 都是码点口径，与 Python 的 str 索引一致）;
+               LET MUT(out, "");
+               LET MUT(i, 0);
+               LET(n, LEN(tmpl));
+               LET MUT(next, "");
+               LET MUT(j, 0);
+               LET MUT(name, "");
+               WHILE(<(i, n), (
+                    IF(!= (SUB(tmpl, i, 1), "$"), (
+                         // 普通字符 —— 原样搬过去;
+                         SET(out, +(out, SUB(tmpl, i, 1)));
+                         SET(i, +(i, 1))
+                    ), (
+                         // 命中 `$` —— 按 CPython pattern 的**分支顺序**判定：;
+                         //   `$$` → named → braced → invalid;
+                         IF(>=(+(i, 1), n), (
+                              // 结尾孤立的 `$`（后面什么都没有）;
+                              // safe：非法 ⇒ 原样保留那个 `$`（Python: return mo.group()）;
+                              SET(out, +(out, "$"));
+                              SET(i, +(i, 1))
+                         ), (
+                              SET(next, SUB(tmpl, +(i, 1), 1));
+                              IF(==(next, "$"), (
+                                   // `$$` ⇒ 一个字面 `$`;
+                                   SET(out, +(out, "$"));
+                                   SET(i, +(i, 2))
+                              ), (
+                                   IF(==(next, "{"), (
+                                        // `${` 后面必须紧跟标识符起始字符（`${1}` / `${a b}` / `${}` 都是 invalid）;
+                                        IF(&&(<(+(i, 2), n), IS_ID_START(SUB(tmpl, +(i, 2), 1))), (
+                                             SET(j, +(i, 2));
+                                             WHILE(&&(<(j, n), IS_ID_CHAR(SUB(tmpl, j, 1))), (
+                                                  SET(j, +(j, 1))
+                                             ));
+                                             IF(&&(<(j, n), ==(SUB(tmpl, j, 1), "}")), (
+                                                  SET(name, SUB(tmpl, +(i, 2), -(j, +(i, 2))));
+                                                  IF(HAS_KEY(mapping, name), (
+                                                       // Python 的 convert() 是 `str(mapping[named])` ⇒ 这里必须 STR() 一道;
+                                                       // （不加就会对非字符串值报 `E0030: +: cannot add string and null`）。;
+                                                       // ⚠ 已知差异：NULL / 布尔 / 容器的渲染与 Python 的 str() 不同，见基准的 note。;
+                                                       SET(out, +(out, STR(AT_K(mapping, name, ""))));
+                                                       SET(i, +(j, 1))
+                                                  ), (
+                                                       // safe：缺键 ⇒ **原样保留**整段占位符（Python: return mo.group()）;
+                                                       SET(out, +(out, SUB(tmpl, i, -(+(j, 1), i))));
+                                                       SET(i, +(j, 1))
+                                                  ))
+                                             ), (
+                                                  // safe：非法 ⇒ 原样保留那个 `$`（Python: return mo.group()）;
+                                                  SET(out, +(out, "$"));
+                                                  SET(i, +(i, 1))
+                                             ))
+                                        ), (
+                                             // safe：非法 ⇒ 原样保留那个 `$`（Python: return mo.group()）;
+                                             SET(out, +(out, "$"));
+                                             SET(i, +(i, 1))
+                                        ))
+                                   ), (
+                                        IF(IS_ID_START(next), (
+                                             SET(j, +(i, 1));
+                                             WHILE(&&(<(j, n), IS_ID_CHAR(SUB(tmpl, j, 1))), (
+                                                  SET(j, +(j, 1))
+                                             ));
+                                             SET(name, SUB(tmpl, +(i, 1), -(j, +(i, 1))));
+                                             IF(HAS_KEY(mapping, name), (
+                                                  // Python 的 convert() 是 `str(mapping[named])` ⇒ 这里必须 STR() 一道;
+                                                  // （不加就会对非字符串值报 `E0030: +: cannot add string and null`）。;
+                                                  // ⚠ 已知差异：NULL / 布尔 / 容器的渲染与 Python 的 str() 不同，见基准的 note。;
+                                                  SET(out, +(out, STR(AT_K(mapping, name, ""))));
+                                                  SET(i, j)
+                                             ), (
+                                                  // safe：缺键 ⇒ **原样保留**整段占位符（Python: return mo.group()）;
+                                                  SET(out, +(out, SUB(tmpl, i, -(j, i))));
+                                                  SET(i, j)
+                                             ))
+                                        ), (
+                                             // safe：非法 ⇒ 原样保留那个 `$`（Python: return mo.group()）;
+                                             SET(out, +(out, "$"));
+                                             SET(i, +(i, 1))
+                                        ))
+                                   ))
+                              ))
+                         ))
+                    ))
+               ));
+               out
+     )));
+
+// 页面骨架 —— 逐字抄自 tinypage/core/template.py:11-49（⚠ 无结尾换行）
+// ⚠ 19 个占位符全是裸 `$name`（无花括号形态）；`$page_type` **不存在** ——
+//   Python 侧虽然把 page_type 传进 substitute，但骨架里没有用到它。
+LET(SKELETON, "<!DOCTYPE html>\n<html lang=\"\$lang\">\n<head>\n<meta charset=\"utf-8\">\n<meta name=\"viewport\" content=\"width=device-width,initial-scale=1\">\n\$dark_mode_meta\n\$pwa_meta\n\$vt_meta\n<meta name=\"description\" content=\"\$description\">\n\$og_html\n\$json_ld_html\n\$pwa_manifest\n<title>\$page_title - \$site_title</title>\n<style>\n\$theme_css\n</style>\n\$dark_css_block\n\$dark_mode_script\n</head>\n<body>\n<div class=\"container\">\n  <header class=\"site-header\">\n    <a href=\"/\" class=\"site-title\">\$site_title</a>\n    <nav class=\"site-nav\" aria-label=\"站点导航\">\n      \$nav_links\n      \$theme_toggle\n    </nav>\n  </header>\n  <main>\n\$body_content\n  </main>\n  <footer class=\"site-footer\">\n    <p>\$footer_text</p>\n  </footer>\n</div>\n\$search_script\n\$mermaid_script\n</body>\n</html>");
+
+// // 渲染整页 HTML（对齐 core/template.py:52 render_skeleton）
+     LET(RENDER_SKELETON, FUN((page_type, opts), (
+               // ① 构造 mapping（Python: t.substitute(**{...}) 的关键字表）;
+               LET MUT(m, DICT());
+               LET MUT(dcb, "");
+               LET MUT(ft, "");
+               SET(m, INDEX_SET(m, "lang", ESCAPE_HTML(AT_K(opts, "lang", "zh-CN"))));
+               SET(m, INDEX_SET(m, "site_title", ESCAPE_HTML(AT_K(opts, "site_title", ""))));
+               SET(m, INDEX_SET(m, "page_title", ESCAPE_HTML(AT_K(opts, "page_title", ""))));
+               SET(m, INDEX_SET(m, "description", ESCAPE_HTML(AT_K(opts, "description", ""))));
+               // `dark_mode_meta` **不** escape（已构造好的 HTML 片段）;
+               SET(m, INDEX_SET(m, "dark_mode_meta", AT_K(opts, "dark_mode_meta", "")));
+               // `pwa_meta` **不** escape（已构造好的 HTML 片段）;
+               SET(m, INDEX_SET(m, "pwa_meta", AT_K(opts, "pwa_meta", "")));
+               // `vt_meta` **不** escape（已构造好的 HTML 片段）;
+               SET(m, INDEX_SET(m, "vt_meta", AT_K(opts, "vt_meta", "")));
+               // `og_html` **不** escape（已构造好的 HTML 片段）;
+               SET(m, INDEX_SET(m, "og_html", AT_K(opts, "og_html", "")));
+               // `json_ld_html` **不** escape（已构造好的 HTML 片段）;
+               SET(m, INDEX_SET(m, "json_ld_html", AT_K(opts, "json_ld_html", "")));
+               // `pwa_manifest` **不** escape（已构造好的 HTML 片段）;
+               SET(m, INDEX_SET(m, "pwa_manifest", AT_K(opts, "pwa_manifest", "")));
+               // `theme_css` **不** escape（已构造好的 HTML 片段）;
+               SET(m, INDEX_SET(m, "theme_css", AT_K(opts, "theme_css", "")));
+               // `dark_mode_script` **不** escape（已构造好的 HTML 片段）;
+               SET(m, INDEX_SET(m, "dark_mode_script", AT_K(opts, "dark_mode_script", "")));
+               // `nav_links` **不** escape（已构造好的 HTML 片段）;
+               SET(m, INDEX_SET(m, "nav_links", AT_K(opts, "nav_links", "")));
+               // `theme_toggle` **不** escape（已构造好的 HTML 片段）;
+               SET(m, INDEX_SET(m, "theme_toggle", AT_K(opts, "theme_toggle", "")));
+               // `body_content` **不** escape（已构造好的 HTML 片段）;
+               SET(m, INDEX_SET(m, "body_content", AT_K(opts, "body_content", "")));
+               // `search_script` **不** escape（已构造好的 HTML 片段）;
+               SET(m, INDEX_SET(m, "search_script", AT_K(opts, "search_script", "")));
+               // `mermaid_script` **不** escape（已构造好的 HTML 片段）;
+               SET(m, INDEX_SET(m, "mermaid_script", AT_K(opts, "mermaid_script", "")));
+               // ② footer_text 是**条件** escape：空 ⇒ ""，非空 ⇒ escape;
+               //    （Python: escape_html(footer_text) if footer_text else ""）;
+               IF(==(AT_K(opts, "footer_text", ""), ""), (
+                    SET(ft, "")
+               ), (
+                    SET(ft, ESCAPE_HTML(AT_K(opts, "footer_text", "")))
+               ));
+               SET(m, INDEX_SET(m, "footer_text", ft));
+               // ③ dark_css_block 是**派生**占位符，不是入参;
+               //    Python: f'<style media="(prefers-color-scheme: dark)">{dark_css}</style>' if dark_css else "";
+               IF(==(AT_K(opts, "dark_css", ""), ""), (
+                    SET(dcb, "")
+               ), (
+                    SET(dcb, +("<style media=\"(prefers-color-scheme: dark)\">", +(AT_K(opts, "dark_css", ""), "</style>")))
+               ));
+               SET(m, INDEX_SET(m, "dark_css_block", dcb));
+               // ④ 复用 SUBSTITUTE（不另写一套替换）;
+               // ⚠ `has_dark` 参数 Python 接了但**没用到** ⇒ 这里同样不读（不自己发挥）。;
+               // ⚠ `page_type` 同理：骨架里没有 `$page_type`，只是签名的一部分。;
+               SUBSTITUTE(SKELETON, m)
+     )));
+
+EXPORT(["SUBSTITUTE", "SAFE_SUBSTITUTE", "RENDER_SKELETON"]);

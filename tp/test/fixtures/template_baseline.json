@@ -1,0 +1,1972 @@
+{
+  "_meta": {
+    "err_shape": {
+      "invalid_placeholder": {
+        "kind": "ValueError",
+        "pos": "<`$` 的码点下标（0 基）>",
+        "what": "invalid_placeholder"
+      },
+      "key_error": {
+        "key": "<缺失的键名>",
+        "kind": "KeyError"
+      }
+    },
+    "generated_by": "tp/test/gen_template_baseline.py",
+    "known_difference_count": 6,
+    "python_functions": {
+      "render_skeleton": "tinypage.core.template.render_skeleton (core/template.py:52)",
+      "safe_substitute": "string.Template.safe_substitute (CPython Lib/string.py)",
+      "substitute": "string.Template.substitute (CPython Lib/string.py；idpattern 为 (?a:[_a-z][_a-z0-9]*)，IGNORECASE ⇒ ASCII only)"
+    },
+    "skeleton": {
+      "chars": 737,
+      "lines": 39,
+      "note": "Python 侧 _PAGE_SKELETON（core/template.py:11-49）；gen_template.py 的副本已在生成期逐字比对。",
+      "trailing_newline": false
+    }
+  },
+  "cases": {
+    "render_skeleton": {
+      "r00/minimal": {
+        "input": {
+          "opts": {
+            "body_content": "<p>body</p>",
+            "description": "Desc",
+            "page_title": "Page",
+            "site_title": "Site",
+            "theme_css": "body{margin:0}"
+          },
+          "page_type": "article"
+        },
+        "note": null,
+        "python": "<!DOCTYPE html>\n<html lang=\"zh-CN\">\n<head>\n<meta charset=\"utf-8\">\n<meta name=\"viewport\" content=\"width=device-width,initial-scale=1\">\n\n\n\n<meta name=\"description\" content=\"Desc\">\n\n\n\n<title>Page - Site</title>\n<style>\nbody{margin:0}\n</style>\n\n\n</head>\n<body>\n<div class=\"container\">\n  <header class=\"site-header\">\n    <a href=\"/\" class=\"site-title\">Site</a>\n    <nav class=\"site-nav\" aria-label=\"站点导航\">\n      \n      \n    </nav>\n  </header>\n  <main>\n<p>body</p>\n  </main>\n  <footer class=\"site-footer\">\n    <p></p>\n  </footer>\n</div>\n\n\n</body>\n</html>",
+        "want": "<!DOCTYPE html>\n<html lang=\"zh-CN\">\n<head>\n<meta charset=\"utf-8\">\n<meta name=\"viewport\" content=\"width=device-width,initial-scale=1\">\n\n\n\n<meta name=\"description\" content=\"Desc\">\n\n\n\n<title>Page - Site</title>\n<style>\nbody{margin:0}\n</style>\n\n\n</head>\n<body>\n<div class=\"container\">\n  <header class=\"site-header\">\n    <a href=\"/\" class=\"site-title\">Site</a>\n    <nav class=\"site-nav\" aria-label=\"站点导航\">\n      \n      \n    </nav>\n  </header>\n  <main>\n<p>body</p>\n  </main>\n  <footer class=\"site-footer\">\n    <p></p>\n  </footer>\n</div>\n\n\n</body>\n</html>"
+      },
+      "r01/dark_css": {
+        "input": {
+          "opts": {
+            "body_content": "<p>body</p>",
+            "dark_css": "a{color:#000}",
+            "description": "Desc",
+            "page_title": "Page",
+            "site_title": "Site",
+            "theme_css": "body{margin:0}"
+          },
+          "page_type": "article"
+        },
+        "note": null,
+        "python": "<!DOCTYPE html>\n<html lang=\"zh-CN\">\n<head>\n<meta charset=\"utf-8\">\n<meta name=\"viewport\" content=\"width=device-width,initial-scale=1\">\n\n\n\n<meta name=\"description\" content=\"Desc\">\n\n\n\n<title>Page - Site</title>\n<style>\nbody{margin:0}\n</style>\n<style media=\"(prefers-color-scheme: dark)\">a{color:#000}</style>\n\n</head>\n<body>\n<div class=\"container\">\n  <header class=\"site-header\">\n    <a href=\"/\" class=\"site-title\">Site</a>\n    <nav class=\"site-nav\" aria-label=\"站点导航\">\n      \n      \n    </nav>\n  </header>\n  <main>\n<p>body</p>\n  </main>\n  <footer class=\"site-footer\">\n    <p></p>\n  </footer>\n</div>\n\n\n</body>\n</html>",
+        "want": "<!DOCTYPE html>\n<html lang=\"zh-CN\">\n<head>\n<meta charset=\"utf-8\">\n<meta name=\"viewport\" content=\"width=device-width,initial-scale=1\">\n\n\n\n<meta name=\"description\" content=\"Desc\">\n\n\n\n<title>Page - Site</title>\n<style>\nbody{margin:0}\n</style>\n<style media=\"(prefers-color-scheme: dark)\">a{color:#000}</style>\n\n</head>\n<body>\n<div class=\"container\">\n  <header class=\"site-header\">\n    <a href=\"/\" class=\"site-title\">Site</a>\n    <nav class=\"site-nav\" aria-label=\"站点导航\">\n      \n      \n    </nav>\n  </header>\n  <main>\n<p>body</p>\n  </main>\n  <footer class=\"site-footer\">\n    <p></p>\n  </footer>\n</div>\n\n\n</body>\n</html>"
+      },
+      "r02/dark_css_empty": {
+        "input": {
+          "opts": {
+            "body_content": "<p>body</p>",
+            "dark_css": "",
+            "description": "Desc",
+            "page_title": "Page",
+            "site_title": "Site",
+            "theme_css": "body{margin:0}"
+          },
+          "page_type": "article"
+        },
+        "note": null,
+        "python": "<!DOCTYPE html>\n<html lang=\"zh-CN\">\n<head>\n<meta charset=\"utf-8\">\n<meta name=\"viewport\" content=\"width=device-width,initial-scale=1\">\n\n\n\n<meta name=\"description\" content=\"Desc\">\n\n\n\n<title>Page - Site</title>\n<style>\nbody{margin:0}\n</style>\n\n\n</head>\n<body>\n<div class=\"container\">\n  <header class=\"site-header\">\n    <a href=\"/\" class=\"site-title\">Site</a>\n    <nav class=\"site-nav\" aria-label=\"站点导航\">\n      \n      \n    </nav>\n  </header>\n  <main>\n<p>body</p>\n  </main>\n  <footer class=\"site-footer\">\n    <p></p>\n  </footer>\n</div>\n\n\n</body>\n</html>",
+        "want": "<!DOCTYPE html>\n<html lang=\"zh-CN\">\n<head>\n<meta charset=\"utf-8\">\n<meta name=\"viewport\" content=\"width=device-width,initial-scale=1\">\n\n\n\n<meta name=\"description\" content=\"Desc\">\n\n\n\n<title>Page - Site</title>\n<style>\nbody{margin:0}\n</style>\n\n\n</head>\n<body>\n<div class=\"container\">\n  <header class=\"site-header\">\n    <a href=\"/\" class=\"site-title\">Site</a>\n    <nav class=\"site-nav\" aria-label=\"站点导航\">\n      \n      \n    </nav>\n  </header>\n  <main>\n<p>body</p>\n  </main>\n  <footer class=\"site-footer\">\n    <p></p>\n  </footer>\n</div>\n\n\n</body>\n</html>"
+      },
+      "r03/dark_css_quote": {
+        "input": {
+          "opts": {
+            "body_content": "<p>body</p>",
+            "dark_css": "a::after{content:\"x\"}",
+            "description": "Desc",
+            "page_title": "Page",
+            "site_title": "Site",
+            "theme_css": "body{margin:0}"
+          },
+          "page_type": "article"
+        },
+        "note": null,
+        "python": "<!DOCTYPE html>\n<html lang=\"zh-CN\">\n<head>\n<meta charset=\"utf-8\">\n<meta name=\"viewport\" content=\"width=device-width,initial-scale=1\">\n\n\n\n<meta name=\"description\" content=\"Desc\">\n\n\n\n<title>Page - Site</title>\n<style>\nbody{margin:0}\n</style>\n<style media=\"(prefers-color-scheme: dark)\">a::after{content:\"x\"}</style>\n\n</head>\n<body>\n<div class=\"container\">\n  <header class=\"site-header\">\n    <a href=\"/\" class=\"site-title\">Site</a>\n    <nav class=\"site-nav\" aria-label=\"站点导航\">\n      \n      \n    </nav>\n  </header>\n  <main>\n<p>body</p>\n  </main>\n  <footer class=\"site-footer\">\n    <p></p>\n  </footer>\n</div>\n\n\n</body>\n</html>",
+        "want": "<!DOCTYPE html>\n<html lang=\"zh-CN\">\n<head>\n<meta charset=\"utf-8\">\n<meta name=\"viewport\" content=\"width=device-width,initial-scale=1\">\n\n\n\n<meta name=\"description\" content=\"Desc\">\n\n\n\n<title>Page - Site</title>\n<style>\nbody{margin:0}\n</style>\n<style media=\"(prefers-color-scheme: dark)\">a::after{content:\"x\"}</style>\n\n</head>\n<body>\n<div class=\"container\">\n  <header class=\"site-header\">\n    <a href=\"/\" class=\"site-title\">Site</a>\n    <nav class=\"site-nav\" aria-label=\"站点导航\">\n      \n      \n    </nav>\n  </header>\n  <main>\n<p>body</p>\n  </main>\n  <footer class=\"site-footer\">\n    <p></p>\n  </footer>\n</div>\n\n\n</body>\n</html>"
+      },
+      "r04/all_opts": {
+        "input": {
+          "opts": {
+            "body_content": "<p>body</p>",
+            "dark_css": "a{color:#111}",
+            "dark_mode_meta": "<meta name=\"color-scheme\" content=\"dark light\">",
+            "dark_mode_script": "<script>void 0;</script>",
+            "description": "Desc",
+            "footer_text": "© 2026 Site",
+            "has_dark": true,
+            "json_ld_html": "<script type=\"application/ld+json\">{}</script>",
+            "lang": "en",
+            "mermaid_script": "<script>mermaid.init();</script>",
+            "nav_links": "<a href=\"/\">home</a>",
+            "og_html": "<meta property=\"og:title\" content=\"T\">",
+            "page_title": "Page",
+            "pwa_manifest": "<link rel=\"manifest\" href=\"/m.webmanifest\">",
+            "pwa_meta": "<meta name=\"theme-color\" content=\"#fff\">",
+            "search_script": "<script src=\"/s.js\"></script>",
+            "site_title": "Site",
+            "theme_css": "body{margin:0}",
+            "theme_toggle": "<button id=\"t\">T</button>",
+            "vt_meta": "<meta name=\"view-transition\" content=\"same-origin\">"
+          },
+          "page_type": "list"
+        },
+        "note": null,
+        "python": "<!DOCTYPE html>\n<html lang=\"en\">\n<head>\n<meta charset=\"utf-8\">\n<meta name=\"viewport\" content=\"width=device-width,initial-scale=1\">\n<meta name=\"color-scheme\" content=\"dark light\">\n<meta name=\"theme-color\" content=\"#fff\">\n<meta name=\"view-transition\" content=\"same-origin\">\n<meta name=\"description\" content=\"Desc\">\n<meta property=\"og:title\" content=\"T\">\n<script type=\"application/ld+json\">{}</script>\n<link rel=\"manifest\" href=\"/m.webmanifest\">\n<title>Page - Site</title>\n<style>\nbody{margin:0}\n</style>\n<style media=\"(prefers-color-scheme: dark)\">a{color:#111}</style>\n<script>void 0;</script>\n</head>\n<body>\n<div class=\"container\">\n  <header class=\"site-header\">\n    <a href=\"/\" class=\"site-title\">Site</a>\n    <nav class=\"site-nav\" aria-label=\"站点导航\">\n      <a href=\"/\">home</a>\n      <button id=\"t\">T</button>\n    </nav>\n  </header>\n  <main>\n<p>body</p>\n  </main>\n  <footer class=\"site-footer\">\n    <p>© 2026 Site</p>\n  </footer>\n</div>\n<script src=\"/s.js\"></script>\n<script>mermaid.init();</script>\n</body>\n</html>",
+        "want": "<!DOCTYPE html>\n<html lang=\"en\">\n<head>\n<meta charset=\"utf-8\">\n<meta name=\"viewport\" content=\"width=device-width,initial-scale=1\">\n<meta name=\"color-scheme\" content=\"dark light\">\n<meta name=\"theme-color\" content=\"#fff\">\n<meta name=\"view-transition\" content=\"same-origin\">\n<meta name=\"description\" content=\"Desc\">\n<meta property=\"og:title\" content=\"T\">\n<script type=\"application/ld+json\">{}</script>\n<link rel=\"manifest\" href=\"/m.webmanifest\">\n<title>Page - Site</title>\n<style>\nbody{margin:0}\n</style>\n<style media=\"(prefers-color-scheme: dark)\">a{color:#111}</style>\n<script>void 0;</script>\n</head>\n<body>\n<div class=\"container\">\n  <header class=\"site-header\">\n    <a href=\"/\" class=\"site-title\">Site</a>\n    <nav class=\"site-nav\" aria-label=\"站点导航\">\n      <a href=\"/\">home</a>\n      <button id=\"t\">T</button>\n    </nav>\n  </header>\n  <main>\n<p>body</p>\n  </main>\n  <footer class=\"site-footer\">\n    <p>© 2026 Site</p>\n  </footer>\n</div>\n<script src=\"/s.js\"></script>\n<script>mermaid.init();</script>\n</body>\n</html>"
+      },
+      "r05/escape_specials": {
+        "input": {
+          "opts": {
+            "body_content": "<p>body</p>",
+            "description": "x\"y'z&<>",
+            "footer_text": "& < > \" '",
+            "lang": "en\"q\"",
+            "page_title": "<b>&amp;</b>",
+            "site_title": "A & B < C > D \" E ' F",
+            "theme_css": "body{margin:0}"
+          },
+          "page_type": "article"
+        },
+        "note": null,
+        "python": "<!DOCTYPE html>\n<html lang=\"en&quot;q&quot;\">\n<head>\n<meta charset=\"utf-8\">\n<meta name=\"viewport\" content=\"width=device-width,initial-scale=1\">\n\n\n\n<meta name=\"description\" content=\"x&quot;y&#x27;z&amp;&lt;&gt;\">\n\n\n\n<title>&lt;b&gt;&amp;amp;&lt;/b&gt; - A &amp; B &lt; C &gt; D &quot; E &#x27; F</title>\n<style>\nbody{margin:0}\n</style>\n\n\n</head>\n<body>\n<div class=\"container\">\n  <header class=\"site-header\">\n    <a href=\"/\" class=\"site-title\">A &amp; B &lt; C &gt; D &quot; E &#x27; F</a>\n    <nav class=\"site-nav\" aria-label=\"站点导航\">\n      \n      \n    </nav>\n  </header>\n  <main>\n<p>body</p>\n  </main>\n  <footer class=\"site-footer\">\n    <p>&amp; &lt; &gt; &quot; &#x27;</p>\n  </footer>\n</div>\n\n\n</body>\n</html>",
+        "want": "<!DOCTYPE html>\n<html lang=\"en&quot;q&quot;\">\n<head>\n<meta charset=\"utf-8\">\n<meta name=\"viewport\" content=\"width=device-width,initial-scale=1\">\n\n\n\n<meta name=\"description\" content=\"x&quot;y&#x27;z&amp;&lt;&gt;\">\n\n\n\n<title>&lt;b&gt;&amp;amp;&lt;/b&gt; - A &amp; B &lt; C &gt; D &quot; E &#x27; F</title>\n<style>\nbody{margin:0}\n</style>\n\n\n</head>\n<body>\n<div class=\"container\">\n  <header class=\"site-header\">\n    <a href=\"/\" class=\"site-title\">A &amp; B &lt; C &gt; D &quot; E &#x27; F</a>\n    <nav class=\"site-nav\" aria-label=\"站点导航\">\n      \n      \n    </nav>\n  </header>\n  <main>\n<p>body</p>\n  </main>\n  <footer class=\"site-footer\">\n    <p>&amp; &lt; &gt; &quot; &#x27;</p>\n  </footer>\n</div>\n\n\n</body>\n</html>"
+      },
+      "r06/footer_empty": {
+        "input": {
+          "opts": {
+            "body_content": "<p>body</p>",
+            "description": "Desc",
+            "footer_text": "",
+            "page_title": "Page",
+            "site_title": "Site",
+            "theme_css": "body{margin:0}"
+          },
+          "page_type": "article"
+        },
+        "note": null,
+        "python": "<!DOCTYPE html>\n<html lang=\"zh-CN\">\n<head>\n<meta charset=\"utf-8\">\n<meta name=\"viewport\" content=\"width=device-width,initial-scale=1\">\n\n\n\n<meta name=\"description\" content=\"Desc\">\n\n\n\n<title>Page - Site</title>\n<style>\nbody{margin:0}\n</style>\n\n\n</head>\n<body>\n<div class=\"container\">\n  <header class=\"site-header\">\n    <a href=\"/\" class=\"site-title\">Site</a>\n    <nav class=\"site-nav\" aria-label=\"站点导航\">\n      \n      \n    </nav>\n  </header>\n  <main>\n<p>body</p>\n  </main>\n  <footer class=\"site-footer\">\n    <p></p>\n  </footer>\n</div>\n\n\n</body>\n</html>",
+        "want": "<!DOCTYPE html>\n<html lang=\"zh-CN\">\n<head>\n<meta charset=\"utf-8\">\n<meta name=\"viewport\" content=\"width=device-width,initial-scale=1\">\n\n\n\n<meta name=\"description\" content=\"Desc\">\n\n\n\n<title>Page - Site</title>\n<style>\nbody{margin:0}\n</style>\n\n\n</head>\n<body>\n<div class=\"container\">\n  <header class=\"site-header\">\n    <a href=\"/\" class=\"site-title\">Site</a>\n    <nav class=\"site-nav\" aria-label=\"站点导航\">\n      \n      \n    </nav>\n  </header>\n  <main>\n<p>body</p>\n  </main>\n  <footer class=\"site-footer\">\n    <p></p>\n  </footer>\n</div>\n\n\n</body>\n</html>"
+      },
+      "r07/footer_special": {
+        "input": {
+          "opts": {
+            "body_content": "<p>body</p>",
+            "description": "Desc",
+            "footer_text": "f & < > \" '",
+            "page_title": "Page",
+            "site_title": "Site",
+            "theme_css": "body{margin:0}"
+          },
+          "page_type": "article"
+        },
+        "note": null,
+        "python": "<!DOCTYPE html>\n<html lang=\"zh-CN\">\n<head>\n<meta charset=\"utf-8\">\n<meta name=\"viewport\" content=\"width=device-width,initial-scale=1\">\n\n\n\n<meta name=\"description\" content=\"Desc\">\n\n\n\n<title>Page - Site</title>\n<style>\nbody{margin:0}\n</style>\n\n\n</head>\n<body>\n<div class=\"container\">\n  <header class=\"site-header\">\n    <a href=\"/\" class=\"site-title\">Site</a>\n    <nav class=\"site-nav\" aria-label=\"站点导航\">\n      \n      \n    </nav>\n  </header>\n  <main>\n<p>body</p>\n  </main>\n  <footer class=\"site-footer\">\n    <p>f &amp; &lt; &gt; &quot; &#x27;</p>\n  </footer>\n</div>\n\n\n</body>\n</html>",
+        "want": "<!DOCTYPE html>\n<html lang=\"zh-CN\">\n<head>\n<meta charset=\"utf-8\">\n<meta name=\"viewport\" content=\"width=device-width,initial-scale=1\">\n\n\n\n<meta name=\"description\" content=\"Desc\">\n\n\n\n<title>Page - Site</title>\n<style>\nbody{margin:0}\n</style>\n\n\n</head>\n<body>\n<div class=\"container\">\n  <header class=\"site-header\">\n    <a href=\"/\" class=\"site-title\">Site</a>\n    <nav class=\"site-nav\" aria-label=\"站点导航\">\n      \n      \n    </nav>\n  </header>\n  <main>\n<p>body</p>\n  </main>\n  <footer class=\"site-footer\">\n    <p>f &amp; &lt; &gt; &quot; &#x27;</p>\n  </footer>\n</div>\n\n\n</body>\n</html>"
+      },
+      "r08/body_has_dollar": {
+        "input": {
+          "opts": {
+            "body_content": "<p>cost: $x and ${y}</p>",
+            "description": "Desc",
+            "page_title": "Page",
+            "site_title": "Site",
+            "theme_css": "body{margin:0}"
+          },
+          "page_type": "standalone"
+        },
+        "note": null,
+        "python": "<!DOCTYPE html>\n<html lang=\"zh-CN\">\n<head>\n<meta charset=\"utf-8\">\n<meta name=\"viewport\" content=\"width=device-width,initial-scale=1\">\n\n\n\n<meta name=\"description\" content=\"Desc\">\n\n\n\n<title>Page - Site</title>\n<style>\nbody{margin:0}\n</style>\n\n\n</head>\n<body>\n<div class=\"container\">\n  <header class=\"site-header\">\n    <a href=\"/\" class=\"site-title\">Site</a>\n    <nav class=\"site-nav\" aria-label=\"站点导航\">\n      \n      \n    </nav>\n  </header>\n  <main>\n<p>cost: $x and ${y}</p>\n  </main>\n  <footer class=\"site-footer\">\n    <p></p>\n  </footer>\n</div>\n\n\n</body>\n</html>",
+        "want": "<!DOCTYPE html>\n<html lang=\"zh-CN\">\n<head>\n<meta charset=\"utf-8\">\n<meta name=\"viewport\" content=\"width=device-width,initial-scale=1\">\n\n\n\n<meta name=\"description\" content=\"Desc\">\n\n\n\n<title>Page - Site</title>\n<style>\nbody{margin:0}\n</style>\n\n\n</head>\n<body>\n<div class=\"container\">\n  <header class=\"site-header\">\n    <a href=\"/\" class=\"site-title\">Site</a>\n    <nav class=\"site-nav\" aria-label=\"站点导航\">\n      \n      \n    </nav>\n  </header>\n  <main>\n<p>cost: $x and ${y}</p>\n  </main>\n  <footer class=\"site-footer\">\n    <p></p>\n  </footer>\n</div>\n\n\n</body>\n</html>"
+      },
+      "r09/nav_and_toggle": {
+        "input": {
+          "opts": {
+            "body_content": "<p>body</p>",
+            "description": "Desc",
+            "nav_links": "<a href=\"/a\">a</a>",
+            "page_title": "Page",
+            "site_title": "Site",
+            "theme_css": "body{margin:0}",
+            "theme_toggle": "<button>d</button>"
+          },
+          "page_type": "category"
+        },
+        "note": null,
+        "python": "<!DOCTYPE html>\n<html lang=\"zh-CN\">\n<head>\n<meta charset=\"utf-8\">\n<meta name=\"viewport\" content=\"width=device-width,initial-scale=1\">\n\n\n\n<meta name=\"description\" content=\"Desc\">\n\n\n\n<title>Page - Site</title>\n<style>\nbody{margin:0}\n</style>\n\n\n</head>\n<body>\n<div class=\"container\">\n  <header class=\"site-header\">\n    <a href=\"/\" class=\"site-title\">Site</a>\n    <nav class=\"site-nav\" aria-label=\"站点导航\">\n      <a href=\"/a\">a</a>\n      <button>d</button>\n    </nav>\n  </header>\n  <main>\n<p>body</p>\n  </main>\n  <footer class=\"site-footer\">\n    <p></p>\n  </footer>\n</div>\n\n\n</body>\n</html>",
+        "want": "<!DOCTYPE html>\n<html lang=\"zh-CN\">\n<head>\n<meta charset=\"utf-8\">\n<meta name=\"viewport\" content=\"width=device-width,initial-scale=1\">\n\n\n\n<meta name=\"description\" content=\"Desc\">\n\n\n\n<title>Page - Site</title>\n<style>\nbody{margin:0}\n</style>\n\n\n</head>\n<body>\n<div class=\"container\">\n  <header class=\"site-header\">\n    <a href=\"/\" class=\"site-title\">Site</a>\n    <nav class=\"site-nav\" aria-label=\"站点导航\">\n      <a href=\"/a\">a</a>\n      <button>d</button>\n    </nav>\n  </header>\n  <main>\n<p>body</p>\n  </main>\n  <footer class=\"site-footer\">\n    <p></p>\n  </footer>\n</div>\n\n\n</body>\n</html>"
+      },
+      "r10/has_dark_true": {
+        "input": {
+          "opts": {
+            "body_content": "<p>body</p>",
+            "description": "Desc",
+            "has_dark": true,
+            "page_title": "Page",
+            "site_title": "Site",
+            "theme_css": "body{margin:0}"
+          },
+          "page_type": "article"
+        },
+        "note": null,
+        "python": "<!DOCTYPE html>\n<html lang=\"zh-CN\">\n<head>\n<meta charset=\"utf-8\">\n<meta name=\"viewport\" content=\"width=device-width,initial-scale=1\">\n\n\n\n<meta name=\"description\" content=\"Desc\">\n\n\n\n<title>Page - Site</title>\n<style>\nbody{margin:0}\n</style>\n\n\n</head>\n<body>\n<div class=\"container\">\n  <header class=\"site-header\">\n    <a href=\"/\" class=\"site-title\">Site</a>\n    <nav class=\"site-nav\" aria-label=\"站点导航\">\n      \n      \n    </nav>\n  </header>\n  <main>\n<p>body</p>\n  </main>\n  <footer class=\"site-footer\">\n    <p></p>\n  </footer>\n</div>\n\n\n</body>\n</html>",
+        "want": "<!DOCTYPE html>\n<html lang=\"zh-CN\">\n<head>\n<meta charset=\"utf-8\">\n<meta name=\"viewport\" content=\"width=device-width,initial-scale=1\">\n\n\n\n<meta name=\"description\" content=\"Desc\">\n\n\n\n<title>Page - Site</title>\n<style>\nbody{margin:0}\n</style>\n\n\n</head>\n<body>\n<div class=\"container\">\n  <header class=\"site-header\">\n    <a href=\"/\" class=\"site-title\">Site</a>\n    <nav class=\"site-nav\" aria-label=\"站点导航\">\n      \n      \n    </nav>\n  </header>\n  <main>\n<p>body</p>\n  </main>\n  <footer class=\"site-footer\">\n    <p></p>\n  </footer>\n</div>\n\n\n</body>\n</html>"
+      },
+      "r11/has_dark_false": {
+        "input": {
+          "opts": {
+            "body_content": "<p>body</p>",
+            "description": "Desc",
+            "has_dark": false,
+            "page_title": "Page",
+            "site_title": "Site",
+            "theme_css": "body{margin:0}"
+          },
+          "page_type": "article"
+        },
+        "note": null,
+        "python": "<!DOCTYPE html>\n<html lang=\"zh-CN\">\n<head>\n<meta charset=\"utf-8\">\n<meta name=\"viewport\" content=\"width=device-width,initial-scale=1\">\n\n\n\n<meta name=\"description\" content=\"Desc\">\n\n\n\n<title>Page - Site</title>\n<style>\nbody{margin:0}\n</style>\n\n\n</head>\n<body>\n<div class=\"container\">\n  <header class=\"site-header\">\n    <a href=\"/\" class=\"site-title\">Site</a>\n    <nav class=\"site-nav\" aria-label=\"站点导航\">\n      \n      \n    </nav>\n  </header>\n  <main>\n<p>body</p>\n  </main>\n  <footer class=\"site-footer\">\n    <p></p>\n  </footer>\n</div>\n\n\n</body>\n</html>",
+        "want": "<!DOCTYPE html>\n<html lang=\"zh-CN\">\n<head>\n<meta charset=\"utf-8\">\n<meta name=\"viewport\" content=\"width=device-width,initial-scale=1\">\n\n\n\n<meta name=\"description\" content=\"Desc\">\n\n\n\n<title>Page - Site</title>\n<style>\nbody{margin:0}\n</style>\n\n\n</head>\n<body>\n<div class=\"container\">\n  <header class=\"site-header\">\n    <a href=\"/\" class=\"site-title\">Site</a>\n    <nav class=\"site-nav\" aria-label=\"站点导航\">\n      \n      \n    </nav>\n  </header>\n  <main>\n<p>body</p>\n  </main>\n  <footer class=\"site-footer\">\n    <p></p>\n  </footer>\n</div>\n\n\n</body>\n</html>"
+      },
+      "r12/empty_titles": {
+        "input": {
+          "opts": {
+            "body_content": "<p>body</p>",
+            "description": "",
+            "page_title": "",
+            "site_title": "",
+            "theme_css": "body{margin:0}"
+          },
+          "page_type": "search"
+        },
+        "note": null,
+        "python": "<!DOCTYPE html>\n<html lang=\"zh-CN\">\n<head>\n<meta charset=\"utf-8\">\n<meta name=\"viewport\" content=\"width=device-width,initial-scale=1\">\n\n\n\n<meta name=\"description\" content=\"\">\n\n\n\n<title> - </title>\n<style>\nbody{margin:0}\n</style>\n\n\n</head>\n<body>\n<div class=\"container\">\n  <header class=\"site-header\">\n    <a href=\"/\" class=\"site-title\"></a>\n    <nav class=\"site-nav\" aria-label=\"站点导航\">\n      \n      \n    </nav>\n  </header>\n  <main>\n<p>body</p>\n  </main>\n  <footer class=\"site-footer\">\n    <p></p>\n  </footer>\n</div>\n\n\n</body>\n</html>",
+        "want": "<!DOCTYPE html>\n<html lang=\"zh-CN\">\n<head>\n<meta charset=\"utf-8\">\n<meta name=\"viewport\" content=\"width=device-width,initial-scale=1\">\n\n\n\n<meta name=\"description\" content=\"\">\n\n\n\n<title> - </title>\n<style>\nbody{margin:0}\n</style>\n\n\n</head>\n<body>\n<div class=\"container\">\n  <header class=\"site-header\">\n    <a href=\"/\" class=\"site-title\"></a>\n    <nav class=\"site-nav\" aria-label=\"站点导航\">\n      \n      \n    </nav>\n  </header>\n  <main>\n<p>body</p>\n  </main>\n  <footer class=\"site-footer\">\n    <p></p>\n  </footer>\n</div>\n\n\n</body>\n</html>"
+      },
+      "r13/description_newline": {
+        "input": {
+          "opts": {
+            "body_content": "<p>body</p>",
+            "description": "line1\nline2",
+            "page_title": "Page",
+            "site_title": "Site",
+            "theme_css": "body{margin:0}"
+          },
+          "page_type": "article"
+        },
+        "note": null,
+        "python": "<!DOCTYPE html>\n<html lang=\"zh-CN\">\n<head>\n<meta charset=\"utf-8\">\n<meta name=\"viewport\" content=\"width=device-width,initial-scale=1\">\n\n\n\n<meta name=\"description\" content=\"line1\nline2\">\n\n\n\n<title>Page - Site</title>\n<style>\nbody{margin:0}\n</style>\n\n\n</head>\n<body>\n<div class=\"container\">\n  <header class=\"site-header\">\n    <a href=\"/\" class=\"site-title\">Site</a>\n    <nav class=\"site-nav\" aria-label=\"站点导航\">\n      \n      \n    </nav>\n  </header>\n  <main>\n<p>body</p>\n  </main>\n  <footer class=\"site-footer\">\n    <p></p>\n  </footer>\n</div>\n\n\n</body>\n</html>",
+        "want": "<!DOCTYPE html>\n<html lang=\"zh-CN\">\n<head>\n<meta charset=\"utf-8\">\n<meta name=\"viewport\" content=\"width=device-width,initial-scale=1\">\n\n\n\n<meta name=\"description\" content=\"line1\nline2\">\n\n\n\n<title>Page - Site</title>\n<style>\nbody{margin:0}\n</style>\n\n\n</head>\n<body>\n<div class=\"container\">\n  <header class=\"site-header\">\n    <a href=\"/\" class=\"site-title\">Site</a>\n    <nav class=\"site-nav\" aria-label=\"站点导航\">\n      \n      \n    </nav>\n  </header>\n  <main>\n<p>body</p>\n  </main>\n  <footer class=\"site-footer\">\n    <p></p>\n  </footer>\n</div>\n\n\n</body>\n</html>"
+      },
+      "r14/lang_custom": {
+        "input": {
+          "opts": {
+            "body_content": "<p>body</p>",
+            "description": "Desc",
+            "lang": "ja",
+            "page_title": "Page",
+            "site_title": "Site",
+            "theme_css": "body{margin:0}"
+          },
+          "page_type": "article"
+        },
+        "note": null,
+        "python": "<!DOCTYPE html>\n<html lang=\"ja\">\n<head>\n<meta charset=\"utf-8\">\n<meta name=\"viewport\" content=\"width=device-width,initial-scale=1\">\n\n\n\n<meta name=\"description\" content=\"Desc\">\n\n\n\n<title>Page - Site</title>\n<style>\nbody{margin:0}\n</style>\n\n\n</head>\n<body>\n<div class=\"container\">\n  <header class=\"site-header\">\n    <a href=\"/\" class=\"site-title\">Site</a>\n    <nav class=\"site-nav\" aria-label=\"站点导航\">\n      \n      \n    </nav>\n  </header>\n  <main>\n<p>body</p>\n  </main>\n  <footer class=\"site-footer\">\n    <p></p>\n  </footer>\n</div>\n\n\n</body>\n</html>",
+        "want": "<!DOCTYPE html>\n<html lang=\"ja\">\n<head>\n<meta charset=\"utf-8\">\n<meta name=\"viewport\" content=\"width=device-width,initial-scale=1\">\n\n\n\n<meta name=\"description\" content=\"Desc\">\n\n\n\n<title>Page - Site</title>\n<style>\nbody{margin:0}\n</style>\n\n\n</head>\n<body>\n<div class=\"container\">\n  <header class=\"site-header\">\n    <a href=\"/\" class=\"site-title\">Site</a>\n    <nav class=\"site-nav\" aria-label=\"站点导航\">\n      \n      \n    </nav>\n  </header>\n  <main>\n<p>body</p>\n  </main>\n  <footer class=\"site-footer\">\n    <p></p>\n  </footer>\n</div>\n\n\n</body>\n</html>"
+      },
+      "r15/css_with_dollar": {
+        "input": {
+          "opts": {
+            "body_content": "<p>body</p>",
+            "description": "Desc",
+            "page_title": "Page",
+            "site_title": "Site",
+            "theme_css": "a::after{content:\"$x\"}"
+          },
+          "page_type": "article"
+        },
+        "note": null,
+        "python": "<!DOCTYPE html>\n<html lang=\"zh-CN\">\n<head>\n<meta charset=\"utf-8\">\n<meta name=\"viewport\" content=\"width=device-width,initial-scale=1\">\n\n\n\n<meta name=\"description\" content=\"Desc\">\n\n\n\n<title>Page - Site</title>\n<style>\na::after{content:\"$x\"}\n</style>\n\n\n</head>\n<body>\n<div class=\"container\">\n  <header class=\"site-header\">\n    <a href=\"/\" class=\"site-title\">Site</a>\n    <nav class=\"site-nav\" aria-label=\"站点导航\">\n      \n      \n    </nav>\n  </header>\n  <main>\n<p>body</p>\n  </main>\n  <footer class=\"site-footer\">\n    <p></p>\n  </footer>\n</div>\n\n\n</body>\n</html>",
+        "want": "<!DOCTYPE html>\n<html lang=\"zh-CN\">\n<head>\n<meta charset=\"utf-8\">\n<meta name=\"viewport\" content=\"width=device-width,initial-scale=1\">\n\n\n\n<meta name=\"description\" content=\"Desc\">\n\n\n\n<title>Page - Site</title>\n<style>\na::after{content:\"$x\"}\n</style>\n\n\n</head>\n<body>\n<div class=\"container\">\n  <header class=\"site-header\">\n    <a href=\"/\" class=\"site-title\">Site</a>\n    <nav class=\"site-nav\" aria-label=\"站点导航\">\n      \n      \n    </nav>\n  </header>\n  <main>\n<p>body</p>\n  </main>\n  <footer class=\"site-footer\">\n    <p></p>\n  </footer>\n</div>\n\n\n</body>\n</html>"
+      },
+      "r16/cjk_everything": {
+        "input": {
+          "opts": {
+            "body_content": "<p>中文正文</p>",
+            "description": "描述",
+            "footer_text": "页脚",
+            "nav_links": "<a href=\"/\">首页</a>",
+            "page_title": "文章标题",
+            "site_title": "站点名",
+            "theme_css": "body{margin:0}"
+          },
+          "page_type": "article"
+        },
+        "note": null,
+        "python": "<!DOCTYPE html>\n<html lang=\"zh-CN\">\n<head>\n<meta charset=\"utf-8\">\n<meta name=\"viewport\" content=\"width=device-width,initial-scale=1\">\n\n\n\n<meta name=\"description\" content=\"描述\">\n\n\n\n<title>文章标题 - 站点名</title>\n<style>\nbody{margin:0}\n</style>\n\n\n</head>\n<body>\n<div class=\"container\">\n  <header class=\"site-header\">\n    <a href=\"/\" class=\"site-title\">站点名</a>\n    <nav class=\"site-nav\" aria-label=\"站点导航\">\n      <a href=\"/\">首页</a>\n      \n    </nav>\n  </header>\n  <main>\n<p>中文正文</p>\n  </main>\n  <footer class=\"site-footer\">\n    <p>页脚</p>\n  </footer>\n</div>\n\n\n</body>\n</html>",
+        "want": "<!DOCTYPE html>\n<html lang=\"zh-CN\">\n<head>\n<meta charset=\"utf-8\">\n<meta name=\"viewport\" content=\"width=device-width,initial-scale=1\">\n\n\n\n<meta name=\"description\" content=\"描述\">\n\n\n\n<title>文章标题 - 站点名</title>\n<style>\nbody{margin:0}\n</style>\n\n\n</head>\n<body>\n<div class=\"container\">\n  <header class=\"site-header\">\n    <a href=\"/\" class=\"site-title\">站点名</a>\n    <nav class=\"site-nav\" aria-label=\"站点导航\">\n      <a href=\"/\">首页</a>\n      \n    </nav>\n  </header>\n  <main>\n<p>中文正文</p>\n  </main>\n  <footer class=\"site-footer\">\n    <p>页脚</p>\n  </footer>\n</div>\n\n\n</body>\n</html>"
+      },
+      "r17/dark_css_and_meta": {
+        "input": {
+          "opts": {
+            "body_content": "<p>body</p>",
+            "dark_css": "@media (prefers-color-scheme: dark){body{background:#000}}",
+            "dark_mode_meta": "<meta name=\"color-scheme\" content=\"dark light\">",
+            "dark_mode_script": "<script>document.documentElement.classList.add(\"dark\");</script>",
+            "description": "Desc",
+            "page_title": "Page",
+            "site_title": "Site",
+            "theme_css": "body{margin:0}"
+          },
+          "page_type": "article"
+        },
+        "note": null,
+        "python": "<!DOCTYPE html>\n<html lang=\"zh-CN\">\n<head>\n<meta charset=\"utf-8\">\n<meta name=\"viewport\" content=\"width=device-width,initial-scale=1\">\n<meta name=\"color-scheme\" content=\"dark light\">\n\n\n<meta name=\"description\" content=\"Desc\">\n\n\n\n<title>Page - Site</title>\n<style>\nbody{margin:0}\n</style>\n<style media=\"(prefers-color-scheme: dark)\">@media (prefers-color-scheme: dark){body{background:#000}}</style>\n<script>document.documentElement.classList.add(\"dark\");</script>\n</head>\n<body>\n<div class=\"container\">\n  <header class=\"site-header\">\n    <a href=\"/\" class=\"site-title\">Site</a>\n    <nav class=\"site-nav\" aria-label=\"站点导航\">\n      \n      \n    </nav>\n  </header>\n  <main>\n<p>body</p>\n  </main>\n  <footer class=\"site-footer\">\n    <p></p>\n  </footer>\n</div>\n\n\n</body>\n</html>",
+        "want": "<!DOCTYPE html>\n<html lang=\"zh-CN\">\n<head>\n<meta charset=\"utf-8\">\n<meta name=\"viewport\" content=\"width=device-width,initial-scale=1\">\n<meta name=\"color-scheme\" content=\"dark light\">\n\n\n<meta name=\"description\" content=\"Desc\">\n\n\n\n<title>Page - Site</title>\n<style>\nbody{margin:0}\n</style>\n<style media=\"(prefers-color-scheme: dark)\">@media (prefers-color-scheme: dark){body{background:#000}}</style>\n<script>document.documentElement.classList.add(\"dark\");</script>\n</head>\n<body>\n<div class=\"container\">\n  <header class=\"site-header\">\n    <a href=\"/\" class=\"site-title\">Site</a>\n    <nav class=\"site-nav\" aria-label=\"站点导航\">\n      \n      \n    </nav>\n  </header>\n  <main>\n<p>body</p>\n  </main>\n  <footer class=\"site-footer\">\n    <p></p>\n  </footer>\n</div>\n\n\n</body>\n</html>"
+      }
+    },
+    "safe_substitute": {
+      "s00": {
+        "input": {
+          "mapping": {},
+          "tmpl": "hello world"
+        },
+        "note": null,
+        "python": "hello world",
+        "want": "hello world"
+      },
+      "s01": {
+        "input": {
+          "mapping": {},
+          "tmpl": ""
+        },
+        "note": null,
+        "python": "",
+        "want": ""
+      },
+      "s02": {
+        "input": {
+          "mapping": {
+            "a": "X"
+          },
+          "tmpl": "$a"
+        },
+        "note": null,
+        "python": "X",
+        "want": "X"
+      },
+      "s03": {
+        "input": {
+          "mapping": {
+            "a": "X"
+          },
+          "tmpl": "a $a b"
+        },
+        "note": null,
+        "python": "a X b",
+        "want": "a X b"
+      },
+      "s04": {
+        "input": {
+          "mapping": {
+            "a": "X",
+            "b": "Y"
+          },
+          "tmpl": "$a$b"
+        },
+        "note": null,
+        "python": "XY",
+        "want": "XY"
+      },
+      "s05": {
+        "input": {
+          "mapping": {
+            "a": "X"
+          },
+          "tmpl": "$a$a"
+        },
+        "note": null,
+        "python": "XX",
+        "want": "XX"
+      },
+      "s06": {
+        "input": {
+          "mapping": {
+            "a1": "one"
+          },
+          "tmpl": "$a1"
+        },
+        "note": null,
+        "python": "one",
+        "want": "one"
+      },
+      "s07": {
+        "input": {
+          "mapping": {
+            "a_1": "under"
+          },
+          "tmpl": "$a_1"
+        },
+        "note": null,
+        "python": "under",
+        "want": "under"
+      },
+      "s08": {
+        "input": {
+          "mapping": {
+            "_a": "us"
+          },
+          "tmpl": "$_a"
+        },
+        "note": null,
+        "python": "us",
+        "want": "us"
+      },
+      "s09": {
+        "input": {
+          "mapping": {
+            "_": "u"
+          },
+          "tmpl": "$_"
+        },
+        "note": null,
+        "python": "u",
+        "want": "u"
+      },
+      "s10": {
+        "input": {
+          "mapping": {
+            "_1": "u1"
+          },
+          "tmpl": "$_1"
+        },
+        "note": null,
+        "python": "u1",
+        "want": "u1"
+      },
+      "s11": {
+        "input": {
+          "mapping": {
+            "A": "up"
+          },
+          "tmpl": "$A"
+        },
+        "note": null,
+        "python": "up",
+        "want": "up"
+      },
+      "s12": {
+        "input": {
+          "mapping": {
+            "aB": "mixed"
+          },
+          "tmpl": "$aB"
+        },
+        "note": null,
+        "python": "mixed",
+        "want": "mixed"
+      },
+      "s13": {
+        "input": {
+          "mapping": {
+            "a": "X"
+          },
+          "tmpl": "$a-b"
+        },
+        "note": null,
+        "python": "X-b",
+        "want": "X-b"
+      },
+      "s14": {
+        "input": {
+          "mapping": {
+            "a": "X"
+          },
+          "tmpl": "$a.b"
+        },
+        "note": null,
+        "python": "X.b",
+        "want": "X.b"
+      },
+      "s15": {
+        "input": {
+          "mapping": {
+            "a": "X"
+          },
+          "tmpl": "$a}"
+        },
+        "note": null,
+        "python": "X}",
+        "want": "X}"
+      },
+      "s16": {
+        "input": {
+          "mapping": {
+            "var": "V"
+          },
+          "tmpl": "中文$var中文"
+        },
+        "note": null,
+        "python": "中文V中文",
+        "want": "中文V中文"
+      },
+      "s17": {
+        "input": {
+          "mapping": {
+            "a": "X"
+          },
+          "tmpl": "${a}"
+        },
+        "note": null,
+        "python": "X",
+        "want": "X"
+      },
+      "s18": {
+        "input": {
+          "mapping": {
+            "a": "X",
+            "b": "Y"
+          },
+          "tmpl": "$a${b}"
+        },
+        "note": null,
+        "python": "XY",
+        "want": "XY"
+      },
+      "s19": {
+        "input": {
+          "mapping": {
+            "a": "X",
+            "b": "Y"
+          },
+          "tmpl": "${a}${b}"
+        },
+        "note": null,
+        "python": "XY",
+        "want": "XY"
+      },
+      "s20": {
+        "input": {
+          "mapping": {
+            "_": "u"
+          },
+          "tmpl": "${_}"
+        },
+        "note": null,
+        "python": "u",
+        "want": "u"
+      },
+      "s21": {
+        "input": {
+          "mapping": {
+            "A": "up"
+          },
+          "tmpl": "${A}"
+        },
+        "note": null,
+        "python": "up",
+        "want": "up"
+      },
+      "s22": {
+        "input": {
+          "mapping": {
+            "A_b1": "z"
+          },
+          "tmpl": "${A_b1}"
+        },
+        "note": null,
+        "python": "z",
+        "want": "z"
+      },
+      "s23": {
+        "input": {
+          "mapping": {
+            "a": "X"
+          },
+          "tmpl": "${a}x"
+        },
+        "note": null,
+        "python": "Xx",
+        "want": "Xx"
+      },
+      "s24": {
+        "input": {
+          "mapping": {
+            "a": "X"
+          },
+          "tmpl": "${a}{b}"
+        },
+        "note": null,
+        "python": "X{b}",
+        "want": "X{b}"
+      },
+      "s25": {
+        "input": {
+          "mapping": {
+            "a": "1",
+            "b": "2"
+          },
+          "tmpl": "x${a}y$b"
+        },
+        "note": null,
+        "python": "x1y2",
+        "want": "x1y2"
+      },
+      "s26": {
+        "input": {
+          "mapping": {
+            "a": "X"
+          },
+          "tmpl": "$a${a}"
+        },
+        "note": null,
+        "python": "XX",
+        "want": "XX"
+      },
+      "s27": {
+        "input": {
+          "mapping": {},
+          "tmpl": "$$"
+        },
+        "note": null,
+        "python": "$",
+        "want": "$"
+      },
+      "s28": {
+        "input": {
+          "mapping": {
+            "a": "X"
+          },
+          "tmpl": "$$a"
+        },
+        "note": null,
+        "python": "$a",
+        "want": "$a"
+      },
+      "s29": {
+        "input": {
+          "mapping": {
+            "a": "X"
+          },
+          "tmpl": "a$$b"
+        },
+        "note": null,
+        "python": "a$b",
+        "want": "a$b"
+      },
+      "s30": {
+        "input": {
+          "mapping": {
+            "a": "X"
+          },
+          "tmpl": "$$$a"
+        },
+        "note": null,
+        "python": "$X",
+        "want": "$X"
+      },
+      "s31": {
+        "input": {
+          "mapping": {},
+          "tmpl": "$$$$"
+        },
+        "note": null,
+        "python": "$$",
+        "want": "$$"
+      },
+      "s32": {
+        "input": {
+          "mapping": {
+            "a": "X"
+          },
+          "tmpl": "$$${a}"
+        },
+        "note": null,
+        "python": "$X",
+        "want": "$X"
+      },
+      "s33": {
+        "input": {
+          "mapping": {
+            "a": "X"
+          },
+          "tmpl": "$${"
+        },
+        "note": null,
+        "python": "${",
+        "want": "${"
+      },
+      "s34": {
+        "input": {
+          "mapping": {},
+          "tmpl": "$1x"
+        },
+        "note": null,
+        "python": "$1x",
+        "want": "$1x"
+      },
+      "s35": {
+        "input": {
+          "mapping": {},
+          "tmpl": "$-"
+        },
+        "note": null,
+        "python": "$-",
+        "want": "$-"
+      },
+      "s36": {
+        "input": {
+          "mapping": {},
+          "tmpl": "$ "
+        },
+        "note": null,
+        "python": "$ ",
+        "want": "$ "
+      },
+      "s37": {
+        "input": {
+          "mapping": {},
+          "tmpl": "$\t"
+        },
+        "note": null,
+        "python": "$\t",
+        "want": "$\t"
+      },
+      "s38": {
+        "input": {
+          "mapping": {},
+          "tmpl": "$(x)"
+        },
+        "note": null,
+        "python": "$(x)",
+        "want": "$(x)"
+      },
+      "s39": {
+        "input": {
+          "mapping": {
+            "a": "X"
+          },
+          "tmpl": "${}"
+        },
+        "note": null,
+        "python": "${}",
+        "want": "${}"
+      },
+      "s40": {
+        "input": {
+          "mapping": {
+            "a": "X"
+          },
+          "tmpl": "${a b}"
+        },
+        "note": null,
+        "python": "${a b}",
+        "want": "${a b}"
+      },
+      "s41": {
+        "input": {
+          "mapping": {
+            "a": "X"
+          },
+          "tmpl": "${a"
+        },
+        "note": null,
+        "python": "${a",
+        "want": "${a"
+      },
+      "s42": {
+        "input": {
+          "mapping": {},
+          "tmpl": "a${b"
+        },
+        "note": null,
+        "python": "a${b",
+        "want": "a${b"
+      },
+      "s43": {
+        "input": {
+          "mapping": {},
+          "tmpl": "$"
+        },
+        "note": null,
+        "python": "$",
+        "want": "$"
+      },
+      "s44": {
+        "input": {
+          "mapping": {},
+          "tmpl": "x$"
+        },
+        "note": null,
+        "python": "x$",
+        "want": "x$"
+      },
+      "s45": {
+        "input": {
+          "mapping": {},
+          "tmpl": "ab$1x"
+        },
+        "note": null,
+        "python": "ab$1x",
+        "want": "ab$1x"
+      },
+      "s46": {
+        "input": {
+          "mapping": {},
+          "tmpl": "$b$1"
+        },
+        "note": null,
+        "python": "$b$1",
+        "want": "$b$1"
+      },
+      "s47": {
+        "input": {
+          "mapping": {},
+          "tmpl": "cost $5.00"
+        },
+        "note": null,
+        "python": "cost $5.00",
+        "want": "cost $5.00"
+      },
+      "s48": {
+        "input": {
+          "mapping": {},
+          "tmpl": "$中文"
+        },
+        "note": null,
+        "python": "$中文",
+        "want": "$中文"
+      },
+      "s49": {
+        "input": {
+          "mapping": {},
+          "tmpl": "$é"
+        },
+        "note": null,
+        "python": "$é",
+        "want": "$é"
+      },
+      "s50": {
+        "input": {
+          "mapping": {},
+          "tmpl": "$$$"
+        },
+        "note": null,
+        "python": "$$",
+        "want": "$$"
+      },
+      "s51": {
+        "input": {
+          "mapping": {
+            "a": "X"
+          },
+          "tmpl": "$a$"
+        },
+        "note": null,
+        "python": "X$",
+        "want": "X$"
+      },
+      "s52": {
+        "input": {
+          "mapping": {
+            "a": "X"
+          },
+          "tmpl": "${a}$"
+        },
+        "note": null,
+        "python": "X$",
+        "want": "X$"
+      },
+      "s53": {
+        "input": {
+          "mapping": {},
+          "tmpl": "$ a"
+        },
+        "note": null,
+        "python": "$ a",
+        "want": "$ a"
+      },
+      "s54": {
+        "input": {
+          "mapping": {
+            "a": "X"
+          },
+          "tmpl": "$zz"
+        },
+        "note": null,
+        "python": "$zz",
+        "want": "$zz"
+      },
+      "s55": {
+        "input": {
+          "mapping": {},
+          "tmpl": "${missing}"
+        },
+        "note": null,
+        "python": "${missing}",
+        "want": "${missing}"
+      },
+      "s56": {
+        "input": {
+          "mapping": {
+            "a": "X"
+          },
+          "tmpl": "$b"
+        },
+        "note": null,
+        "python": "$b",
+        "want": "$b"
+      },
+      "s57": {
+        "input": {
+          "mapping": {
+            "a": "A"
+          },
+          "tmpl": "$aa"
+        },
+        "note": null,
+        "python": "$aa",
+        "want": "$aa"
+      },
+      "s58": {
+        "input": {
+          "mapping": {},
+          "tmpl": "pre $nope mid $also_nope"
+        },
+        "note": null,
+        "python": "pre $nope mid $also_nope",
+        "want": "pre $nope mid $also_nope"
+      },
+      "s59": {
+        "input": {
+          "mapping": {
+            "a": "$b"
+          },
+          "tmpl": "$a"
+        },
+        "note": null,
+        "python": "$b",
+        "want": "$b"
+      },
+      "s60": {
+        "input": {
+          "mapping": {
+            "a": "${b}"
+          },
+          "tmpl": "$a"
+        },
+        "note": null,
+        "python": "${b}",
+        "want": "${b}"
+      },
+      "s61": {
+        "input": {
+          "mapping": {
+            "a": "$$"
+          },
+          "tmpl": "${a}$a"
+        },
+        "note": null,
+        "python": "$$$$",
+        "want": "$$$$"
+      },
+      "s62": {
+        "input": {
+          "mapping": {
+            "a": 42
+          },
+          "tmpl": "$a"
+        },
+        "note": null,
+        "python": "42",
+        "want": "42"
+      },
+      "s63": {
+        "input": {
+          "mapping": {
+            "a": -7
+          },
+          "tmpl": "$a"
+        },
+        "note": null,
+        "python": "-7",
+        "want": "-7"
+      },
+      "s64": {
+        "input": {
+          "mapping": {
+            "a": 1.5
+          },
+          "tmpl": "$a"
+        },
+        "note": null,
+        "python": "1.5",
+        "want": "1.5"
+      },
+      "s65": {
+        "input": {
+          "mapping": {
+            "a": ""
+          },
+          "tmpl": "$a"
+        },
+        "note": null,
+        "python": "",
+        "want": ""
+      },
+      "s66": {
+        "input": {
+          "mapping": {
+            "a": null
+          },
+          "tmpl": "$a"
+        },
+        "note": "已知差异（值类型渲染）：Python 的 `str(None)` 是 \"None\"，WLWL 的 `STR(NULL)` 渲染成 \"NULL\" ⇒ 文本不同。根因：`str()` 的容器/空值渲染是**宿主语言**的口径，与 `string.Template` 的语义无关，WLWL 侧无法逐字复刻。",
+        "python": "None",
+        "want": "NULL"
+      },
+      "s67": {
+        "input": {
+          "mapping": {
+            "a": true
+          },
+          "tmpl": "$a"
+        },
+        "note": "已知差异（值类型渲染）：Python 的 `str(True)` 是 \"True\"，WLWL 的 `STR(TRUE)` 是 \"TRUE\"（布尔的字面量口径不同）。",
+        "python": "True",
+        "want": "TRUE"
+      },
+      "s68": {
+        "input": {
+          "mapping": {
+            "a": {
+              "k": 1
+            }
+          },
+          "tmpl": "$a"
+        },
+        "note": "已知差异（值类型渲染）：Python 的 `str({\"k\": 1})` 是 \"{'k': 1}\"，WLWL 的 `STR(字典)` 是 \"[k: 1]\"（字典的渲染语法不同）。",
+        "python": "{'k': 1}",
+        "want": "[k: 1]"
+      }
+    },
+    "substitute": {
+      "s00": {
+        "input": {
+          "mapping": {},
+          "tmpl": "hello world"
+        },
+        "note": null,
+        "python": "hello world",
+        "want": "hello world"
+      },
+      "s01": {
+        "input": {
+          "mapping": {},
+          "tmpl": ""
+        },
+        "note": null,
+        "python": "",
+        "want": ""
+      },
+      "s02": {
+        "input": {
+          "mapping": {
+            "a": "X"
+          },
+          "tmpl": "$a"
+        },
+        "note": null,
+        "python": "X",
+        "want": "X"
+      },
+      "s03": {
+        "input": {
+          "mapping": {
+            "a": "X"
+          },
+          "tmpl": "a $a b"
+        },
+        "note": null,
+        "python": "a X b",
+        "want": "a X b"
+      },
+      "s04": {
+        "input": {
+          "mapping": {
+            "a": "X",
+            "b": "Y"
+          },
+          "tmpl": "$a$b"
+        },
+        "note": null,
+        "python": "XY",
+        "want": "XY"
+      },
+      "s05": {
+        "input": {
+          "mapping": {
+            "a": "X"
+          },
+          "tmpl": "$a$a"
+        },
+        "note": null,
+        "python": "XX",
+        "want": "XX"
+      },
+      "s06": {
+        "input": {
+          "mapping": {
+            "a1": "one"
+          },
+          "tmpl": "$a1"
+        },
+        "note": null,
+        "python": "one",
+        "want": "one"
+      },
+      "s07": {
+        "input": {
+          "mapping": {
+            "a_1": "under"
+          },
+          "tmpl": "$a_1"
+        },
+        "note": null,
+        "python": "under",
+        "want": "under"
+      },
+      "s08": {
+        "input": {
+          "mapping": {
+            "_a": "us"
+          },
+          "tmpl": "$_a"
+        },
+        "note": null,
+        "python": "us",
+        "want": "us"
+      },
+      "s09": {
+        "input": {
+          "mapping": {
+            "_": "u"
+          },
+          "tmpl": "$_"
+        },
+        "note": null,
+        "python": "u",
+        "want": "u"
+      },
+      "s10": {
+        "input": {
+          "mapping": {
+            "_1": "u1"
+          },
+          "tmpl": "$_1"
+        },
+        "note": null,
+        "python": "u1",
+        "want": "u1"
+      },
+      "s11": {
+        "input": {
+          "mapping": {
+            "A": "up"
+          },
+          "tmpl": "$A"
+        },
+        "note": null,
+        "python": "up",
+        "want": "up"
+      },
+      "s12": {
+        "input": {
+          "mapping": {
+            "aB": "mixed"
+          },
+          "tmpl": "$aB"
+        },
+        "note": null,
+        "python": "mixed",
+        "want": "mixed"
+      },
+      "s13": {
+        "input": {
+          "mapping": {
+            "a": "X"
+          },
+          "tmpl": "$a-b"
+        },
+        "note": null,
+        "python": "X-b",
+        "want": "X-b"
+      },
+      "s14": {
+        "input": {
+          "mapping": {
+            "a": "X"
+          },
+          "tmpl": "$a.b"
+        },
+        "note": null,
+        "python": "X.b",
+        "want": "X.b"
+      },
+      "s15": {
+        "input": {
+          "mapping": {
+            "a": "X"
+          },
+          "tmpl": "$a}"
+        },
+        "note": null,
+        "python": "X}",
+        "want": "X}"
+      },
+      "s16": {
+        "input": {
+          "mapping": {
+            "var": "V"
+          },
+          "tmpl": "中文$var中文"
+        },
+        "note": null,
+        "python": "中文V中文",
+        "want": "中文V中文"
+      },
+      "s17": {
+        "input": {
+          "mapping": {
+            "a": "X"
+          },
+          "tmpl": "${a}"
+        },
+        "note": null,
+        "python": "X",
+        "want": "X"
+      },
+      "s18": {
+        "input": {
+          "mapping": {
+            "a": "X",
+            "b": "Y"
+          },
+          "tmpl": "$a${b}"
+        },
+        "note": null,
+        "python": "XY",
+        "want": "XY"
+      },
+      "s19": {
+        "input": {
+          "mapping": {
+            "a": "X",
+            "b": "Y"
+          },
+          "tmpl": "${a}${b}"
+        },
+        "note": null,
+        "python": "XY",
+        "want": "XY"
+      },
+      "s20": {
+        "input": {
+          "mapping": {
+            "_": "u"
+          },
+          "tmpl": "${_}"
+        },
+        "note": null,
+        "python": "u",
+        "want": "u"
+      },
+      "s21": {
+        "input": {
+          "mapping": {
+            "A": "up"
+          },
+          "tmpl": "${A}"
+        },
+        "note": null,
+        "python": "up",
+        "want": "up"
+      },
+      "s22": {
+        "input": {
+          "mapping": {
+            "A_b1": "z"
+          },
+          "tmpl": "${A_b1}"
+        },
+        "note": null,
+        "python": "z",
+        "want": "z"
+      },
+      "s23": {
+        "input": {
+          "mapping": {
+            "a": "X"
+          },
+          "tmpl": "${a}x"
+        },
+        "note": null,
+        "python": "Xx",
+        "want": "Xx"
+      },
+      "s24": {
+        "input": {
+          "mapping": {
+            "a": "X"
+          },
+          "tmpl": "${a}{b}"
+        },
+        "note": null,
+        "python": "X{b}",
+        "want": "X{b}"
+      },
+      "s25": {
+        "input": {
+          "mapping": {
+            "a": "1",
+            "b": "2"
+          },
+          "tmpl": "x${a}y$b"
+        },
+        "note": null,
+        "python": "x1y2",
+        "want": "x1y2"
+      },
+      "s26": {
+        "input": {
+          "mapping": {
+            "a": "X"
+          },
+          "tmpl": "$a${a}"
+        },
+        "note": null,
+        "python": "XX",
+        "want": "XX"
+      },
+      "s27": {
+        "input": {
+          "mapping": {},
+          "tmpl": "$$"
+        },
+        "note": null,
+        "python": "$",
+        "want": "$"
+      },
+      "s28": {
+        "input": {
+          "mapping": {
+            "a": "X"
+          },
+          "tmpl": "$$a"
+        },
+        "note": null,
+        "python": "$a",
+        "want": "$a"
+      },
+      "s29": {
+        "input": {
+          "mapping": {
+            "a": "X"
+          },
+          "tmpl": "a$$b"
+        },
+        "note": null,
+        "python": "a$b",
+        "want": "a$b"
+      },
+      "s30": {
+        "input": {
+          "mapping": {
+            "a": "X"
+          },
+          "tmpl": "$$$a"
+        },
+        "note": null,
+        "python": "$X",
+        "want": "$X"
+      },
+      "s31": {
+        "input": {
+          "mapping": {},
+          "tmpl": "$$$$"
+        },
+        "note": null,
+        "python": "$$",
+        "want": "$$"
+      },
+      "s32": {
+        "input": {
+          "mapping": {
+            "a": "X"
+          },
+          "tmpl": "$$${a}"
+        },
+        "note": null,
+        "python": "$X",
+        "want": "$X"
+      },
+      "s33": {
+        "input": {
+          "mapping": {
+            "a": "X"
+          },
+          "tmpl": "$${"
+        },
+        "note": null,
+        "python": "${",
+        "want": "${"
+      },
+      "s34": {
+        "input": {
+          "mapping": {},
+          "tmpl": "$1x"
+        },
+        "note": null,
+        "python": {
+          "kind": "ValueError",
+          "pos": 0,
+          "what": "invalid_placeholder"
+        },
+        "want": {
+          "kind": "ValueError",
+          "pos": 0,
+          "what": "invalid_placeholder"
+        }
+      },
+      "s35": {
+        "input": {
+          "mapping": {},
+          "tmpl": "$-"
+        },
+        "note": null,
+        "python": {
+          "kind": "ValueError",
+          "pos": 0,
+          "what": "invalid_placeholder"
+        },
+        "want": {
+          "kind": "ValueError",
+          "pos": 0,
+          "what": "invalid_placeholder"
+        }
+      },
+      "s36": {
+        "input": {
+          "mapping": {},
+          "tmpl": "$ "
+        },
+        "note": null,
+        "python": {
+          "kind": "ValueError",
+          "pos": 0,
+          "what": "invalid_placeholder"
+        },
+        "want": {
+          "kind": "ValueError",
+          "pos": 0,
+          "what": "invalid_placeholder"
+        }
+      },
+      "s37": {
+        "input": {
+          "mapping": {},
+          "tmpl": "$\t"
+        },
+        "note": null,
+        "python": {
+          "kind": "ValueError",
+          "pos": 0,
+          "what": "invalid_placeholder"
+        },
+        "want": {
+          "kind": "ValueError",
+          "pos": 0,
+          "what": "invalid_placeholder"
+        }
+      },
+      "s38": {
+        "input": {
+          "mapping": {},
+          "tmpl": "$(x)"
+        },
+        "note": null,
+        "python": {
+          "kind": "ValueError",
+          "pos": 0,
+          "what": "invalid_placeholder"
+        },
+        "want": {
+          "kind": "ValueError",
+          "pos": 0,
+          "what": "invalid_placeholder"
+        }
+      },
+      "s39": {
+        "input": {
+          "mapping": {
+            "a": "X"
+          },
+          "tmpl": "${}"
+        },
+        "note": null,
+        "python": {
+          "kind": "ValueError",
+          "pos": 0,
+          "what": "invalid_placeholder"
+        },
+        "want": {
+          "kind": "ValueError",
+          "pos": 0,
+          "what": "invalid_placeholder"
+        }
+      },
+      "s40": {
+        "input": {
+          "mapping": {
+            "a": "X"
+          },
+          "tmpl": "${a b}"
+        },
+        "note": null,
+        "python": {
+          "kind": "ValueError",
+          "pos": 0,
+          "what": "invalid_placeholder"
+        },
+        "want": {
+          "kind": "ValueError",
+          "pos": 0,
+          "what": "invalid_placeholder"
+        }
+      },
+      "s41": {
+        "input": {
+          "mapping": {
+            "a": "X"
+          },
+          "tmpl": "${a"
+        },
+        "note": null,
+        "python": {
+          "kind": "ValueError",
+          "pos": 0,
+          "what": "invalid_placeholder"
+        },
+        "want": {
+          "kind": "ValueError",
+          "pos": 0,
+          "what": "invalid_placeholder"
+        }
+      },
+      "s42": {
+        "input": {
+          "mapping": {},
+          "tmpl": "a${b"
+        },
+        "note": null,
+        "python": {
+          "kind": "ValueError",
+          "pos": 1,
+          "what": "invalid_placeholder"
+        },
+        "want": {
+          "kind": "ValueError",
+          "pos": 1,
+          "what": "invalid_placeholder"
+        }
+      },
+      "s43": {
+        "input": {
+          "mapping": {},
+          "tmpl": "$"
+        },
+        "note": null,
+        "python": {
+          "kind": "ValueError",
+          "pos": 0,
+          "what": "invalid_placeholder"
+        },
+        "want": {
+          "kind": "ValueError",
+          "pos": 0,
+          "what": "invalid_placeholder"
+        }
+      },
+      "s44": {
+        "input": {
+          "mapping": {},
+          "tmpl": "x$"
+        },
+        "note": null,
+        "python": {
+          "kind": "ValueError",
+          "pos": 1,
+          "what": "invalid_placeholder"
+        },
+        "want": {
+          "kind": "ValueError",
+          "pos": 1,
+          "what": "invalid_placeholder"
+        }
+      },
+      "s45": {
+        "input": {
+          "mapping": {},
+          "tmpl": "ab$1x"
+        },
+        "note": null,
+        "python": {
+          "kind": "ValueError",
+          "pos": 2,
+          "what": "invalid_placeholder"
+        },
+        "want": {
+          "kind": "ValueError",
+          "pos": 2,
+          "what": "invalid_placeholder"
+        }
+      },
+      "s46": {
+        "input": {
+          "mapping": {},
+          "tmpl": "$b$1"
+        },
+        "note": null,
+        "python": {
+          "key": "b",
+          "kind": "KeyError"
+        },
+        "want": {
+          "key": "b",
+          "kind": "KeyError"
+        }
+      },
+      "s47": {
+        "input": {
+          "mapping": {},
+          "tmpl": "cost $5.00"
+        },
+        "note": null,
+        "python": {
+          "kind": "ValueError",
+          "pos": 5,
+          "what": "invalid_placeholder"
+        },
+        "want": {
+          "kind": "ValueError",
+          "pos": 5,
+          "what": "invalid_placeholder"
+        }
+      },
+      "s48": {
+        "input": {
+          "mapping": {},
+          "tmpl": "$中文"
+        },
+        "note": null,
+        "python": {
+          "kind": "ValueError",
+          "pos": 0,
+          "what": "invalid_placeholder"
+        },
+        "want": {
+          "kind": "ValueError",
+          "pos": 0,
+          "what": "invalid_placeholder"
+        }
+      },
+      "s49": {
+        "input": {
+          "mapping": {},
+          "tmpl": "$é"
+        },
+        "note": null,
+        "python": {
+          "kind": "ValueError",
+          "pos": 0,
+          "what": "invalid_placeholder"
+        },
+        "want": {
+          "kind": "ValueError",
+          "pos": 0,
+          "what": "invalid_placeholder"
+        }
+      },
+      "s50": {
+        "input": {
+          "mapping": {},
+          "tmpl": "$$$"
+        },
+        "note": null,
+        "python": {
+          "kind": "ValueError",
+          "pos": 2,
+          "what": "invalid_placeholder"
+        },
+        "want": {
+          "kind": "ValueError",
+          "pos": 2,
+          "what": "invalid_placeholder"
+        }
+      },
+      "s51": {
+        "input": {
+          "mapping": {
+            "a": "X"
+          },
+          "tmpl": "$a$"
+        },
+        "note": null,
+        "python": {
+          "kind": "ValueError",
+          "pos": 2,
+          "what": "invalid_placeholder"
+        },
+        "want": {
+          "kind": "ValueError",
+          "pos": 2,
+          "what": "invalid_placeholder"
+        }
+      },
+      "s52": {
+        "input": {
+          "mapping": {
+            "a": "X"
+          },
+          "tmpl": "${a}$"
+        },
+        "note": null,
+        "python": {
+          "kind": "ValueError",
+          "pos": 4,
+          "what": "invalid_placeholder"
+        },
+        "want": {
+          "kind": "ValueError",
+          "pos": 4,
+          "what": "invalid_placeholder"
+        }
+      },
+      "s53": {
+        "input": {
+          "mapping": {},
+          "tmpl": "$ a"
+        },
+        "note": null,
+        "python": {
+          "kind": "ValueError",
+          "pos": 0,
+          "what": "invalid_placeholder"
+        },
+        "want": {
+          "kind": "ValueError",
+          "pos": 0,
+          "what": "invalid_placeholder"
+        }
+      },
+      "s54": {
+        "input": {
+          "mapping": {
+            "a": "X"
+          },
+          "tmpl": "$zz"
+        },
+        "note": null,
+        "python": {
+          "key": "zz",
+          "kind": "KeyError"
+        },
+        "want": {
+          "key": "zz",
+          "kind": "KeyError"
+        }
+      },
+      "s55": {
+        "input": {
+          "mapping": {},
+          "tmpl": "${missing}"
+        },
+        "note": null,
+        "python": {
+          "key": "missing",
+          "kind": "KeyError"
+        },
+        "want": {
+          "key": "missing",
+          "kind": "KeyError"
+        }
+      },
+      "s56": {
+        "input": {
+          "mapping": {
+            "a": "X"
+          },
+          "tmpl": "$b"
+        },
+        "note": null,
+        "python": {
+          "key": "b",
+          "kind": "KeyError"
+        },
+        "want": {
+          "key": "b",
+          "kind": "KeyError"
+        }
+      },
+      "s57": {
+        "input": {
+          "mapping": {
+            "a": "A"
+          },
+          "tmpl": "$aa"
+        },
+        "note": null,
+        "python": {
+          "key": "aa",
+          "kind": "KeyError"
+        },
+        "want": {
+          "key": "aa",
+          "kind": "KeyError"
+        }
+      },
+      "s58": {
+        "input": {
+          "mapping": {},
+          "tmpl": "pre $nope mid $also_nope"
+        },
+        "note": null,
+        "python": {
+          "key": "nope",
+          "kind": "KeyError"
+        },
+        "want": {
+          "key": "nope",
+          "kind": "KeyError"
+        }
+      },
+      "s59": {
+        "input": {
+          "mapping": {
+            "a": "$b"
+          },
+          "tmpl": "$a"
+        },
+        "note": null,
+        "python": "$b",
+        "want": "$b"
+      },
+      "s60": {
+        "input": {
+          "mapping": {
+            "a": "${b}"
+          },
+          "tmpl": "$a"
+        },
+        "note": null,
+        "python": "${b}",
+        "want": "${b}"
+      },
+      "s61": {
+        "input": {
+          "mapping": {
+            "a": "$$"
+          },
+          "tmpl": "${a}$a"
+        },
+        "note": null,
+        "python": "$$$$",
+        "want": "$$$$"
+      },
+      "s62": {
+        "input": {
+          "mapping": {
+            "a": 42
+          },
+          "tmpl": "$a"
+        },
+        "note": null,
+        "python": "42",
+        "want": "42"
+      },
+      "s63": {
+        "input": {
+          "mapping": {
+            "a": -7
+          },
+          "tmpl": "$a"
+        },
+        "note": null,
+        "python": "-7",
+        "want": "-7"
+      },
+      "s64": {
+        "input": {
+          "mapping": {
+            "a": 1.5
+          },
+          "tmpl": "$a"
+        },
+        "note": null,
+        "python": "1.5",
+        "want": "1.5"
+      },
+      "s65": {
+        "input": {
+          "mapping": {
+            "a": ""
+          },
+          "tmpl": "$a"
+        },
+        "note": null,
+        "python": "",
+        "want": ""
+      },
+      "s66": {
+        "input": {
+          "mapping": {
+            "a": null
+          },
+          "tmpl": "$a"
+        },
+        "note": "已知差异（值类型渲染）：Python 的 `str(None)` 是 \"None\"，WLWL 的 `STR(NULL)` 渲染成 \"NULL\" ⇒ 文本不同。根因：`str()` 的容器/空值渲染是**宿主语言**的口径，与 `string.Template` 的语义无关，WLWL 侧无法逐字复刻。",
+        "python": "None",
+        "want": "NULL"
+      },
+      "s67": {
+        "input": {
+          "mapping": {
+            "a": true
+          },
+          "tmpl": "$a"
+        },
+        "note": "已知差异（值类型渲染）：Python 的 `str(True)` 是 \"True\"，WLWL 的 `STR(TRUE)` 是 \"TRUE\"（布尔的字面量口径不同）。",
+        "python": "True",
+        "want": "TRUE"
+      },
+      "s68": {
+        "input": {
+          "mapping": {
+            "a": {
+              "k": 1
+            }
+          },
+          "tmpl": "$a"
+        },
+        "note": "已知差异（值类型渲染）：Python 的 `str({\"k\": 1})` 是 \"{'k': 1}\"，WLWL 的 `STR(字典)` 是 \"[k: 1]\"（字典的渲染语法不同）。",
+        "python": "{'k': 1}",
+        "want": "[k: 1]"
+      }
+    }
+  }
+}
