@@ -147,6 +147,10 @@ powershell -File tp\test\ci_local_check.ps1
 | 45 | **`CONTAINS_SUB` 的空子串是运行时 `E0030`** | 拿 `CONTAINS_SUB(s, "")` 当「恒真」会炸 | 判「包含」用 `RE_FIND_ALL` 计数或非空子串 |
 | 46 | **`(ASSERT(...));` 行首那个 `(` 是分组括号，多断言时**每条**都要带** | 漏一条就每行多一个 `)`，而 `paren_check` 只报「lines X-Y ends at depth N」、**不指出真正出错的行** | 照抄范本形态：每行 `    (ASSERT(...));` 或 `    ASSERT(...);`（二者**不可混用**） |
 | 47 | **`std.json::PARSE` 返回的是原始值**（`TYPE` = `ARRAY`/`DICT`），不是 `RESULT`；解析失败才是 `E0070` 中止 | 对 `PARSE` 的返回值调 `UNWRAP_OR` ⇒ `E0030: expected OK/ERR, got array` | 只有 `JSON_VALIDATE` 返回 `RESULT`；要「解析失败可处置」必须先 `JSON_VALIDATE` 再 `PARSE` |
+| 48 | **没有中缀 `==`**：`TYPE(d) == "NULL"` 是 `E0012` | 从 Python 习惯直译过来就编译失败 | 一律前言式：`==(TYPE(d), "NULL")`。同理 `!=` / `<` / `>` / `+` 都不能中缀 |
+| 49 | ⚠ **`wlwl run` 不透传脚本参数** | `wlwl run x.wll --port 18080` ⇒ `error: unexpected argument '--port'`（clap 直接拒） | 需要外部配置的脚本（服务入口等）一律用**环境变量** + `std.env::ENV_GET`，别设计 `--flag` 接口 |
+| 50 | **`wlwl check` 只解析、不认 `--ext`** | 依赖 TLS 扩展的文件也能 `check` 通过，但 `run` 不带 `--ext` 就起不来 | `check` 当「语法门」用、`run --ext` 当「行为门」用；别以为 check 过了就能跑 |
+| 51 | **`LET(h, …)` 之后再 `SET(h, …)` ⇒ `E0024`**，且报错位置指向**调用点**（不是定义处） | 在测试里改字典会报「cannot SET immutable binding」，而行号指向 `TEST(...)` 那一行，容易误判成测试框架的问题 | 要改就用 `LET MUT`；报 E0024 时往上找被改的变量，别看报错行 |
 
 ## 参考
 

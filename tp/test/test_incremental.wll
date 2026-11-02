@@ -1,0 +1,370 @@
+// tp/test/test_incremental.wll —— 增量构建的逐字节对照测试 + 反向守卫
+//
+// ⚠ 本文件由 tp/test/gen_test_incremental.py 生成 —— 请勿手改。
+//
+// 基准：tp/test/fixtures/incremental_baseline.json
+//   （由 tp/test/gen_incremental_baseline.py 用**真 Python** 跑
+//     tinypage/core/incremental.py 产出）
+//
+// 期望值分两层（理由见生成器 docstring）：
+//   ① 字面量：与运行期 mtime 无关的用例 —— Python 的输出逐字节写死；
+//   ② 运行期重算：绝对摘要依赖文件 mtime，而 WLWL 无法设置 mtime（std.fs 无 utime）
+//      ⇒ 测试侧用 FILE_META 独立重算 preimage（与 lib 的 DIR_ENTRIES 路径不同源）。
+//
+// 反向守卫：① 静态禁 READ_FILE/READ_BYTES/BYTE_LEN（判据是 mtime，不做内容 hash）
+//           ② 静态要求「毫秒 / 1000」这一步在
+//           ③ 运行期：key 必须**不等于**按毫秒算的 digest（秒级截断可见）
+//              ⇒ key == 秒版 digest 且 != 毫秒版 digest，等价于「key 只是秒的函数」
+//              ⇒ 「同一秒内改 mtime 而 key 不变」是它的直接推论（WLWL 无法设 mtime，
+//                所以不另造一条需要改 mtime 的用例 —— 那会是时序相关、CI 会 flaky）
+//           ④ 运行期：cache 为 NULL ⇒ 全部 modified（不得复现 Python 兜底缺陷）
+//
+// ⚠ RUN_TESTS() 的失败**不影响退出码**（规范明载）⇒ 本文件自己把关。
+IMPORT("wlwl:std.test", ["TEST", "ASSERT", "ASSERT_EQ", "ASSERT_NEQ", "RUN_TESTS", "TEMP_DIR"]);
+IMPORT("wlwl:std.fs", ["DIR_ENTRIES", "FILE_META", "MKDIRS", "PATH_EXT", "PATH_JOIN", "WRITE_FILE"]);
+IMPORT("wlwl:std.str", ["CAT", "JOIN"]);
+IMPORT("wlwl:std.encode", ["SHA256"]);
+IMPORT("./../lib/incremental.wll", ["BUILD_CACHE_KEY", "GET_UNCHANGED", "SHOULD_USE_INCREMENTAL"]);
+
+// ── 测试侧重算：**只**读 FILE_META（毫秒），不碰 DIR_ENTRIES 的 mtime ──
+LET(_SEC_OF_, FUN((dir, nm), (
+    // 一个目录项的秒级 mtime（== Python int(st_mtime)）。
+    // ⚠ FILE_META 可能返 ERR（坑 25）⇒ 直接内联进 IS_ERR。
+    IF(IS_ERR(FILE_META(PATH_JOIN(dir, nm))), 0,
+       /(AT_K(FILE_META(PATH_JOIN(dir, nm)), "mtime", 0), 1000))
+)));
+
+LET(_PREIMAGE_, FUN((dir, use_ms), (
+    // preimage：名字以 .html 结尾的项（**含同名目录**，对齐 glob）按名升序，
+    // 拼 "<名>:<秒>" 用 | 连接。use_ms = TRUE ⇒ 故意用毫秒（守卫 ③ 的判据）。
+    LET MUT(lines, []);
+    FOR(e, DIR_ENTRIES(dir), (
+        IF(==(PATH_EXT(AT_K(e, "name", "")), "html"), (
+            LET(nm, AT_K(e, "name", ""));
+            LET(sec, IF(use_ms,
+                AT_K(FILE_META(PATH_JOIN(dir, nm)), "mtime", 0),
+                _SEC_OF_(dir, nm)));
+            SET(lines, PUSH(lines, CAT(nm, ":", STR(sec))))
+        ), (NULL))
+    ));
+    JOIN(lines, "|")
+)));
+
+LET(_KEY_OF_, FUN((dir), (
+    SUB(SHA256(_PREIMAGE_(dir, FALSE)), 0, 12)
+)));
+
+LET(_KEY_OF_MS_, FUN((dir), (
+    // 守卫 ③：若把 /1000 去掉，key 就会长成这样 ⇒ 必须**不等**。
+    SUB(SHA256(_PREIMAGE_(dir, TRUE)), 0, 12)
+)));
+
+LET(_CACHE_OF_, FUN((dir), (
+    // cache 的形态：DICT 名 → **秒**（与 BUILD_CACHE_KEY 的 int(mtime) 同口径）。
+    LET MUT(c, DICT());
+    FOR(e, DIR_ENTRIES(dir), (
+        IF(AT_K(e, "is_dir", FALSE), (NULL), (
+            IF(==(PATH_EXT(AT_K(e, "name", "")), "html"), (
+                SET(c, INDEX_SET(c, AT_K(e, "name", ""),
+                    _SEC_OF_(dir, AT_K(e, "name", ""))))
+            ), (NULL))
+        ))
+    ));
+    c
+)));
+
+LET(_CACHE_PARTIAL_, FUN((dir), (
+    // 「部分变更」：b.html 的 cache 秒故意少 1 秒；d.html 从 cache 里删掉（新增）。
+    LET MUT(c, _CACHE_OF_(dir));
+    SET(c, INDEX_SET(c, "b.html", -(AT_K(c, "b.html", 0), 1)));
+    SET(c, REMOVE_KEY(c, "d.html"));
+    c
+)));
+
+// ── 运行期夹具：TEMP_DIR 下真造目录/文件（mtime 由文件系统给，不可设）──
+LET(_TD_, TEMP_DIR());
+// 缓存 key：不存在 / 存在但空
+LET(_CK_NONE_, PATH_JOIN(_TD_, "ck_none"));
+LET(_CK_EMPTY_, PATH_JOIN(_TD_, "ck_empty"));
+MKDIRS(_CK_EMPTY_);
+
+// rt_single：单文件（运行期 mtime）
+LET(_CK_RT_SINGLE_, PATH_JOIN(_TD_, "rt_single"));
+MKDIRS(_CK_RT_SINGLE_);
+WRITE_FILE(PATH_JOIN(_CK_RT_SINGLE_, "a.html"), "x");
+
+// rt_multi：多文件 + 中文名（运行期 mtime）
+LET(_CK_RT_MULTI_, PATH_JOIN(_TD_, "rt_multi"));
+MKDIRS(_CK_RT_MULTI_);
+WRITE_FILE(PATH_JOIN(_CK_RT_MULTI_, "b.html"), "x");
+WRITE_FILE(PATH_JOIN(_CK_RT_MULTI_, "a.html"), "x");
+WRITE_FILE(PATH_JOIN(_CK_RT_MULTI_, "中文.html"), "x");
+
+// rt_dir_named_html：含一个名为 dir.html 的**目录**（运行期 mtime）
+LET(_CK_RT_DIR_NAMED_HTML_, PATH_JOIN(_TD_, "rt_dir_named_html"));
+MKDIRS(_CK_RT_DIR_NAMED_HTML_);
+MKDIRS(PATH_JOIN(_CK_RT_DIR_NAMED_HTML_, "dir.html"));
+WRITE_FILE(PATH_JOIN(_CK_RT_DIR_NAMED_HTML_, "a.html"), "x");
+
+// rt_non_html：含非 .html 后缀（必须被忽略）
+LET(_CK_RT_NON_HTML_, PATH_JOIN(_TD_, "rt_non_html"));
+MKDIRS(_CK_RT_NON_HTML_);
+WRITE_FILE(PATH_JOIN(_CK_RT_NON_HTML_, "a.html"), "x");
+WRITE_FILE(PATH_JOIN(_CK_RT_NON_HTML_, "notes.txt"), "x");
+
+// ── 运行期期望值（观察到的 mtime 重算；生成期不可知）──────────────
+LET(_K_RT_SINGLE_, _KEY_OF_(_CK_RT_SINGLE_));
+LET(_K_RT_MULTI_, _KEY_OF_(_CK_RT_MULTI_));
+LET(_K_RT_DIR_NAMED_HTML_, _KEY_OF_(_CK_RT_DIR_NAMED_HTML_));
+LET(_K_RT_NON_HTML_, _KEY_OF_(_CK_RT_NON_HTML_));
+
+// ── GET_UNCHANGED 夹具（每个用例一个独立目录：实现会**回写** cache）──
+// hit_all_unchanged：cache 全命中 ⇒ 全部未变（Python 走的正是这条 hit 路径）
+LET(_GU_HIT_ALL_UNCHANGED_, PATH_JOIN(_TD_, "gu_hit_all_unchanged"));
+MKDIRS(_GU_HIT_ALL_UNCHANGED_);
+WRITE_FILE(PATH_JOIN(_GU_HIT_ALL_UNCHANGED_, "a.html"), "x");
+WRITE_FILE(PATH_JOIN(_GU_HIT_ALL_UNCHANGED_, "b.html"), "x");
+
+// stale_mtimes_changed：cache 来自别处（不匹配）⇒ 兜底路径 ⇒ Python 误判「全部未变」；WLWL 侧逐文件比 mtime ⇒ 两篇都进 modified
+LET(_GU_STALE_MTIMES_CHANGED_, PATH_JOIN(_TD_, "gu_stale_mtimes_changed"));
+MKDIRS(_GU_STALE_MTIMES_CHANGED_);
+WRITE_FILE(PATH_JOIN(_GU_STALE_MTIMES_CHANGED_, "a.html"), "x");
+WRITE_FILE(PATH_JOIN(_GU_STALE_MTIMES_CHANGED_, "b.html"), "x");
+
+// stale_new_file：新增文件 c.html 也走兜底路径 ⇒ Python 漏判；WLWL 侧进 modified
+LET(_GU_STALE_NEW_FILE_, PATH_JOIN(_TD_, "gu_stale_new_file"));
+MKDIRS(_GU_STALE_NEW_FILE_);
+WRITE_FILE(PATH_JOIN(_GU_STALE_NEW_FILE_, "a.html"), "x");
+WRITE_FILE(PATH_JOIN(_GU_STALE_NEW_FILE_, "b.html"), "x");
+WRITE_FILE(PATH_JOIN(_GU_STALE_NEW_FILE_, "c.html"), "x");
+
+// no_cache：完全没有 cache ⇒ 无从证明未变 ⇒ WLWL 全部进 modified（安全侧）；Python 仍返回「全部未变」
+LET(_GU_NO_CACHE_, PATH_JOIN(_TD_, "gu_no_cache"));
+MKDIRS(_GU_NO_CACHE_);
+WRITE_FILE(PATH_JOIN(_GU_NO_CACHE_, "a.html"), "x");
+WRITE_FILE(PATH_JOIN(_GU_NO_CACHE_, "b.html"), "x");
+
+// empty_dir：空目录 ⇒ 两组都空（两侧一致）
+LET(_GU_EMPTY_DIR_, PATH_JOIN(_TD_, "gu_empty_dir"));
+MKDIRS(_GU_EMPTY_DIR_);
+
+// partial_change_via_get_modified_files：真 Python 的 get_modified_files（参数正确时才是对的参考实现）：b.html 产物缺失 ⇒ 已改；d.html 新增 ⇒ 已改；gone.html 源里已删 ⇒ 两组都不出现
+LET(_GU_PARTIAL_CHANGE_VIA_GET_MODIFIED_FILES_, PATH_JOIN(_TD_, "gu_partial_change_via_get_modified_files"));
+MKDIRS(_GU_PARTIAL_CHANGE_VIA_GET_MODIFIED_FILES_);
+WRITE_FILE(PATH_JOIN(_GU_PARTIAL_CHANGE_VIA_GET_MODIFIED_FILES_, "a.html"), "x");
+WRITE_FILE(PATH_JOIN(_GU_PARTIAL_CHANGE_VIA_GET_MODIFIED_FILES_, "b.html"), "x");
+WRITE_FILE(PATH_JOIN(_GU_PARTIAL_CHANGE_VIA_GET_MODIFIED_FILES_, "c.html"), "x");
+WRITE_FILE(PATH_JOIN(_GU_PARTIAL_CHANGE_VIA_GET_MODIFIED_FILES_, "d.html"), "x");
+
+// cache_extra_name_deleted：删除文件：cache 里有 gone.html、目录里已无 ⇒ 两组都不出现（Python 同口径：文章列表里本来就没有它）
+LET(_GU_CACHE_EXTRA_NAME_DELETED_, PATH_JOIN(_TD_, "gu_cache_extra_name_deleted"));
+MKDIRS(_GU_CACHE_EXTRA_NAME_DELETED_);
+WRITE_FILE(PATH_JOIN(_GU_CACHE_EXTRA_NAME_DELETED_, "a.html"), "x");
+WRITE_FILE(PATH_JOIN(_GU_CACHE_EXTRA_NAME_DELETED_, "b.html"), "x");
+
+// cache_wrong_value_type：WLWL 专有：cache 的值不是 INTEGER ⇒ 判 modified（Python 没有 DICT cache 这个形态）
+LET(_GU_CACHE_WRONG_VALUE_TYPE_, PATH_JOIN(_TD_, "gu_cache_wrong_value_type"));
+MKDIRS(_GU_CACHE_WRONG_VALUE_TYPE_);
+WRITE_FILE(PATH_JOIN(_GU_CACHE_WRONG_VALUE_TYPE_, "a.html"), "x");
+WRITE_FILE(PATH_JOIN(_GU_CACHE_WRONG_VALUE_TYPE_, "b.html"), "x");
+
+// ── cache 形态（按夹具的 cache_mode 造）───────────────────────────
+LET(_C_HIT_ALL_UNCHANGED_, _CACHE_OF_(_GU_HIT_ALL_UNCHANGED_));
+LET(_C_STALE_MTIMES_CHANGED_, DICT());
+LET(_C_STALE_NEW_FILE_, DICT());
+LET(_C_NO_CACHE_, NULL);
+LET(_C_EMPTY_DIR_, NULL);
+LET(_C_PARTIAL_CHANGE_VIA_GET_MODIFIED_FILES_, _CACHE_PARTIAL_(_GU_PARTIAL_CHANGE_VIA_GET_MODIFIED_FILES_));
+LET(_C_CACHE_EXTRA_NAME_DELETED_, INDEX_SET(_CACHE_OF_(_GU_CACHE_EXTRA_NAME_DELETED_), "gone.html", 5));
+LET(_C_CACHE_WRONG_VALUE_TYPE_, INDEX_SET(_CACHE_OF_(_GU_CACHE_WRONG_VALUE_TYPE_), "a.html", "abc"));
+
+// ── SHOULD_USE_INCREMENTAL（期望值 = 真 Python incremental.py:131）──
+// default_below_threshold：默认 threshold=100：99 篇 < 100 ⇒ 不用增量（与修改比例无关）
+LET(_SU_DEFAULT_BELOW_THRESHOLD_, ["article_count": 99, "modified_count": 0]);
+TEST("should/default_below_threshold", FUN(() ,
+    (ASSERT_EQ(SHOULD_USE_INCREMENTAL(_SU_DEFAULT_BELOW_THRESHOLD_), FALSE));
+    TRUE));
+// default_at_threshold_no_change：篇数恰好等于阈值 ⇒ 通过第一条；零修改 ⇒ 比值 0 < 0.1 ⇒ TRUE
+LET(_SU_DEFAULT_AT_THRESHOLD_NO_CHANGE_, ["article_count": 100, "modified_count": 0]);
+TEST("should/default_at_threshold_no_change", FUN(() ,
+    (ASSERT_EQ(SHOULD_USE_INCREMENTAL(_SU_DEFAULT_AT_THRESHOLD_NO_CHANGE_), TRUE));
+    TRUE));
+// boundary_ratio_exactly_0_1：比值**恰好 0.1**（10/100）⇒ 严格小于不成立 ⇒ FALSE
+LET(_SU_BOUNDARY_RATIO_EXACTLY_0_1_, ["article_count": 100, "modified_count": 10]);
+TEST("should/boundary_ratio_exactly_0_1", FUN(() ,
+    (ASSERT_EQ(SHOULD_USE_INCREMENTAL(_SU_BOUNDARY_RATIO_EXACTLY_0_1_), FALSE));
+    TRUE));
+// boundary_ratio_just_below：10/101 ≈ 0.099 < 0.1 ⇒ TRUE（比值的下边界，仅超一篇文章）
+LET(_SU_BOUNDARY_RATIO_JUST_BELOW_, ["article_count": 101, "modified_count": 10]);
+TEST("should/boundary_ratio_just_below", FUN(() ,
+    (ASSERT_EQ(SHOULD_USE_INCREMENTAL(_SU_BOUNDARY_RATIO_JUST_BELOW_), TRUE));
+    TRUE));
+// boundary_ratio_just_above：11/100 = 0.11 > 0.1 ⇒ FALSE
+LET(_SU_BOUNDARY_RATIO_JUST_ABOVE_, ["article_count": 100, "modified_count": 11]);
+TEST("should/boundary_ratio_just_above", FUN(() ,
+    (ASSERT_EQ(SHOULD_USE_INCREMENTAL(_SU_BOUNDARY_RATIO_JUST_ABOVE_), FALSE));
+    TRUE));
+// ratio_9_of_100：9/100 = 0.09 < 0.1 ⇒ TRUE
+LET(_SU_RATIO_9_OF_100_, ["article_count": 100, "modified_count": 9]);
+TEST("should/ratio_9_of_100", FUN(() ,
+    (ASSERT_EQ(SHOULD_USE_INCREMENTAL(_SU_RATIO_9_OF_100_), TRUE));
+    TRUE));
+// zero_articles_default：0 篇 ⇒ 0 < 100 ⇒ FALSE（Python 连比值都不算）
+LET(_SU_ZERO_ARTICLES_DEFAULT_, ["article_count": 0, "modified_count": 0]);
+TEST("should/zero_articles_default", FUN(() ,
+    (ASSERT_EQ(SHOULD_USE_INCREMENTAL(_SU_ZERO_ARTICLES_DEFAULT_), FALSE));
+    TRUE));
+// zero_articles_threshold_0：0 篇 + threshold=0 ⇒ 越过第一条；`article_count > 0` 为假 ⇒ 比值取 1.0 ⇒ FALSE
+LET(_SU_ZERO_ARTICLES_THRESHOLD_0_, ["article_count": 0, "modified_count": 0, "threshold": 0]);
+TEST("should/zero_articles_threshold_0", FUN(() ,
+    (ASSERT_EQ(SHOULD_USE_INCREMENTAL(_SU_ZERO_ARTICLES_THRESHOLD_0_), FALSE));
+    TRUE));
+// threshold_0_one_article：threshold=0 + 1 篇零修改 ⇒ 比值 0 < 0.1 ⇒ TRUE
+LET(_SU_THRESHOLD_0_ONE_ARTICLE_, ["article_count": 1, "modified_count": 0, "threshold": 0]);
+TEST("should/threshold_0_one_article", FUN(() ,
+    (ASSERT_EQ(SHOULD_USE_INCREMENTAL(_SU_THRESHOLD_0_ONE_ARTICLE_), TRUE));
+    TRUE));
+// all_modified：全改 ⇒ 比值 1.0 ⇒ FALSE
+LET(_SU_ALL_MODIFIED_, ["article_count": 200, "modified_count": 200]);
+TEST("should/all_modified", FUN(() ,
+    (ASSERT_EQ(SHOULD_USE_INCREMENTAL(_SU_ALL_MODIFIED_), FALSE));
+    TRUE));
+// custom_threshold_high：threshold=10 且 50 篇 ⇒ 1/50 = 0.02 < 0.1 ⇒ TRUE
+LET(_SU_CUSTOM_THRESHOLD_HIGH_, ["article_count": 50, "modified_count": 1, "threshold": 10]);
+TEST("should/custom_threshold_high", FUN(() ,
+    (ASSERT_EQ(SHOULD_USE_INCREMENTAL(_SU_CUSTOM_THRESHOLD_HIGH_), TRUE));
+    TRUE));
+// custom_threshold_blocks：threshold=10 且 5 篇 ⇒ 5 < 10 ⇒ FALSE（篇数不足，比值再小也没用）
+LET(_SU_CUSTOM_THRESHOLD_BLOCKS_, ["article_count": 5, "modified_count": 0, "threshold": 10]);
+TEST("should/custom_threshold_blocks", FUN(() ,
+    (ASSERT_EQ(SHOULD_USE_INCREMENTAL(_SU_CUSTOM_THRESHOLD_BLOCKS_), FALSE));
+    TRUE));
+// big_at_boundary：1000 篇里 100 篇改 ⇒ 比值恰好 0.1 ⇒ FALSE（大数上的同一把尺）
+LET(_SU_BIG_AT_BOUNDARY_, ["article_count": 1000, "modified_count": 100]);
+TEST("should/big_at_boundary", FUN(() ,
+    (ASSERT_EQ(SHOULD_USE_INCREMENTAL(_SU_BIG_AT_BOUNDARY_), FALSE));
+    TRUE));
+// big_just_below：100/1001 ≈ 0.09990 < 0.1 ⇒ TRUE
+LET(_SU_BIG_JUST_BELOW_, ["article_count": 1001, "modified_count": 100]);
+TEST("should/big_just_below", FUN(() ,
+    (ASSERT_EQ(SHOULD_USE_INCREMENTAL(_SU_BIG_JUST_BELOW_), TRUE));
+    TRUE));
+
+// ── BUILD_CACHE_KEY：与 mtime 无关的字面量用例（Python 输出）──────
+// nonexistent_dir：不存在 ⇒ 字面量 "empty"（:171 的提前返回）
+TEST("cache_key/nonexistent_dir", FUN(() ,
+    (ASSERT_EQ(BUILD_CACHE_KEY(["article_dir": _CK_NONE_]), "empty"));
+    TRUE));
+// existing_empty_dir：存在但为空 ⇒ 不是 "empty"，是 sha256("")[:12] = e3b0c44298fc
+TEST("cache_key/existing_empty_dir", FUN(() ,
+    (ASSERT_EQ(BUILD_CACHE_KEY(["article_dir": _CK_EMPTY_]), "e3b0c44298fc"));
+    TRUE));
+
+
+// ── BUILD_CACHE_KEY：把**文件**当目录传入（Python 给 sha256("")[:12]，不是 "empty"）
+// 传入的是**文件**（exists 为真、glob 为空）⇒ sha256("")[:12]；与「目录不存在 ⇒ "empty"」是两条不同分支（实测）
+TEST("cache_key/file_instead_of_dir", FUN(() ,
+    (ASSERT_EQ(BUILD_CACHE_KEY(["article_dir": PATH_JOIN(_CK_RT_SINGLE_, "a.html")]), "e3b0c44298fc"));
+    TRUE));
+
+// ── BUILD_CACHE_KEY：运行期目录（期望 = 测试侧用 FILE_META 重算）───
+// rt_single：单文件（运行期 mtime）
+TEST("cache_key/rt_single", FUN(() ,
+    (ASSERT_EQ(BUILD_CACHE_KEY(["article_dir": _CK_RT_SINGLE_]), _K_RT_SINGLE_));
+    TRUE));
+// 守卫 ③：同一目录的 key 必须**不等于**按毫秒算的 digest（秒级截断可见）
+TEST("guard/truncation_rt_single", FUN(() ,
+    (ASSERT_NEQ(BUILD_CACHE_KEY(["article_dir": _CK_RT_SINGLE_]), _KEY_OF_MS_(_CK_RT_SINGLE_)));
+    TRUE));
+// rt_multi：多文件 + 中文名（运行期 mtime）
+TEST("cache_key/rt_multi", FUN(() ,
+    (ASSERT_EQ(BUILD_CACHE_KEY(["article_dir": _CK_RT_MULTI_]), _K_RT_MULTI_));
+    TRUE));
+// 守卫 ③：同一目录的 key 必须**不等于**按毫秒算的 digest（秒级截断可见）
+TEST("guard/truncation_rt_multi", FUN(() ,
+    (ASSERT_NEQ(BUILD_CACHE_KEY(["article_dir": _CK_RT_MULTI_]), _KEY_OF_MS_(_CK_RT_MULTI_)));
+    TRUE));
+// rt_dir_named_html：含一个名为 dir.html 的**目录**（运行期 mtime）
+TEST("cache_key/rt_dir_named_html", FUN(() ,
+    (ASSERT_EQ(BUILD_CACHE_KEY(["article_dir": _CK_RT_DIR_NAMED_HTML_]), _K_RT_DIR_NAMED_HTML_));
+    TRUE));
+// 守卫 ③：同一目录的 key 必须**不等于**按毫秒算的 digest（秒级截断可见）
+TEST("guard/truncation_rt_dir_named_html", FUN(() ,
+    (ASSERT_NEQ(BUILD_CACHE_KEY(["article_dir": _CK_RT_DIR_NAMED_HTML_]), _KEY_OF_MS_(_CK_RT_DIR_NAMED_HTML_)));
+    TRUE));
+// rt_non_html：含非 .html 后缀（必须被忽略）
+TEST("cache_key/rt_non_html", FUN(() ,
+    (ASSERT_EQ(BUILD_CACHE_KEY(["article_dir": _CK_RT_NON_HTML_]), _K_RT_NON_HTML_));
+    TRUE));
+// 守卫 ③：同一目录的 key 必须**不等于**按毫秒算的 digest（秒级截断可见）
+TEST("guard/truncation_rt_non_html", FUN(() ,
+    (ASSERT_NEQ(BUILD_CACHE_KEY(["article_dir": _CK_RT_NON_HTML_]), _KEY_OF_MS_(_CK_RT_NON_HTML_)));
+    TRUE));
+// 守卫 ③ 的补充：同一目录两次调用必须一致（无隐藏状态）
+TEST("guard/cache_key_idempotent", FUN(() ,
+    (ASSERT_EQ(BUILD_CACHE_KEY(["article_dir": _CK_RT_MULTI_]), BUILD_CACHE_KEY(["article_dir": _CK_RT_MULTI_])));
+    TRUE));
+
+// ── GET_UNCHANGED（期望 = 夹具 expected_wlwl）─────────────────────
+// hit_all_unchanged：cache 全命中 ⇒ 全部未变（Python 走的正是这条 hit 路径）
+TEST("unchanged/hit_all_unchanged", FUN(() ,
+    (ASSERT_EQ(GET_UNCHANGED(["article_dir": _GU_HIT_ALL_UNCHANGED_, "cache": _C_HIT_ALL_UNCHANGED_]), ["unchanged": ["a.html", "b.html"], "modified": []]));
+    TRUE));
+// stale_mtimes_changed：cache 来自别处（不匹配）⇒ 兜底路径 ⇒ Python 误判「全部未变」；WLWL 侧逐文件比 mtime ⇒ 两篇都进 modified
+TEST("unchanged/stale_mtimes_changed", FUN(() ,
+    (ASSERT_EQ(GET_UNCHANGED(["article_dir": _GU_STALE_MTIMES_CHANGED_, "cache": _C_STALE_MTIMES_CHANGED_]), ["unchanged": [], "modified": ["a.html", "b.html"]]));
+    TRUE));
+// stale_new_file：新增文件 c.html 也走兜底路径 ⇒ Python 漏判；WLWL 侧进 modified
+TEST("unchanged/stale_new_file", FUN(() ,
+    (ASSERT_EQ(GET_UNCHANGED(["article_dir": _GU_STALE_NEW_FILE_, "cache": _C_STALE_NEW_FILE_]), ["unchanged": [], "modified": ["a.html", "b.html", "c.html"]]));
+    TRUE));
+// no_cache：完全没有 cache ⇒ 无从证明未变 ⇒ WLWL 全部进 modified（安全侧）；Python 仍返回「全部未变」
+TEST("unchanged/no_cache", FUN(() ,
+    (ASSERT_EQ(GET_UNCHANGED(["article_dir": _GU_NO_CACHE_, "cache": _C_NO_CACHE_]), ["unchanged": [], "modified": ["a.html", "b.html"]]));
+    TRUE));
+// empty_dir：空目录 ⇒ 两组都空（两侧一致）
+TEST("unchanged/empty_dir", FUN(() ,
+    (ASSERT_EQ(GET_UNCHANGED(["article_dir": _GU_EMPTY_DIR_, "cache": _C_EMPTY_DIR_]), ["unchanged": [], "modified": []]));
+    TRUE));
+// partial_change_via_get_modified_files：真 Python 的 get_modified_files（参数正确时才是对的参考实现）：b.html 产物缺失 ⇒ 已改；d.html 新增 ⇒ 已改；gone.html 源里已删 ⇒ 两组都不出现
+TEST("unchanged/partial_change_via_get_modified_files", FUN(() ,
+    (ASSERT_EQ(GET_UNCHANGED(["article_dir": _GU_PARTIAL_CHANGE_VIA_GET_MODIFIED_FILES_, "cache": _C_PARTIAL_CHANGE_VIA_GET_MODIFIED_FILES_]), ["unchanged": ["a.html", "c.html"], "modified": ["b.html", "d.html"]]));
+    TRUE));
+// cache_extra_name_deleted：删除文件：cache 里有 gone.html、目录里已无 ⇒ 两组都不出现（Python 同口径：文章列表里本来就没有它）
+TEST("unchanged/cache_extra_name_deleted", FUN(() ,
+    (ASSERT_EQ(GET_UNCHANGED(["article_dir": _GU_CACHE_EXTRA_NAME_DELETED_, "cache": _C_CACHE_EXTRA_NAME_DELETED_]), ["unchanged": ["a.html", "b.html"], "modified": []]));
+    TRUE));
+// cache_wrong_value_type：WLWL 专有：cache 的值不是 INTEGER ⇒ 判 modified（Python 没有 DICT cache 这个形态）
+TEST("unchanged/cache_wrong_value_type", FUN(() ,
+    (ASSERT_EQ(GET_UNCHANGED(["article_dir": _GU_CACHE_WRONG_VALUE_TYPE_, "cache": _C_CACHE_WRONG_VALUE_TYPE_]), ["unchanged": ["b.html"], "modified": ["a.html"]]));
+    TRUE));
+
+// ── 反向守卫 ④：不得复现 Python 兜底路径的缺陷（恒判「未变」）─────
+// Python 的 cache 未命中 ⇒ get_modified_files(article_dir, article_dir) ⇒ 恒空
+// ⇒ 全部判未变（实测见夹具 known_differences[0].evidence）。
+// WLWL 侧：cache 缺失 ⇒ 全部进 modified ⇒ 退化为**全量重建**（安全侧）。
+TEST("guard/not_python_defect_all_modified", FUN(() ,
+    (ASSERT_EQ(LEN(AT_K(GET_UNCHANGED(["article_dir": _GU_STALE_MTIMES_CHANGED_, "cache": DICT()]), "modified", [])), 2));
+    TRUE));
+TEST("guard/not_python_defect_not_equal", FUN(() ,
+    // 也不能恰好等于 Python 的（缺陷）返回值。
+    (ASSERT_NEQ(GET_UNCHANGED(["article_dir": _GU_STALE_MTIMES_CHANGED_, "cache": DICT()]), ["unchanged": ["a.html", "b.html"], "modified": []]));
+    TRUE));
+// 新增文件也必须被抓到（Python 漏判的那条）
+TEST("guard/new_file_is_modified", FUN(() ,
+    (ASSERT_EQ(LEN(AT_K(GET_UNCHANGED(["article_dir": _GU_STALE_NEW_FILE_, "cache": DICT()]), "modified", [])), 3));
+    TRUE));
+
+// ── 跑测试 ────────────────────────────────────────────────────────
+LET(records, RUN_TESTS());
+PRINT("test_incremental: ", LEN(records), " test(s) run");
+
+LET MUT(failed, 0);
+FOR(rec, records,
+    (IF(AT_K(rec, "passed", FALSE),
+        PRINT("  PASS ", AT_K(rec, "name", "?")),
+        (SET(failed, +(failed, 1));
+         PRINT("  FAIL ", AT_K(rec, "name", "?"), " error=", STR(AT_K(rec, "error", "")))))));
+PRINT("test_incremental: failed=", failed);
+IF(>(failed, 0), (PRINT_ERR("test_incremental: FAILED"); PANIC("incremental tests failed")), NULL);
+PRINT("test_incremental: OK");

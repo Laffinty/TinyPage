@@ -121,6 +121,24 @@ def main():
     A('')
     A('IMPORT("wlwl:std.json", ["STRINGIFY"]);')
     A('IMPORT("wlwl:std.str", ["CAT"]);')
+    A('IMPORT("wlwl:std.regex", ["RE", "RE_REPLACE"]);')
+    A('IMPORT("wlwl:std.encode", ["UTF8_DECODE"]);')
+    A('')
+    A('// ── Python str.strip() 的复刻（D1 修正，2026-11-02）────────────────')
+    A('// ⚠ 内建 TRIM **只剥 ASCII 空白**（实测 TRIM(U+3000/U+00A0) 原样返回），')
+    A('//   而 Python 的 str.strip() 按 str.isspace() 剥 Unicode 空白')
+    A('//   （NBSP U+00A0、全角空格 U+3000 都算）⇒ 必须自己构造空白集合。')
+    A('// ⚠ UTF8_DECODE 的实参是**字节**（0-255），不是码点（见 tp/README.md 坑 42）。')
+    A('LET(PY_WS, FUN((), (')
+    A('    UTF8_DECODE([9, 10, 11, 12, 13, 28, 29, 30, 31, 32, 194, 133, 194, 160, 225, 154, 128, 226, 128, 128, 226, 128, 129, 226, 128, 130, 226, 128, 131, 226, 128, 132, 226, 128, 133, 226, 128, 134, 226, 128, 135, 226, 128, 136, 226, 128, 137, 226, 128, 138, 226, 128, 168, 226, 128, 169, 226, 128, 175, 226, 129, 159, 227, 128, 128])')
+    A(')));')
+    A('// 首尾空白模式：字符类里放**字面**字符，无转义问题；')
+    A('// ⚠ 结尾锚 `$` 要写成 `\\$`（裸 `$` 在 WLWL 字面量里是插值，见坑 32）。')
+    A('LET(WS_LEAD_RE, RE(CAT("^[", PY_WS(), "]+")));')
+    A('LET(WS_TRAIL_RE, RE(CAT("[", PY_WS(), "]+\\$")));')
+    A('LET(PY_STRIP, FUN((s), (')
+    A('    RE_REPLACE(WS_TRAIL_RE, RE_REPLACE(WS_LEAD_RE, s, ""), "")')
+    A(')));')
     A('')
 
     # ── JSON 标量 ─────────────────────────────────────────────────
@@ -144,7 +162,7 @@ def main():
         'LET MUT(n, LEN(parts))',
         'LET MUT(i, 0)',
         C('WHILE', '<(i, n)', [
-            'LET(t, TRIM(AT(parts, i, "")))',
+            'LET(t, PY_STRIP(AT(parts, i, "")))',
             C('IF', '!=(t, "")', [
                 'SET(out, PUSH(out, t))',
             ], [

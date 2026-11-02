@@ -181,6 +181,11 @@ CASES = [
         art(title='t6', tags='\t tab \t', file='t6.html'),
         # 内部逗号不切（只有分隔用的逗号才切）
         art(title='t7', tags='a , b ,c', file='t7.html'),
+        # ⚠ D1 回归（2026-11-02 父进程修）：非 ASCII 空白必须被剥。
+        #   Python 的 str.strip() 剥 U+3000（全角空格）/ U+00A0（NBSP），
+        #   而 WLWL 内建 TRIM **只剥 ASCII 空白** ⇒ 必须用 PY_STRIP。
+        #   这条用例在仍用 TRIM 的实现上会红，正是它的作用。
+        art(title='t8', tags='\u3000全角\u3000, \u00a0nbsp\u00a0', file='t8.html'),
     ], None, None),
 
     # ⑩ 缺 status 键 ⇒ 回落 published（双向：dataclass 默认 vs WLWL 的 AT_K 默认）
@@ -248,20 +253,17 @@ def main():
             'known_differences': [
                 {
                     'id': 'D1',
-                    'what': 'tags 的 strip 只剥 ASCII 空白（Python 剥 Unicode 空白）',
-                    'evidence': '实测 WLWL TRIM("\\u3000a\\u3000") 原样返回（len 仍为 3、'
-                                '!= "a"）；TRIM(NBSP+"b"+NBSP) 同样不动。'
-                                'Python 的 "\\u3000a\\u3000".strip() == "a"、'
-                                '"\\xa0b\\xa0".strip() == "b"（两者 isspace() 均为 True）。'
-                                '实测 2026-11-02（探针 s24trim.wll / pytrim.py）。',
-                    'impact': '仅当 tags 串里含 U+3000（全角空格）/ U+00A0（NBSP）等'
-                              '非 ASCII 空白时，本模块与 Python 的 tag 值不同。'
-                              '夹具的 tags_edges 只覆盖 ASCII 空白（空格 / \\t），'
-                              '所以测试全绿 —— 这条缺口**没有**被夹具钉住。',
-                    'fix_if_needed': '按 tp/lib/article_page.wll 的 PY_WS() 写法，'
-                                     '用 RE_REPLACE 在两侧剥 Unicode 空白集合'
-                                     '（README 陷阱 #41 已登记同一事实）。'
-                                     '本卡未改：父会话明确要求保留现有 tags 行为。',
+                    'what': 'tags 的 strip 口径 —— **已修**（2026-11-02 父进程）',
+                    'evidence': '内建 TRIM 只剥 ASCII 空白（实测 TRIM("\\u3000a\\u3000") 原样返回），'
+                                '而 Python 的 str.strip() 按 str.isspace() 剥 Unicode 空白'
+                                '（U+3000 / U+00A0 / U+0085 / U+2000-200A / U+2028-2029 / '
+                                'U+202F / U+205F）。',
+                    'fix': '按 tp/lib/article_page.wll 的 PY_WS() 写法自建 29 字符空白集合 + '
+                           'WS_LEAD_RE / WS_TRAIL_RE + PY_STRIP，替换 tags 处的 TRIM。'
+                           '（README 陷阱 #41 已登记同一事实。）',
+                    'pinned_by': 'tags_edges 用例里的 t8（tags="\\u3000全角\\u3000, '
+                                 '\\u00a0nbsp\\u00a0"）—— 仍用 TRIM 的实现会在这条上红。',
+                    'status': 'fixed',
                 },
             ],
         },

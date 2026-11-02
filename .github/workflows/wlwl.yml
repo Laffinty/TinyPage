@@ -112,7 +112,11 @@ jobs:
           }
 
           # both .wll products and the JSON baselines must be reproducible
-          $diff = git diff --stat -- 'tp/lib/*.wll' 'tp/test/*.wll' 'tp/test/fixtures/*.json'
+          # both .wll products (lib + bin entry scripts) and the JSON baselines
+          # must be reproducible. tp/bin was added 2026-11-02 when S2-4 landed
+          # build.wll / serve_public.wll / serve_tls.wll: they are generator
+          # products too, so hand-editing them must fail this gate as well.
+          $diff = git diff --stat -- 'tp/lib/*.wll' 'tp/bin/*.wll' 'tp/test/*.wll' 'tp/test/fixtures/*.json'
           if ($diff) {
             Write-Host "::error::Generated artifacts are out of sync with their generators."
             Write-Host $diff
@@ -126,7 +130,7 @@ jobs:
         shell: pwsh
         run: |
           $ErrorActionPreference = 'Stop'
-          $wll = @(Get-ChildItem -Path tp\lib,tp\test -Filter *.wll -File |
+          $wll = @(Get-ChildItem -Path tp\lib,tp\bin,tp\test -Filter *.wll -File |
                    Where-Object { $_.FullName -notlike '*broken*' })
           python tp\test\paren_check.py @($wll | ForEach-Object { $_.FullName })
           if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
@@ -144,7 +148,7 @@ jobs:
         shell: pwsh
         run: |
           $ErrorActionPreference = 'Stop'
-          $wll = @(Get-ChildItem -Path tp\lib,tp\test -Filter *.wll -File |
+          $wll = @(Get-ChildItem -Path tp\lib,tp\bin,tp\test -Filter *.wll -File |
                    Where-Object { $_.FullName -notlike '*broken*' })
           foreach ($f in $wll) {
             Write-Host "check $($f.Name)"

@@ -1,0 +1,95 @@
+// tp/bin/serve_public.wll —— 明文 HTTP 静态站入口（卡 S3-1）
+//
+// ⚠ 本文件由 tp/test/gen_serve_public.py 生成 —— 请勿手改。
+//
+// 传输在此，**HTTP 语义全在** tp/lib/static_serve.wll（HANDLE 是纯函数）。
+//
+// 配置（环境变量；`wlwl run` 不透传脚本参数）：
+//   TP_ROOT  产物根目录（缺省 pages）
+//   TP_HOST  监听地址（缺省 0.0.0.0）
+//   TP_PORT  监听端口（缺省 80）
+//
+// 本机跑法：
+//   $env:TP_ROOT="D:/site"; $env:TP_HOST="127.0.0.1"; $env:TP_PORT="18080"
+//   & D:\wlwl_v0.12.1\wlwl.exe run tp\bin\serve_public.wll
+//   curl -sI http://127.0.0.1:18080/index.html
+
+IMPORT("wlwl:std.net", ["TCP_LISTEN", "TCP_SERVE", "TCP_CLOSE_LISTENER",
+    "TCP_LOCAL_ADDR"]);
+IMPORT("wlwl:std.env", ["ENV_GET"]);
+IMPORT("wlwl:std.signal", ["ON_SIGNAL", "STOP"]);
+IMPORT("wlwl:std.fs", ["PATH_CANONICAL", "FILE_META"]);
+IMPORT("wlwl:std.str", ["CAT", "INDEX_OF"]);
+IMPORT("wlwl:std.text", ["TO_INT"]);
+IMPORT("./../lib/static_serve.wll", ["HANDLE"]);
+
+// // 切出 path
+     LET(PATH_OF, FUN((t), (
+               // 请求目标里 "?" 之前的部分（没有 "?" ⇒ 原样）;
+               LET(i, INDEX_OF(t, "?"));
+               IF(<(i, 0), t, SUB(t, 0, i))
+     )));
+
+// // 切出 query
+     LET(QUERY_OF, FUN((t), (
+               // 请求目标里 "?" 之后的部分（没有 ⇒ 空串）;
+               LET(i, INDEX_OF(t, "?"));
+               IF(<(i, 0), "", SUB(t, +(i, 1)))
+     )));
+
+// ── 配置（环境变量；缺省值 = tinypage/config.py 的缺省 + 80 端口）────────
+LET(root, PATH_CANONICAL(ENV_GET("TP_ROOT", "pages")));
+LET(host, ENV_GET("TP_HOST", "0.0.0.0"));
+LET(port_s, ENV_GET("TP_PORT", "80"));
+LET(port_t, TO_INT(port_s));
+LET(port, IF(IS_ERR(port_t), -1, port_t));
+
+// 启动即失败的两道门（不得「起来了但每请求都 404」）
+IF(<(port, 0), (PRINT_ERR("TP_PORT is not a valid port number: ", port_s);
+                  PANIC("bad TP_PORT")), NULL);
+LET(root_meta, FILE_META(root));
+IF(||(!AT_K(root_meta, "exists", FALSE), !AT_K(root_meta, "is_dir", FALSE)),
+   (PRINT_ERR("TP_ROOT is not a directory: ", root); PANIC("bad TP_ROOT")), NULL);
+
+LET MUT(running, TRUE);
+LET MUT(served, 0);
+
+// // 一次请求 → 响应（直接交给 TCP_SERVE）
+     LET(HANDLE_REQUEST, FUN((req), (
+               // TCP_SERVE 的请求字典：{method, path, version, headers, body};
+               // ⚠ `path` 是**请求目标原样**（可能带查询串）⇒ 这里切成 path / query。;
+               // 返回的 {status, headers, body} 正是 TCP_SERVE 要的响应形状。;
+               LET(target, AT_K(req, "path", "/"));
+               HANDLE(INDEX_SET(INDEX_SET(INDEX_SET(INDEX_SET(DICT(), "root", root), "method", AT_K(req, "method", "GET")), "path", PATH_OF(target)), "query", QUERY_OF(target)))
+     )));
+
+// ── 优雅停机：ON_SIGNAL 置标志 + STOP()（STOP 只**请求**，不杀进程）────
+// ⚠ 处理器由主线程在**安全点**执行（std.signal 的约定）⇒ TCP_SERVE 的
+//   1000ms accept 超时就是「多久能响应一次信号」的上界。
+ON_SIGNAL("SIGINT", FUN(() , (SET(running, FALSE); STOP())));
+ON_SIGNAL("SIGTERM", FUN(() , (SET(running, FALSE); STOP())));
+
+// ── 主循环：每轮一次 TCP_SERVE（accept 超时 1000ms ⇒ 每秒回到 WLWL 层）──
+// ⚠ TCP_SERVE 不关监听器 ⇒ 退循环后自己关。
+// ⚠ read_timeout_ms 给 5000：缺省 0 = 无截止时间，一个慢客户端就能把
+//   循环卡住、连停机标志都读不到（安全点进不来）。
+LET(serve_opts, INDEX_SET(DICT(), "read_timeout_ms", 5000));
+LET(l, TCP_LISTEN(host, port));
+IF(IS_ERR(l), (
+     PRINT_ERR("TCP_LISTEN failed: ", ERR_PAYLOAD(l));
+     PANIC("listen failed")
+), (
+     PRINT("serve_public: listening on ", host, ":", AT_K(TCP_LOCAL_ADDR(l), "port", 0), " root=", root);
+     WHILE(running, (
+          LET(cnt, TCP_SERVE(l, 1000, serve_opts, HANDLE_REQUEST));
+          IF(IS_ERR(cnt), (
+               PRINT_ERR("TCP_SERVE failed: ", ERR_PAYLOAD(cnt));
+               SET(running, FALSE)
+          ), (
+               SET(served, +(served, IF(IS_ERR(cnt), 0, cnt)))
+          ))
+     ))
+));
+
+TCP_CLOSE_LISTENER(l);
+PRINT("serve_public: served=", served, " — bye");

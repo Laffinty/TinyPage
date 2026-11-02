@@ -1,0 +1,1527 @@
+{
+  "meta": {
+    "generated_by": "tp/test/gen_static_serve_baseline.py",
+    "target": "tp/lib/static_serve.wll（HANDLE / MIME_TYPE / SECURITY_HEADERS）",
+    "sources": [
+      "nginx.conf:4-6,18-20   index index.html + try_files $uri $uri/ =404",
+      "nginx.conf:9-13        5 个安全头（顺序）",
+      "nginx.conf:43-47       长缓存扩展名 js|css|png|jpg|jpeg|gif|ico|svg|woff|woff2",
+      "nginx.conf:50-53       location ~ /\\. ⇒ 404（隐藏文件）",
+      "nginx.conf:54-57       admin_password.txt|.env|.git ⇒ 404（子串、大小写不敏感）",
+      "tinypage/security.py:331   get_security_headers()（逐字逐序对照）",
+      "tinypage/frontend.py:49-50 / ⇒ index.html",
+      "tinypage/frontend.py:74-79 200 头的名字/取值/顺序",
+      "tinypage/frontend.py:86-90 _error 的错误头",
+      "tinypage/security.py:342   get_csp_header() 是 admin 专用 ⇒ 公开站不发"
+    ],
+    "decisions": {
+      "cache_control_per_response": 1,
+      "asset_long_cache": "public, max-age=31536000, immutable",
+      "non_asset_cache": "max-age=300, must-revalidate",
+      "header_order_200": [
+        "Content-Type",
+        "Content-Length",
+        "Cache-Control",
+        "X-Content-Type-Options",
+        "X-Frame-Options",
+        "Referrer-Policy",
+        "Cross-Origin-Opener-Policy",
+        "Permissions-Policy"
+      ],
+      "header_order_error": [
+        "Content-Type",
+        "Content-Length",
+        "X-Content-Type-Options",
+        "X-Frame-Options",
+        "Referrer-Policy",
+        "Cross-Origin-Opener-Policy",
+        "Permissions-Policy"
+      ],
+      "method_gate": "GET / HEAD 之外一律 405（先于任何路径判定）",
+      "query": "不参与解析"
+    },
+    "divergences": [
+      "D-1 长缓存只发**一个** Cache-Control：nginx 的 expires 1y 与 add_header Cache-Control 并存会输出两个；Python StaticApp 全程只发一个（frontend.py:78）⇒ 取一个，值取卡 S3-1 的验收串。",
+      "D-2 字体四个扩展名（woff/woff2/ttf/otf）的 MIME 取 nginx/IANA 值：本机 CPython 3.13 实测 mimetypes.guess_type 对它们返回 None ⇒ 照 frontend.py:74 的回落会发 text/html。该表随平台/注册表变化 ⇒ 不是契约。",
+      "D-3 目录无尾斜杠（/list）直接给 index.html；nginx 会先 301 到 /list/。不引入重定向头。",
+      "D-4 非 GET/HEAD ⇒ 405：nginx 与 Python StaticApp 都没有这道门（nginx 对 静态文件本就会回 405/400 之间的实现细节；Python 会照常返回 200 的体）⇒ 按卡 S3-1 显式实现。",
+      "D-5 错误响应带 Content-Length 且放在 Content-Type 之后：Python 的 _error （frontend.py:88）不写 Content-Length（由 WSGI 服务器补），且把 Content-Type 放在最后 ⇒ 本实现统一头序（业务头在前、安全头在后），线上值相同、顺序不同。",
+      "D-6 未采纳 security.py:283 的 safe_exts 扩展名白名单（它含 .woff2 却没有 .woff，且 nginx 侧没有这条）⇒ 公开站以 nginx 语义为准。"
+    ],
+    "findings": [
+      "F-1 Permissions-Policy 的项数：卡 S3-1 写「9 项」，但 nginx.conf:13 与 tinypage/security.py:338 的取值里都只有 **8 项**（accelerometer / camera / geolocation / gyroscope / magnetometer / microphone / payment / usb）。本实现与**两个权威源逐字一致**（meta.cross_checks 的第 1 条就是这条断言），测试按 8 定格。",
+      "F-2 HEAD 的 Content-Length 必须等于**文件真实字节数**（不是 0）：本次实现先按 0 写基准，测试直接把这个错误抓了出来。"
+    ],
+    "mime_measurement": "python -c \"import mimetypes,sys;print(sys.version);[print(e, mimetypes.guess_type('x.'+e)) for e in 'html htm css js json xml txt md png jpg jpeg gif ico svg webp avif woff woff2 ttf otf map pdf wasm webmanifest'.split()]\" → CPython 3.13.13 (Windows)；woff/woff2/ttf/otf 实测 (None, None)",
+    "cross_checks": [
+      "security.py:331 get_security_headers() == SECURITY_HEADERS()（5 条、逐字、同序）",
+      "StaticApp(/index.html): 头序/CT/CL/Cache-Control/5 个安全头/body 全等",
+      "StaticApp(/article/x.html): 头序/CT/CL/Cache-Control/5 个安全头/body 全等",
+      "StaticApp(/plain.txt): 头序/CT/CL/Cache-Control/5 个安全头/body 全等",
+      "StaticApp(/style.css): 头序/CT/CL/body 全等；Cache-Control 为 'max-age=300, must-revalidate'（偏差 D-1）",
+      "StaticApp(/nope.html): 404 + body 'Not found' + 5 个安全头在前；无 Content-Length（偏差 D-5）",
+      "StaticApp(/../secret.txt): Python 回 403 Forbidden（403 路径检查）；本实现按 nginx 与卡 S3-1 回 404（登记为偏差）"
+    ]
+  },
+  "tree": {
+    "dirs": [
+      "article",
+      "list",
+      "static",
+      "nested",
+      ".git",
+      "emptydir"
+    ],
+    "files": {
+      "index.html": "<!doctype html>\n<html lang=\"zh\">\n<head><title>home</title></head>\n<body><h1>首页</h1></body>\n</html>\n",
+      "article/x.html": "<!doctype html>\n<html><body><article>x</article></body></html>\n",
+      "article/中文.html": "<!doctype html>\n<html><body><article>中文</article></body></html>\n",
+      "list/index.html": "<!doctype html>\n<html><body><ul><li>2</li></ul></body></html>\n",
+      "list/2.html": "<!doctype html>\n<html><body><article>2</article></body></html>\n",
+      "style.css": "body{margin:0}\n",
+      "font.woff2": "wOF2 fake font bytes for tests\n",
+      "app.woff": "wOFF fake font bytes for tests\n",
+      "static/app.js": "console.log(\"hi\");\n",
+      "plain.txt": "hello 中文\n",
+      ".git/config": "[core]\n\trepositoryformatversion = 0\n",
+      "admin_password.txt": "hunter2\n",
+      "nested/.env": "SECRET=1\n"
+    }
+  },
+  "unit": {
+    "security_headers": [
+      [
+        "X-Content-Type-Options",
+        "nosniff"
+      ],
+      [
+        "X-Frame-Options",
+        "DENY"
+      ],
+      [
+        "Referrer-Policy",
+        "no-referrer"
+      ],
+      [
+        "Cross-Origin-Opener-Policy",
+        "same-origin"
+      ],
+      [
+        "Permissions-Policy",
+        "accelerometer=(), camera=(), geolocation=(), gyroscope=(), magnetometer=(), microphone=(), payment=(), usb=()"
+      ]
+    ],
+    "mime": [
+      {
+        "path": "a.html",
+        "want": "text/html"
+      },
+      {
+        "path": "a.htm",
+        "want": "text/html"
+      },
+      {
+        "path": "a.css",
+        "want": "text/css"
+      },
+      {
+        "path": "a.js",
+        "want": "application/javascript"
+      },
+      {
+        "path": "a.json",
+        "want": "application/json"
+      },
+      {
+        "path": "a.webmanifest",
+        "want": "application/manifest+json"
+      },
+      {
+        "path": "a.xml",
+        "want": "text/xml"
+      },
+      {
+        "path": "a.txt",
+        "want": "text/plain"
+      },
+      {
+        "path": "a.md",
+        "want": "text/markdown"
+      },
+      {
+        "path": "a.png",
+        "want": "image/png"
+      },
+      {
+        "path": "a.jpg",
+        "want": "image/jpeg"
+      },
+      {
+        "path": "a.jpeg",
+        "want": "image/jpeg"
+      },
+      {
+        "path": "a.gif",
+        "want": "image/gif"
+      },
+      {
+        "path": "a.ico",
+        "want": "image/x-icon"
+      },
+      {
+        "path": "a.svg",
+        "want": "image/svg+xml"
+      },
+      {
+        "path": "a.webp",
+        "want": "image/webp"
+      },
+      {
+        "path": "a.avif",
+        "want": "image/avif"
+      },
+      {
+        "path": "a.woff",
+        "want": "font/woff"
+      },
+      {
+        "path": "a.woff2",
+        "want": "font/woff2"
+      },
+      {
+        "path": "a.ttf",
+        "want": "font/ttf"
+      },
+      {
+        "path": "a.otf",
+        "want": "font/otf"
+      },
+      {
+        "path": "a.pdf",
+        "want": "application/pdf"
+      },
+      {
+        "path": "a.wasm",
+        "want": "application/wasm"
+      },
+      {
+        "path": "noext",
+        "want": "text/html"
+      },
+      {
+        "path": "a.unknownext",
+        "want": "text/html"
+      },
+      {
+        "path": "dir/sub/page.html",
+        "want": "text/html"
+      },
+      {
+        "path": "A.CSS",
+        "want": "text/css"
+      },
+      {
+        "path": "A.WOFF2",
+        "want": "font/woff2"
+      }
+    ]
+  },
+  "cases": [
+    {
+      "name": "root_index",
+      "method": "GET",
+      "path": "/",
+      "query": "",
+      "status": 200,
+      "headers": [
+        [
+          "Content-Type",
+          "text/html; charset=utf-8"
+        ],
+        [
+          "Content-Length",
+          "103"
+        ],
+        [
+          "Cache-Control",
+          "max-age=300, must-revalidate"
+        ],
+        [
+          "X-Content-Type-Options",
+          "nosniff"
+        ],
+        [
+          "X-Frame-Options",
+          "DENY"
+        ],
+        [
+          "Referrer-Policy",
+          "no-referrer"
+        ],
+        [
+          "Cross-Origin-Opener-Policy",
+          "same-origin"
+        ],
+        [
+          "Permissions-Policy",
+          "accelerometer=(), camera=(), geolocation=(), gyroscope=(), magnetometer=(), microphone=(), payment=(), usb=()"
+        ]
+      ],
+      "body": "<!doctype html>\n<html lang=\"zh\">\n<head><title>home</title></head>\n<body><h1>首页</h1></body>\n</html>\n",
+      "note": "请求 / ⇒ 回落根目录 index.html",
+      "source": "nginx.conf:4-6,18-20; frontend.py:49-50"
+    },
+    {
+      "name": "index_explicit",
+      "method": "GET",
+      "path": "/index.html",
+      "query": "",
+      "status": 200,
+      "headers": [
+        [
+          "Content-Type",
+          "text/html; charset=utf-8"
+        ],
+        [
+          "Content-Length",
+          "103"
+        ],
+        [
+          "Cache-Control",
+          "max-age=300, must-revalidate"
+        ],
+        [
+          "X-Content-Type-Options",
+          "nosniff"
+        ],
+        [
+          "X-Frame-Options",
+          "DENY"
+        ],
+        [
+          "Referrer-Policy",
+          "no-referrer"
+        ],
+        [
+          "Cross-Origin-Opener-Policy",
+          "same-origin"
+        ],
+        [
+          "Permissions-Policy",
+          "accelerometer=(), camera=(), geolocation=(), gyroscope=(), magnetometer=(), microphone=(), payment=(), usb=()"
+        ]
+      ],
+      "body": "<!doctype html>\n<html lang=\"zh\">\n<head><title>home</title></head>\n<body><h1>首页</h1></body>\n</html>\n",
+      "note": "显式 /index.html 与 / 等价",
+      "source": "nginx.conf:18-20"
+    },
+    {
+      "name": "article",
+      "method": "GET",
+      "path": "/article/x.html",
+      "query": "",
+      "status": 200,
+      "headers": [
+        [
+          "Content-Type",
+          "text/html; charset=utf-8"
+        ],
+        [
+          "Content-Length",
+          "63"
+        ],
+        [
+          "Cache-Control",
+          "max-age=300, must-revalidate"
+        ],
+        [
+          "X-Content-Type-Options",
+          "nosniff"
+        ],
+        [
+          "X-Frame-Options",
+          "DENY"
+        ],
+        [
+          "Referrer-Policy",
+          "no-referrer"
+        ],
+        [
+          "Cross-Origin-Opener-Policy",
+          "same-origin"
+        ],
+        [
+          "Permissions-Policy",
+          "accelerometer=(), camera=(), geolocation=(), gyroscope=(), magnetometer=(), microphone=(), payment=(), usb=()"
+        ]
+      ],
+      "body": "<!doctype html>\n<html><body><article>x</article></body></html>\n",
+      "note": "普通子目录文件；.html ⇒ 短缓存（长缓存未命中）",
+      "source": "nginx.conf:43（未命中）; frontend.py:78"
+    },
+    {
+      "name": "list_dir_slash",
+      "method": "GET",
+      "path": "/list/",
+      "query": "",
+      "status": 200,
+      "headers": [
+        [
+          "Content-Type",
+          "text/html; charset=utf-8"
+        ],
+        [
+          "Content-Length",
+          "62"
+        ],
+        [
+          "Cache-Control",
+          "max-age=300, must-revalidate"
+        ],
+        [
+          "X-Content-Type-Options",
+          "nosniff"
+        ],
+        [
+          "X-Frame-Options",
+          "DENY"
+        ],
+        [
+          "Referrer-Policy",
+          "no-referrer"
+        ],
+        [
+          "Cross-Origin-Opener-Policy",
+          "same-origin"
+        ],
+        [
+          "Permissions-Policy",
+          "accelerometer=(), camera=(), geolocation=(), gyroscope=(), magnetometer=(), microphone=(), payment=(), usb=()"
+        ]
+      ],
+      "body": "<!doctype html>\n<html><body><ul><li>2</li></ul></body></html>\n",
+      "note": "目录（带尾斜杠）⇒ 回落 index.html",
+      "source": "nginx.conf:18-20"
+    },
+    {
+      "name": "list_dir_noslash",
+      "method": "GET",
+      "path": "/list",
+      "query": "",
+      "status": 200,
+      "headers": [
+        [
+          "Content-Type",
+          "text/html; charset=utf-8"
+        ],
+        [
+          "Content-Length",
+          "62"
+        ],
+        [
+          "Cache-Control",
+          "max-age=300, must-revalidate"
+        ],
+        [
+          "X-Content-Type-Options",
+          "nosniff"
+        ],
+        [
+          "X-Frame-Options",
+          "DENY"
+        ],
+        [
+          "Referrer-Policy",
+          "no-referrer"
+        ],
+        [
+          "Cross-Origin-Opener-Policy",
+          "same-origin"
+        ],
+        [
+          "Permissions-Policy",
+          "accelerometer=(), camera=(), geolocation=(), gyroscope=(), magnetometer=(), microphone=(), payment=(), usb=()"
+        ]
+      ],
+      "body": "<!doctype html>\n<html><body><ul><li>2</li></ul></body></html>\n",
+      "note": "目录（无尾斜杠）⇒ 也给 index.html（nginx 会先 301 到 /list/，本实现不重定向）",
+      "source": "nginx.conf:18-20（登记为偏差 D-3）"
+    },
+    {
+      "name": "percent_cjk",
+      "method": "GET",
+      "path": "/article/%E4%B8%AD%E6%96%87.html",
+      "query": "",
+      "status": 200,
+      "headers": [
+        [
+          "Content-Type",
+          "text/html; charset=utf-8"
+        ],
+        [
+          "Content-Length",
+          "68"
+        ],
+        [
+          "Cache-Control",
+          "max-age=300, must-revalidate"
+        ],
+        [
+          "X-Content-Type-Options",
+          "nosniff"
+        ],
+        [
+          "X-Frame-Options",
+          "DENY"
+        ],
+        [
+          "Referrer-Policy",
+          "no-referrer"
+        ],
+        [
+          "Cross-Origin-Opener-Policy",
+          "same-origin"
+        ],
+        [
+          "Permissions-Policy",
+          "accelerometer=(), camera=(), geolocation=(), gyroscope=(), magnetometer=(), microphone=(), payment=(), usb=()"
+        ]
+      ],
+      "body": "<!doctype html>\n<html><body><article>中文</article></body></html>\n",
+      "note": "percent-decode：中文文件名（浏览器把 CJK 编码成 %XX）",
+      "source": "nginx 先解码再匹配 location；URL_DECODE（std.encode）"
+    },
+    {
+      "name": "css_long_cache",
+      "method": "GET",
+      "path": "/style.css",
+      "query": "",
+      "status": 200,
+      "headers": [
+        [
+          "Content-Type",
+          "text/css; charset=utf-8"
+        ],
+        [
+          "Content-Length",
+          "15"
+        ],
+        [
+          "Cache-Control",
+          "public, max-age=31536000, immutable"
+        ],
+        [
+          "X-Content-Type-Options",
+          "nosniff"
+        ],
+        [
+          "X-Frame-Options",
+          "DENY"
+        ],
+        [
+          "Referrer-Policy",
+          "no-referrer"
+        ],
+        [
+          "Cross-Origin-Opener-Policy",
+          "same-origin"
+        ],
+        [
+          "Permissions-Policy",
+          "accelerometer=(), camera=(), geolocation=(), gyroscope=(), magnetometer=(), microphone=(), payment=(), usb=()"
+        ]
+      ],
+      "body": "body{margin:0}\n",
+      "note": "nginx.conf:43 命中 ⇒ public, max-age=31536000, immutable",
+      "source": "nginx.conf:43-47"
+    },
+    {
+      "name": "woff2_long_cache",
+      "method": "GET",
+      "path": "/font.woff2",
+      "query": "",
+      "status": 200,
+      "headers": [
+        [
+          "Content-Type",
+          "font/woff2"
+        ],
+        [
+          "Content-Length",
+          "31"
+        ],
+        [
+          "Cache-Control",
+          "public, max-age=31536000, immutable"
+        ],
+        [
+          "X-Content-Type-Options",
+          "nosniff"
+        ],
+        [
+          "X-Frame-Options",
+          "DENY"
+        ],
+        [
+          "Referrer-Policy",
+          "no-referrer"
+        ],
+        [
+          "Cross-Origin-Opener-Policy",
+          "same-origin"
+        ],
+        [
+          "Permissions-Policy",
+          "accelerometer=(), camera=(), geolocation=(), gyroscope=(), magnetometer=(), microphone=(), payment=(), usb=()"
+        ]
+      ],
+      "body": "wOF2 fake font bytes for tests\n",
+      "note": "字体命中长缓存；MIME 取 nginx 值（见 divergences D-2）",
+      "source": "nginx.conf:43; 见 meta.divergences"
+    },
+    {
+      "name": "woff_long_cache",
+      "method": "GET",
+      "path": "/app.woff",
+      "query": "",
+      "status": 200,
+      "headers": [
+        [
+          "Content-Type",
+          "font/woff"
+        ],
+        [
+          "Content-Length",
+          "31"
+        ],
+        [
+          "Cache-Control",
+          "public, max-age=31536000, immutable"
+        ],
+        [
+          "X-Content-Type-Options",
+          "nosniff"
+        ],
+        [
+          "X-Frame-Options",
+          "DENY"
+        ],
+        [
+          "Referrer-Policy",
+          "no-referrer"
+        ],
+        [
+          "Cross-Origin-Opener-Policy",
+          "same-origin"
+        ],
+        [
+          "Permissions-Policy",
+          "accelerometer=(), camera=(), geolocation=(), gyroscope=(), magnetometer=(), microphone=(), payment=(), usb=()"
+        ]
+      ],
+      "body": "wOFF fake font bytes for tests\n",
+      "note": ".woff 也在 nginx.conf:43 的列表里",
+      "source": "nginx.conf:43"
+    },
+    {
+      "name": "js_long_cache",
+      "method": "GET",
+      "path": "/static/app.js",
+      "query": "",
+      "status": 200,
+      "headers": [
+        [
+          "Content-Type",
+          "application/javascript"
+        ],
+        [
+          "Content-Length",
+          "19"
+        ],
+        [
+          "Cache-Control",
+          "public, max-age=31536000, immutable"
+        ],
+        [
+          "X-Content-Type-Options",
+          "nosniff"
+        ],
+        [
+          "X-Frame-Options",
+          "DENY"
+        ],
+        [
+          "Referrer-Policy",
+          "no-referrer"
+        ],
+        [
+          "Cross-Origin-Opener-Policy",
+          "same-origin"
+        ],
+        [
+          "Permissions-Policy",
+          "accelerometer=(), camera=(), geolocation=(), gyroscope=(), magnetometer=(), microphone=(), payment=(), usb=()"
+        ]
+      ],
+      "body": "console.log(\"hi\");\n",
+      "note": ".js 命中长缓存（子目录同样命中）",
+      "source": "nginx.conf:43"
+    },
+    {
+      "name": "multibyte_length",
+      "method": "GET",
+      "path": "/plain.txt",
+      "query": "",
+      "status": 200,
+      "headers": [
+        [
+          "Content-Type",
+          "text/plain; charset=utf-8"
+        ],
+        [
+          "Content-Length",
+          "13"
+        ],
+        [
+          "Cache-Control",
+          "max-age=300, must-revalidate"
+        ],
+        [
+          "X-Content-Type-Options",
+          "nosniff"
+        ],
+        [
+          "X-Frame-Options",
+          "DENY"
+        ],
+        [
+          "Referrer-Policy",
+          "no-referrer"
+        ],
+        [
+          "Cross-Origin-Opener-Policy",
+          "same-origin"
+        ],
+        [
+          "Permissions-Policy",
+          "accelerometer=(), camera=(), geolocation=(), gyroscope=(), magnetometer=(), microphone=(), payment=(), usb=()"
+        ]
+      ],
+      "body": "hello 中文\n",
+      "note": "含 CJK ⇒ Content-Length 必须是 **UTF-8 字节数**（不是码点数）",
+      "source": "frontend.py:77（len(bytes)）; BYTE_LEN"
+    },
+    {
+      "name": "head_article",
+      "method": "HEAD",
+      "path": "/article/x.html",
+      "query": "",
+      "status": 200,
+      "headers": [
+        [
+          "Content-Type",
+          "text/html; charset=utf-8"
+        ],
+        [
+          "Content-Length",
+          "63"
+        ],
+        [
+          "Cache-Control",
+          "max-age=300, must-revalidate"
+        ],
+        [
+          "X-Content-Type-Options",
+          "nosniff"
+        ],
+        [
+          "X-Frame-Options",
+          "DENY"
+        ],
+        [
+          "Referrer-Policy",
+          "no-referrer"
+        ],
+        [
+          "Cross-Origin-Opener-Policy",
+          "same-origin"
+        ],
+        [
+          "Permissions-Policy",
+          "accelerometer=(), camera=(), geolocation=(), gyroscope=(), magnetometer=(), microphone=(), payment=(), usb=()"
+        ]
+      ],
+      "body": "",
+      "note": "HEAD：body 空，但头齐全且 Content-Length 是**真实长度**",
+      "source": "HTTP 语义；frontend.py:75-79 的头集（Python 的 WSGI 不区分 HEAD）"
+    },
+    {
+      "name": "query_opt_ignored",
+      "method": "GET",
+      "path": "/article/x.html",
+      "query": "utm=1&a=2",
+      "status": 200,
+      "headers": [
+        [
+          "Content-Type",
+          "text/html; charset=utf-8"
+        ],
+        [
+          "Content-Length",
+          "63"
+        ],
+        [
+          "Cache-Control",
+          "max-age=300, must-revalidate"
+        ],
+        [
+          "X-Content-Type-Options",
+          "nosniff"
+        ],
+        [
+          "X-Frame-Options",
+          "DENY"
+        ],
+        [
+          "Referrer-Policy",
+          "no-referrer"
+        ],
+        [
+          "Cross-Origin-Opener-Policy",
+          "same-origin"
+        ],
+        [
+          "Permissions-Policy",
+          "accelerometer=(), camera=(), geolocation=(), gyroscope=(), magnetometer=(), microphone=(), payment=(), usb=()"
+        ]
+      ],
+      "body": "<!doctype html>\n<html><body><article>x</article></body></html>\n",
+      "note": "query 不参与解析（对齐 WSGI 的 PATH_INFO / QUERY_STRING 分离）",
+      "source": "frontend.py:43（只用 PATH_INFO）"
+    },
+    {
+      "name": "path_with_query_string",
+      "method": "GET",
+      "path": "/article/x.html?utm=1&a=2",
+      "query": "",
+      "status": 200,
+      "headers": [
+        [
+          "Content-Type",
+          "text/html; charset=utf-8"
+        ],
+        [
+          "Content-Length",
+          "63"
+        ],
+        [
+          "Cache-Control",
+          "max-age=300, must-revalidate"
+        ],
+        [
+          "X-Content-Type-Options",
+          "nosniff"
+        ],
+        [
+          "X-Frame-Options",
+          "DENY"
+        ],
+        [
+          "Referrer-Policy",
+          "no-referrer"
+        ],
+        [
+          "Cross-Origin-Opener-Policy",
+          "same-origin"
+        ],
+        [
+          "Permissions-Policy",
+          "accelerometer=(), camera=(), geolocation=(), gyroscope=(), magnetometer=(), microphone=(), payment=(), usb=()"
+        ]
+      ],
+      "body": "<!doctype html>\n<html><body><article>x</article></body></html>\n",
+      "note": "path 自带查询串也能切掉（入口兜底）",
+      "source": "frontend.py:43"
+    },
+    {
+      "name": "not_found",
+      "method": "GET",
+      "path": "/nope.html",
+      "query": "",
+      "status": 404,
+      "headers": [
+        [
+          "Content-Type",
+          "text/plain"
+        ],
+        [
+          "Content-Length",
+          "9"
+        ],
+        [
+          "X-Content-Type-Options",
+          "nosniff"
+        ],
+        [
+          "X-Frame-Options",
+          "DENY"
+        ],
+        [
+          "Referrer-Policy",
+          "no-referrer"
+        ],
+        [
+          "Cross-Origin-Opener-Policy",
+          "same-origin"
+        ],
+        [
+          "Permissions-Policy",
+          "accelerometer=(), camera=(), geolocation=(), gyroscope=(), magnetometer=(), microphone=(), payment=(), usb=()"
+        ]
+      ],
+      "body": "Not found",
+      "note": "不存在 ⇒ 404（不得 500）",
+      "source": "nginx.conf:19 =404; frontend.py:69-70"
+    },
+    {
+      "name": "not_found_dir",
+      "method": "GET",
+      "path": "/nope/",
+      "query": "",
+      "status": 404,
+      "headers": [
+        [
+          "Content-Type",
+          "text/plain"
+        ],
+        [
+          "Content-Length",
+          "9"
+        ],
+        [
+          "X-Content-Type-Options",
+          "nosniff"
+        ],
+        [
+          "X-Frame-Options",
+          "DENY"
+        ],
+        [
+          "Referrer-Policy",
+          "no-referrer"
+        ],
+        [
+          "Cross-Origin-Opener-Policy",
+          "same-origin"
+        ],
+        [
+          "Permissions-Policy",
+          "accelerometer=(), camera=(), geolocation=(), gyroscope=(), magnetometer=(), microphone=(), payment=(), usb=()"
+        ]
+      ],
+      "body": "Not found",
+      "note": "不存在的目录 ⇒ 404",
+      "source": "nginx.conf:19 =404"
+    },
+    {
+      "name": "empty_dir_no_index",
+      "method": "GET",
+      "path": "/emptydir/",
+      "query": "",
+      "status": 404,
+      "headers": [
+        [
+          "Content-Type",
+          "text/plain"
+        ],
+        [
+          "Content-Length",
+          "9"
+        ],
+        [
+          "X-Content-Type-Options",
+          "nosniff"
+        ],
+        [
+          "X-Frame-Options",
+          "DENY"
+        ],
+        [
+          "Referrer-Policy",
+          "no-referrer"
+        ],
+        [
+          "Cross-Origin-Opener-Policy",
+          "same-origin"
+        ],
+        [
+          "Permissions-Policy",
+          "accelerometer=(), camera=(), geolocation=(), gyroscope=(), magnetometer=(), microphone=(), payment=(), usb=()"
+        ]
+      ],
+      "body": "Not found",
+      "note": "目录存在但没有 index.html ⇒ 404",
+      "source": "nginx.conf:18-20（try_files … =404）"
+    },
+    {
+      "name": "hidden_git_config",
+      "method": "GET",
+      "path": "/.git/config",
+      "query": "",
+      "status": 404,
+      "headers": [
+        [
+          "Content-Type",
+          "text/plain"
+        ],
+        [
+          "Content-Length",
+          "9"
+        ],
+        [
+          "X-Content-Type-Options",
+          "nosniff"
+        ],
+        [
+          "X-Frame-Options",
+          "DENY"
+        ],
+        [
+          "Referrer-Policy",
+          "no-referrer"
+        ],
+        [
+          "Cross-Origin-Opener-Policy",
+          "same-origin"
+        ],
+        [
+          "Permissions-Policy",
+          "accelerometer=(), camera=(), geolocation=(), gyroscope=(), magnetometer=(), microphone=(), payment=(), usb=()"
+        ]
+      ],
+      "body": "Not found",
+      "note": "【反向守卫】隐藏路径 ⇒ 404",
+      "source": "nginx.conf:50-53"
+    },
+    {
+      "name": "hidden_dir_slash",
+      "method": "GET",
+      "path": "/.git/",
+      "query": "",
+      "status": 404,
+      "headers": [
+        [
+          "Content-Type",
+          "text/plain"
+        ],
+        [
+          "Content-Length",
+          "9"
+        ],
+        [
+          "X-Content-Type-Options",
+          "nosniff"
+        ],
+        [
+          "X-Frame-Options",
+          "DENY"
+        ],
+        [
+          "Referrer-Policy",
+          "no-referrer"
+        ],
+        [
+          "Cross-Origin-Opener-Policy",
+          "same-origin"
+        ],
+        [
+          "Permissions-Policy",
+          "accelerometer=(), camera=(), geolocation=(), gyroscope=(), magnetometer=(), microphone=(), payment=(), usb=()"
+        ]
+      ],
+      "body": "Not found",
+      "note": "【反向守卫】隐藏目录 ⇒ 404",
+      "source": "nginx.conf:50-53"
+    },
+    {
+      "name": "traversal_plain",
+      "method": "GET",
+      "path": "/../secret.txt",
+      "query": "",
+      "status": 404,
+      "headers": [
+        [
+          "Content-Type",
+          "text/plain"
+        ],
+        [
+          "Content-Length",
+          "9"
+        ],
+        [
+          "X-Content-Type-Options",
+          "nosniff"
+        ],
+        [
+          "X-Frame-Options",
+          "DENY"
+        ],
+        [
+          "Referrer-Policy",
+          "no-referrer"
+        ],
+        [
+          "Cross-Origin-Opener-Policy",
+          "same-origin"
+        ],
+        [
+          "Permissions-Policy",
+          "accelerometer=(), camera=(), geolocation=(), gyroscope=(), magnetometer=(), microphone=(), payment=(), usb=()"
+        ]
+      ],
+      "body": "Not found",
+      "note": "【反向守卫】字面 .. ⇒ 404（PATH_CONTAINS + 显式拒绝）",
+      "source": "卡 S3-1 反向守卫; security.py:269-287 的包含性判定"
+    },
+    {
+      "name": "traversal_nested",
+      "method": "GET",
+      "path": "/article/../../secret.txt",
+      "query": "",
+      "status": 404,
+      "headers": [
+        [
+          "Content-Type",
+          "text/plain"
+        ],
+        [
+          "Content-Length",
+          "9"
+        ],
+        [
+          "X-Content-Type-Options",
+          "nosniff"
+        ],
+        [
+          "X-Frame-Options",
+          "DENY"
+        ],
+        [
+          "Referrer-Policy",
+          "no-referrer"
+        ],
+        [
+          "Cross-Origin-Opener-Policy",
+          "same-origin"
+        ],
+        [
+          "Permissions-Policy",
+          "accelerometer=(), camera=(), geolocation=(), gyroscope=(), magnetometer=(), microphone=(), payment=(), usb=()"
+        ]
+      ],
+      "body": "Not found",
+      "note": "【反向守卫】夹在中间 .. ⇒ 404",
+      "source": "卡 S3-1 反向守卫"
+    },
+    {
+      "name": "traversal_encoded",
+      "method": "GET",
+      "path": "/%2e%2e/secret.txt",
+      "query": "",
+      "status": 404,
+      "headers": [
+        [
+          "Content-Type",
+          "text/plain"
+        ],
+        [
+          "Content-Length",
+          "9"
+        ],
+        [
+          "X-Content-Type-Options",
+          "nosniff"
+        ],
+        [
+          "X-Frame-Options",
+          "DENY"
+        ],
+        [
+          "Referrer-Policy",
+          "no-referrer"
+        ],
+        [
+          "Cross-Origin-Opener-Policy",
+          "same-origin"
+        ],
+        [
+          "Permissions-Policy",
+          "accelerometer=(), camera=(), geolocation=(), gyroscope=(), magnetometer=(), microphone=(), payment=(), usb=()"
+        ]
+      ],
+      "body": "Not found",
+      "note": "【反向守卫】percent-encoded .. ⇒ 解码后仍是 .. ⇒ 404",
+      "source": "nginx 先解码再匹配；卡 S3-1 反向守卫"
+    },
+    {
+      "name": "sensitive_admin_password",
+      "method": "GET",
+      "path": "/admin_password.txt",
+      "query": "",
+      "status": 404,
+      "headers": [
+        [
+          "Content-Type",
+          "text/plain"
+        ],
+        [
+          "Content-Length",
+          "9"
+        ],
+        [
+          "X-Content-Type-Options",
+          "nosniff"
+        ],
+        [
+          "X-Frame-Options",
+          "DENY"
+        ],
+        [
+          "Referrer-Policy",
+          "no-referrer"
+        ],
+        [
+          "Cross-Origin-Opener-Policy",
+          "same-origin"
+        ],
+        [
+          "Permissions-Policy",
+          "accelerometer=(), camera=(), geolocation=(), gyroscope=(), magnetometer=(), microphone=(), payment=(), usb=()"
+        ]
+      ],
+      "body": "Not found",
+      "note": "【反向守卫】admin_password.txt ⇒ 404",
+      "source": "nginx.conf:54-57"
+    },
+    {
+      "name": "sensitive_env_file",
+      "method": "GET",
+      "path": "/nested/.env",
+      "query": "",
+      "status": 404,
+      "headers": [
+        [
+          "Content-Type",
+          "text/plain"
+        ],
+        [
+          "Content-Length",
+          "9"
+        ],
+        [
+          "X-Content-Type-Options",
+          "nosniff"
+        ],
+        [
+          "X-Frame-Options",
+          "DENY"
+        ],
+        [
+          "Referrer-Policy",
+          "no-referrer"
+        ],
+        [
+          "Cross-Origin-Opener-Policy",
+          "same-origin"
+        ],
+        [
+          "Permissions-Policy",
+          "accelerometer=(), camera=(), geolocation=(), gyroscope=(), magnetometer=(), microphone=(), payment=(), usb=()"
+        ]
+      ],
+      "body": "Not found",
+      "note": ".env 文件 ⇒ 404（隐藏规则也会命中，两条都对）",
+      "source": "nginx.conf:50-57"
+    },
+    {
+      "name": "sensitive_env_substring",
+      "method": "GET",
+      "path": "/foo.env",
+      "query": "",
+      "status": 404,
+      "headers": [
+        [
+          "Content-Type",
+          "text/plain"
+        ],
+        [
+          "Content-Length",
+          "9"
+        ],
+        [
+          "X-Content-Type-Options",
+          "nosniff"
+        ],
+        [
+          "X-Frame-Options",
+          "DENY"
+        ],
+        [
+          "Referrer-Policy",
+          "no-referrer"
+        ],
+        [
+          "Cross-Origin-Opener-Policy",
+          "same-origin"
+        ],
+        [
+          "Permissions-Policy",
+          "accelerometer=(), camera=(), geolocation=(), gyroscope=(), magnetometer=(), microphone=(), payment=(), usb=()"
+        ]
+      ],
+      "body": "Not found",
+      "note": "敏感名是**子串**匹配 ⇒ /foo.env 即使不存在也 404（不是「文件不存在」那一路）",
+      "source": "nginx.conf:54-57（`~*` 子串）"
+    },
+    {
+      "name": "sensitive_git_substring",
+      "method": "GET",
+      "path": "/my.git-repo/x.html",
+      "query": "",
+      "status": 404,
+      "headers": [
+        [
+          "Content-Type",
+          "text/plain"
+        ],
+        [
+          "Content-Length",
+          "9"
+        ],
+        [
+          "X-Content-Type-Options",
+          "nosniff"
+        ],
+        [
+          "X-Frame-Options",
+          "DENY"
+        ],
+        [
+          "Referrer-Policy",
+          "no-referrer"
+        ],
+        [
+          "Cross-Origin-Opener-Policy",
+          "same-origin"
+        ],
+        [
+          "Permissions-Policy",
+          "accelerometer=(), camera=(), geolocation=(), gyroscope=(), magnetometer=(), microphone=(), payment=(), usb=()"
+        ]
+      ],
+      "body": "Not found",
+      "note": "`.git` 子串匹配 ⇒ /my.git-repo/… 也 404",
+      "source": "nginx.conf:54-57（`~*` 子串）"
+    },
+    {
+      "name": "sensitive_case_insensitive",
+      "method": "GET",
+      "path": "/Admin_Password.TXT",
+      "query": "",
+      "status": 404,
+      "headers": [
+        [
+          "Content-Type",
+          "text/plain"
+        ],
+        [
+          "Content-Length",
+          "9"
+        ],
+        [
+          "X-Content-Type-Options",
+          "nosniff"
+        ],
+        [
+          "X-Frame-Options",
+          "DENY"
+        ],
+        [
+          "Referrer-Policy",
+          "no-referrer"
+        ],
+        [
+          "Cross-Origin-Opener-Policy",
+          "same-origin"
+        ],
+        [
+          "Permissions-Policy",
+          "accelerometer=(), camera=(), geolocation=(), gyroscope=(), magnetometer=(), microphone=(), payment=(), usb=()"
+        ]
+      ],
+      "body": "Not found",
+      "note": "敏感名大小写不敏感（nginx 用 `~*`）",
+      "source": "nginx.conf:54（`~*`）"
+    },
+    {
+      "name": "bad_percent_escape",
+      "method": "GET",
+      "path": "/bad%zz",
+      "query": "",
+      "status": 404,
+      "headers": [
+        [
+          "Content-Type",
+          "text/plain"
+        ],
+        [
+          "Content-Length",
+          "9"
+        ],
+        [
+          "X-Content-Type-Options",
+          "nosniff"
+        ],
+        [
+          "X-Frame-Options",
+          "DENY"
+        ],
+        [
+          "Referrer-Policy",
+          "no-referrer"
+        ],
+        [
+          "Cross-Origin-Opener-Policy",
+          "same-origin"
+        ],
+        [
+          "Permissions-Policy",
+          "accelerometer=(), camera=(), geolocation=(), gyroscope=(), magnetometer=(), microphone=(), payment=(), usb=()"
+        ]
+      ],
+      "body": "Not found",
+      "note": "非法 percent 转义 ⇒ fail closed 404",
+      "source": "URL_DECODE 返 ERR（std.encode）"
+    },
+    {
+      "name": "post_root",
+      "method": "POST",
+      "path": "/",
+      "query": "",
+      "status": 405,
+      "headers": [
+        [
+          "Content-Type",
+          "text/plain"
+        ],
+        [
+          "Content-Length",
+          "18"
+        ],
+        [
+          "X-Content-Type-Options",
+          "nosniff"
+        ],
+        [
+          "X-Frame-Options",
+          "DENY"
+        ],
+        [
+          "Referrer-Policy",
+          "no-referrer"
+        ],
+        [
+          "Cross-Origin-Opener-Policy",
+          "same-origin"
+        ],
+        [
+          "Permissions-Policy",
+          "accelerometer=(), camera=(), geolocation=(), gyroscope=(), magnetometer=(), microphone=(), payment=(), usb=()"
+        ]
+      ],
+      "body": "Method not allowed",
+      "note": "POST ⇒ 405（Python 的 StaticApp 没有这道门，见 D-4）",
+      "source": "卡 S3-1"
+    },
+    {
+      "name": "put_index",
+      "method": "PUT",
+      "path": "/index.html",
+      "query": "",
+      "status": 405,
+      "headers": [
+        [
+          "Content-Type",
+          "text/plain"
+        ],
+        [
+          "Content-Length",
+          "18"
+        ],
+        [
+          "X-Content-Type-Options",
+          "nosniff"
+        ],
+        [
+          "X-Frame-Options",
+          "DENY"
+        ],
+        [
+          "Referrer-Policy",
+          "no-referrer"
+        ],
+        [
+          "Cross-Origin-Opener-Policy",
+          "same-origin"
+        ],
+        [
+          "Permissions-Policy",
+          "accelerometer=(), camera=(), geolocation=(), gyroscope=(), magnetometer=(), microphone=(), payment=(), usb=()"
+        ]
+      ],
+      "body": "Method not allowed",
+      "note": "PUT ⇒ 405",
+      "source": "卡 S3-1"
+    },
+    {
+      "name": "delete_article",
+      "method": "DELETE",
+      "path": "/article/x.html",
+      "query": "",
+      "status": 405,
+      "headers": [
+        [
+          "Content-Type",
+          "text/plain"
+        ],
+        [
+          "Content-Length",
+          "18"
+        ],
+        [
+          "X-Content-Type-Options",
+          "nosniff"
+        ],
+        [
+          "X-Frame-Options",
+          "DENY"
+        ],
+        [
+          "Referrer-Policy",
+          "no-referrer"
+        ],
+        [
+          "Cross-Origin-Opener-Policy",
+          "same-origin"
+        ],
+        [
+          "Permissions-Policy",
+          "accelerometer=(), camera=(), geolocation=(), gyroscope=(), magnetometer=(), microphone=(), payment=(), usb=()"
+        ]
+      ],
+      "body": "Method not allowed",
+      "note": "DELETE ⇒ 405",
+      "source": "卡 S3-1"
+    }
+  ]
+}

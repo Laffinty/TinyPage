@@ -18,14 +18,31 @@
 //
 // 逐字节对照基准：tp/test/fixtures/list_page_baseline.json
 //
-// 已知差异：D1 tags 的 t.strip() —— Python 剥 Unicode 空白，WLWL 的 TRIM
-//   只剥 ASCII 空白（NBSP / 全角空格不被剥）⇒ 夹具里不放这类用例。
+// D1（已修）：tags 的 t.strip() 用 PY_STRIP（Python 的 str.isspace() 口径）
+//   而不是内建 TRIM —— 后者只剥 ASCII 空白（NBSP / 全角空格不被剥）。
 
 IMPORT("wlwl:std.str", ["CAT"]);
 IMPORT("wlwl:std.regex", ["RE", "RE_REPLACE"]);
 IMPORT("./esc.wll", ["ESCAPE_HTML"]);
 IMPORT("./page_common.wll", ["COMMON_CONTEXT"]);
 IMPORT("./template.wll", ["RENDER_SKELETON"]);
+IMPORT("wlwl:std.encode", ["UTF8_DECODE"]);
+
+// ── Python str.strip() 的复刻（D1 修正，2026-11-02）────────────────
+// ⚠ 内建 TRIM **只剥 ASCII 空白**（实测 TRIM(U+3000/U+00A0) 原样返回），
+//   而 Python 的 str.strip() 按 str.isspace() 剥 Unicode 空白
+//   （NBSP U+00A0、全角空格 U+3000 都算）⇒ 必须自己构造空白集合。
+// ⚠ UTF8_DECODE 的实参是**字节**（0-255），不是码点（见 tp/README.md 坑 42）。
+LET(PY_WS, FUN((), (
+    UTF8_DECODE([9, 10, 11, 12, 13, 28, 29, 30, 31, 32, 194, 133, 194, 160, 225, 154, 128, 226, 128, 128, 226, 128, 129, 226, 128, 130, 226, 128, 131, 226, 128, 132, 226, 128, 133, 226, 128, 134, 226, 128, 135, 226, 128, 136, 226, 128, 137, 226, 128, 138, 226, 128, 168, 226, 128, 169, 226, 128, 175, 226, 129, 159, 227, 128, 128])
+)));
+// 首尾空白模式：字符类里放**字面**字符，无转义问题；
+// ⚠ 结尾锚 `$` 要写成 `\$`（裸 `$` 在 WLWL 字面量里是插值，见坑 32）。
+LET(WS_LEAD_RE, RE(CAT("^[", PY_WS(), "]+")));
+LET(WS_TRAIL_RE, RE(CAT("[", PY_WS(), "]+\$")));
+LET(PY_STRIP, FUN((s), (
+    RE_REPLACE(WS_TRAIL_RE, RE_REPLACE(WS_LEAD_RE, s, ""), "")
+)));
 
 // 字面 "<p>" / "</p>" 的模式 —— 用在「先 escape 再删」的空操作上（见 docstring ②）。
 // ⚠ 尖括号/斜杠用字符类写，不用裸字符（本仓库约定，见 tp/README.md 坑 26）。
@@ -47,7 +64,7 @@ LET(P_CLOSE_RE, RE("[<][/]p[>]"));
                //   ⇒ tags=" , " 时输出**空的** <div class="post-tags"></div>。;
                LET MUT(joined, "");
                FOR(t0, SPLIT(tags, ","), (
-                    LET(t, TRIM(t0));
+                    LET(t, PY_STRIP(t0));
                     IF(!=(t, ""), (
                          IF(!=(joined, ""), (
                               SET(joined, +(joined, " "))

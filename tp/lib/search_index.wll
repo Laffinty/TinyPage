@@ -27,6 +27,24 @@
 
 IMPORT("wlwl:std.json", ["STRINGIFY"]);
 IMPORT("wlwl:std.str", ["CAT"]);
+IMPORT("wlwl:std.regex", ["RE", "RE_REPLACE"]);
+IMPORT("wlwl:std.encode", ["UTF8_DECODE"]);
+
+// ── Python str.strip() 的复刻（D1 修正，2026-11-02）────────────────
+// ⚠ 内建 TRIM **只剥 ASCII 空白**（实测 TRIM(U+3000/U+00A0) 原样返回），
+//   而 Python 的 str.strip() 按 str.isspace() 剥 Unicode 空白
+//   （NBSP U+00A0、全角空格 U+3000 都算）⇒ 必须自己构造空白集合。
+// ⚠ UTF8_DECODE 的实参是**字节**（0-255），不是码点（见 tp/README.md 坑 42）。
+LET(PY_WS, FUN((), (
+    UTF8_DECODE([9, 10, 11, 12, 13, 28, 29, 30, 31, 32, 194, 133, 194, 160, 225, 154, 128, 226, 128, 128, 226, 128, 129, 226, 128, 130, 226, 128, 131, 226, 128, 132, 226, 128, 133, 226, 128, 134, 226, 128, 135, 226, 128, 136, 226, 128, 137, 226, 128, 138, 226, 128, 168, 226, 128, 169, 226, 128, 175, 226, 129, 159, 227, 128, 128])
+)));
+// 首尾空白模式：字符类里放**字面**字符，无转义问题；
+// ⚠ 结尾锚 `$` 要写成 `\$`（裸 `$` 在 WLWL 字面量里是插值，见坑 32）。
+LET(WS_LEAD_RE, RE(CAT("^[", PY_WS(), "]+")));
+LET(WS_TRAIL_RE, RE(CAT("[", PY_WS(), "]+\$")));
+LET(PY_STRIP, FUN((s), (
+    RE_REPLACE(WS_TRAIL_RE, RE_REPLACE(WS_LEAD_RE, s, ""), "")
+)));
 
 // JSON 字符串标量（复用 STRINGIFY 的单字符串转义）
      LET(JSON_STR, FUN((s), (
@@ -44,7 +62,7 @@ IMPORT("wlwl:std.str", ["CAT"]);
                LET MUT(n, LEN(parts));
                LET MUT(i, 0);
                WHILE(<(i, n), (
-                    LET(t, TRIM(AT(parts, i, "")));
+                    LET(t, PY_STRIP(AT(parts, i, "")));
                     IF(!=(t, ""), (
                          SET(out, PUSH(out, t))
                     ), (

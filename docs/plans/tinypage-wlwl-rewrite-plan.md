@@ -33,8 +33,8 @@
 | S1-2 行内解析器 | ✅ 完成 | `tp/lib/md_inline.wll`（生成器产出）；**21/21 测试通过**，含 3 个反向守卫 |
 | S1-3 块级解析器 | ✅ 完成 | `tp/lib/md.wll`（生成器产出）；**28/28 对照 mistune 3.2.1 逐字节通过**（25 基准 + 3 守卫）；链接去掉自加的 `rel` 属性以逐字节对齐 |
 | S1-4 front-matter/TOC/脚注/wikilink | ✅ 完成 | `frontmatter.wll` / `toc.wll` / `footnotes.wll` / `wikilink.wll` + 共享 `esc.wll`（全部生成器产出）；**38/38 + 41/41 + 23/23 + 28/28 + esc 19/19 全绿**；本地 CI 5 步全过（21 生成器 / 21 产物无 drift） |
-| S2 内容模型与生成器 | 🔄 **S2-1～S2-4 已完成**；余 S2-5（增量构建） | S2-1 ✅ `article_store.wll` **277/277**／S2-2 ✅ `sort_util.wll` **39/39**／S2-3 ✅ `template.wll` + `theme.wll` **162+68**／S2-4 ✅ `page_common` + `article_page` + `list_page` + `feeds` + `search_index` **42+33+21+30+29 = 155**（共 10 个导出、91 条基准、24 条反向守卫）；S2-5 ⬜ |
-| S3 前台静态服务（TLS） | ⬜ 未开始 | `serve_public.wll`（TLS 终止 + 静态文件） |
+| S2 内容模型与生成器 | 🔄 **S2-1～S2-5 已完成**；编排层 `bin/build.wll` 在收尾 | S2-1 ✅ **277/277**／S2-2 ✅ **39/39**／S2-3 ✅ **162+68**／S2-4 ✅ **42+33+21+30+29 = 155**／S2-5 ✅ `incremental.wll` **37/37**（修掉「判定目录不匹配 ⇒ 恒判未变」的缺陷）；⚠ 编排层未完成前**还不能跑一次真构建** |
+| S3 前台静态服务（TLS） | ✅ **完成** | `static_serve.wll`（纯函数内核）+ `bin/serve_public.wll`（明文）+ `bin/serve_tls.wll`（TLS）；`test_static_serve.wll` **365/365**；5 个安全头与 `get_security_headers()` 逐字同序相等；curl 实测 200/404/405 与长缓存；坏连接后循环存活；缺 cert 拒绝启动 |
 | S4 Admin 后台 | ⬜ 未开始 | `serve_admin.wll` + 会话/CSRF/限流/CRUD |
 | S5 AI 助手（出站 HTTPS） | ⬜ 未开始 | `ai.wll`（`tls.CONNECT` + 手写 HTTP/1.1） |
 | S6 部署与切换 | ⬜ 未开始 | Dockerfile/compose 改造 + 停用 nginx |
@@ -1014,13 +1014,13 @@ TinyPage/
   | 变异测试 | 各模块都做了：改空格数、关草稿过滤、放宽标识符、退化换行归一 ⇒ 都能让对应用例变红并使退出码为 1 |
   | 反向守卫合计 | 24 条（含「`title` 必转义而 `content` 不转义」的对照组、`site_url` 空时不得有 `ld+json`/`og:title`/`share-btn`、RSS 不得有裸 `&`、sitemap 不得有 `lastmod`/`changefreq`、`SEARCH_INDEX` 草稿**必须**原样通过） |
 
-  **⚠ 两条已知缺口（未修，已登记，附现成修法）**：
-  1. **`tags` 的 strip 口径**：WLWL 内建 `TRIM` 只剥 **ASCII** 空白，Python 的 `str.strip()`
-     还剥 U+3000 / U+00A0 / U+0085 / U+2000–200A / U+2028–2029 / U+202F / U+205F。
-     ⇒ `list_page.wll` 与 `search_index.wll` 的 tags 在**含非 ASCII 空白**时会与 Python 不同
-     （`article_page.wll` **已修**：自建 `PY_WS()` 用 `RE_REPLACE` 两侧剥 Unicode 空白集合，用例 `a12` 钉住）。
-     **修法**（已排除其他选项）：照抄 `article_page.wll` 的 `PY_WS()` 换掉那两处的 `TRIM`，
-     各加一条 `tags="\u3000a\u3000, \xa0b\xa0"` 用例；属**行为变更**，须单独一轮做并全量复跑。
+  **⚠ 已知缺口（附状态）**：
+  1. **`tags` 的 strip 口径 —— ✅ 已修（2026-11-02，父进程）**：WLWL 内建 `TRIM` 只剥 **ASCII** 空白，
+     Python 的 `str.strip()` 还剥 U+3000 / U+00A0 / U+0085 / U+2000–200A / U+2028–2029 / U+202F / U+205F。
+     `article_page.wll` 原本就有正确的 `PY_WS()`；已照它把 `list_page.wll` 与 `search_index.wll`
+     的 tags 路径换成 `PY_STRIP`（29 字符空白集合 + 两侧 `RE_REPLACE`）。
+     **两处都有回归用例钉住**：`list_tags_unicode_ws`（tags 含 U+3000 + U+00A0）与
+     `search_index/tags_edges` 的 `t8` —— 仍用 `TRIM` 的实现在这两条上必红。
   2. **`RSTRIP_SLASH` 有三份**（`page_common.wll` 私有、`article_page.wll`、`feeds.wll`）：
      `page_common` 的那份**未导出**，而契约只允许它导出三个函数 ⇒ 各自自带 8 行。
      **可接受的依据**：三处行为都被各自的逐字节用例钉住，漂移必红，不存在静默分叉；
@@ -1146,7 +1146,10 @@ TinyPage/
     `X-Content-Type-Options: nosniff` / `X-Frame-Options: DENY` /
     `Referrer-Policy: no-referrer` / `Cross-Origin-Opener-Policy: same-origin` /
     `Permissions-Policy: accelerometer=(), camera=(), geolocation=(), gyroscope=(), magnetometer=(), microphone=(), payment=(), usb=()`
-    ⚠ `Permissions-Policy` 的完整取值是 **9 项**（卡片的 `...` 不要漏）。
+    ⚠ `Permissions-Policy` 的完整取值是 **8 项**（原写「9 项」是**数错**，2026-11-02 复核：
+    `nginx.conf:13` 与 `security.py:338` 的 `get_security_headers()` 实测都只有
+    accelerometer / camera / geolocation / gyroscope / magnetometer / microphone / payment / usb
+    这 8 项 ⇒ 以源码为准）。
   - **静态资源长缓存**：`nginx.conf:43-47` 的 `location ~* \.(js|css|png|jpg|jpeg|gif|ico|svg|woff|woff2)$`
     ⇒ `expires 1y` + `Cache-Control: public, immutable`。
     ⚠ **nginx 的 `expires 1y` 会展开成 `Cache-Control: max-age=31536000`**，
@@ -1168,24 +1171,48 @@ TinyPage/
 #### 卡 S3-2：TLS 终止
 
 - **依赖**：S3-1
-- **交付物**：`tp/bin/serve_public_tls.wll`
+- **交付物**：`tp/bin/serve_tls.wll`（原写 `serve_public_tls.wll`，2026-11-02 实现时改短名）
 - **必须实现**：
   - `tls.LISTEN(host, port, {"cert": <路径>, "key": <路径>})`，**路径来自配置/环境变量**
   - 手写 accept 循环：`ACCEPT(l, timeout_ms)` → `NULL` 表示超时（**正常值**）→ 继续循环
   - 每条连接：`RECV` → `PARSE_REQUEST` → 交给静态服务内核 → `SEND` → `CLOSE`
   - **一个连接的失败不得终止循环**（对齐 `TCP_SERVE` 的容错语义）
 - **必须实现**：`ON_SIGNAL`/`STOP` 优雅停机
-- **验收命令**：
+- **⚠ 验收命令实测修正（2026-11-02）**：`wlwl run` **不透传脚本参数**（`--port` / `--cert` 会被 clap 拒：
+  `error: unexpected argument '--port'`）⇒ 配置一律走**环境变量**（`ENV_GET`），命令形如：
   ```
-  D:\wlwl_v0.12.1\wlwl.exe run --ext D:\wlwl_v0.12.1\lib\wlwl_tls.dll --ext-sha256 202379c21f2c2950635442fce895d71383a9e100e2eac65a2fd0e1da42e3599b tp\bin\serve_public_tls.wll --cert <cert.pem> --key <key.pem> --port 18443
+  $env:TP_CERT='<cert.crt>'; $env:TP_KEY='<key.pem>'; $env:TP_PORT='18443'
+  wlwl.exe run --ext <wlwl_tls.dll> --ext-sha256 <sha> tp\bin\serve_tls.wll
   curl -k -sI https://127.0.0.1:18443/index.html
   ```
-  期望：200 + 安全头
+  另：`wlwl check` **只解析、不认 `--ext`** ⇒ `serve_tls.wll` 能被 `check` 通过（不必带扩展），
+  但要真的跑起来必须 `run --ext`。**若缺 cert/key，实现必须拒绝启动**（不得静默降级成明文）。
 - **反向守卫**：
   - 证书文件不存在 ⇒ 启动即**明确失败**，不得降级成明文监听
   - 一次坏连接后，下一次正常请求**必须仍能成功**（对齐 `tp/probe/run_serve.ps1` 的验证法）
   - 缺 `cert`/`key` ⇒ `tls.LISTEN` 返回 ERR ⇒ 必须**显式消费**该 ERR，不得让它逃到顶层
 - **非目标**：不做 HTTP→HTTPS 跳转（80 端口的重定向是部署层的事）；不做 ACME
+
+- **✅ S3 实测状态（2026-11-02 完成，单路交付 + 父进程复核）**：
+  | 项 | 读数 |
+  |---|---|
+  | `tp/lib/static_serve.wll` | 导出 `SECURITY_HEADERS` / `MIME_TYPE` / `HANDLE`（**纯函数，不碰 socket**） |
+  | `tp/bin/serve_public.wll` / `tp/bin/serve_tls.wll` | 两个独立入口（同进程不能双 `*_SERVE`，见探针实测） |
+  | `wlwl run tp/test/test_static_serve.wll` | **365/365**，failed=0，exit 0 |
+  | 生成期交叉校验（写进夹具 `meta.cross_checks`） | ① `get_security_headers()` 与 `SECURITY_HEADERS()` **逐字同序相等**；② 直接调 `frontend.py:35 StaticApp` 比对 `/index.html` `/article/x.html` `/plain.txt` ⇒ 头序/`Content-Type`/`Content-Length`/5 个安全头/body **全等** |
+  | 本机 curl（明文 18085 / TLS 18443） | 200 + 5 个安全头；`.css` 命中长缓存；`/.git/config` `admin_password.txt` `%2e%2e` `..` 全 404；`POST` 405；`HEAD` body 空但 `Content-Length` 正确 |
+  | 坏连接容错 | 明文 curl 打 TLS 端口 ⇒ 服务端 `ACCEPT failed … looks like a plaintext client`，紧接着正常 `curl -k` **仍 200**（循环存活） |
+  | 启动守卫 | 缺 `TP_CERT`/`TP_KEY` ⇒ 明确拒绝 + `PANIC` + exit 1；**无任何明文降级路径** |
+
+  **⚠ 四条与 Python 现状的有据偏离（都已登记在夹具 `meta.divergences`，附实测命令）**：
+  | 编号 | 偏离 | 依据 |
+  |---|---|---|
+  | 缓存头 | 静态资源发 `Cache-Control: public, max-age=31536000, immutable`（**单个**头）；未命中发 `max-age=300, must-revalidate` | nginx 的 `expires 1y` + `add_header` 会产出**两个**同名头，客户端合并行为未定义 ⇒ 取单个；而 Python 的 `StaticApp` 对 `.css` 只发 `max-age=300`（**不**长缓存）⇒ 本节按**卡片要求对齐 nginx**，故与 Python 不同 |
+  | D-2 | 字体 MIME 发 `font/woff2`（Python 走 `mimetypes.guess_type`，本机 CPython 3.13 对 `x.woff2` 返回 `None` ⇒ Python 会发 `text/html`） | 该表随平台/注册表变化、不是契约；Linux 上同调用给 `font/woff2` |
+  | D-3 | `/list`（无尾斜杠）直接给 `index.html`，**不发 301** | nginx 会先 301 到 `/list/`；实现选择少一次往返 |
+  | D-6 | **未**采用 `security.py:283` 的 `safe_exts` 白名单 | 它含 `.woff2` 却不含 `.woff`，且 nginx 侧没有这条 |
+
+  ⇒ 这四条都是「有据可查的选择」而不是疏漏；改任何一条都会同时改变与 nginx / Python 的对齐关系，属**范围级决定**。
 
 ### S4 Admin 后台
 

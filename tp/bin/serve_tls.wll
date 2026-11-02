@@ -1,0 +1,197 @@
+// tp/bin/serve_tls.wll —— TLS 静态站入口（卡 S3-2）
+//
+// ⚠ 本文件由 tp/test/gen_serve_tls.py 生成 —— 请勿手改。
+//
+// 需要 TLS 扩展（`--ext .../wlwl_tls.dll`）；HTTP 语义全在
+// tp/lib/static_serve.wll —— 本文件只做「TLS 收字节 → HANDLE → 发字节」。
+//
+// ⚠ 与 serve_public **分进程**：TLS 等待冻结整个运行时（probe 实测）
+//   ⇒ 同进程跑不了第二个循环。
+//
+// 配置（环境变量；`wlwl run` 不透传脚本参数）：
+//   TP_ROOT  产物根目录（缺省 pages）
+//   TP_HOST  监听地址（缺省 0.0.0.0）
+//   TP_PORT  监听端口（缺省 443）
+//   TP_CERT  证书路径（**必填**）
+//   TP_KEY   私钥路径（**必填**）
+
+IMPORT("tls", ["LISTEN", "ACCEPT", "RECV", "SEND", "CLOSE", "LOCAL_ADDR"]);
+IMPORT("wlwl:std.http", ["PARSE_REQUEST"]);
+IMPORT("wlwl:std.env", ["ENV_GET"]);
+IMPORT("wlwl:std.signal", ["ON_SIGNAL", "STOP"]);
+IMPORT("wlwl:std.fs", ["PATH_CANONICAL", "FILE_META"]);
+IMPORT("wlwl:std.str", ["CAT", "INDEX_OF"]);
+IMPORT("wlwl:std.text", ["TO_INT"]);
+IMPORT("wlwl:std.encode", ["BYTE_LEN"]);
+IMPORT("./../lib/static_serve.wll", ["HANDLE"]);
+
+// // 切出 path
+     LET(PATH_OF, FUN((t), (
+               // 请求目标里 "?" 之前的部分;
+               LET(i, INDEX_OF(t, "?"));
+               IF(<(i, 0), t, SUB(t, 0, i))
+     )));
+
+// // 切出 query
+     LET(QUERY_OF, FUN((t), (
+               // 请求目标里 "?" 之后的部分;
+               LET(i, INDEX_OF(t, "?"));
+               IF(<(i, 0), "", SUB(t, +(i, 1)))
+     )));
+
+// // 状态码理由短语
+     LET(REASON, FUN((status), (
+               // 状态码 → 理由短语（本入口自己拼响应行；TCP_SERVE 那边由宿主补）;
+               IF(==(status, 500), "Internal Server Error", IF(==(status, 405), "Method Not Allowed", IF(==(status, 404), "Not Found", IF(==(status, 400), "Bad Request", IF(==(status, 200), "OK", "Internal Server Error")))))
+     )));
+
+// // 响应行
+     LET(STATUS_LINE, FUN((status), (
+               // "HTTP/1.1 <code> <reason>\r\n";
+               CAT("HTTP/1.1 ", STR(status), " ", REASON(status), "\r\n")
+     )));
+
+// // 响应报文
+     LET(WIRE, FUN((resp), (
+               // 把 HANDLE 的 {status, headers, body} 拼成一条**无 keep-alive** 的报文。;
+               // ⚠ Content-Length 是 HANDLE 已算好的（HEAD 时是真实长度）⇒ 这里不得再补，;
+               //   否则 HEAD 会出现两个互相矛盾的 Content-Length。;
+               LET(status, AT_K(resp, "status", 500));
+               LET(hdrs, AT_K(resp, "headers", DICT()));
+               LET MUT(out, STATUS_LINE(status));
+               FOR(k, KEYS(hdrs), (
+                    SET(out, CAT(out, k, ": ", AT_K(hdrs, k, ""), "\r\n"))
+               ));
+               CAT(out, "Connection: close\r\n\r\n", AT_K(resp, "body", ""))
+     )));
+
+// // 发响应
+     LET(SEND_WIRE, FUN((conn, resp), (
+               // 发一条响应；发送失败只记一笔（**不得**终止 accept 循环）;
+               IF(IS_ERR(SEND(conn, WIRE(resp))), (
+                    PRINT_ERR("tls SEND failed")
+               ), (
+                    NULL
+               ))
+     )));
+
+// // 传输层错误响应
+     LET(SEND_PLAIN, FUN((conn, status, message), (
+               // 传输层自己的错误响应（**不**带静态层的安全头 —— 它连请求都没解析出来）;
+               LET(h, INDEX_SET(INDEX_SET(DICT(), "Content-Type", "text/plain"), "Content-Length", STR(BYTE_LEN(message))));
+               SEND_WIRE(conn, INDEX_SET(INDEX_SET(INDEX_SET(DICT(), "status", status), "headers", h), "body", message))
+     )));
+
+// // 解析结果 → 响应（复用静态内核）
+     LET(RESPONSE_FOR, FUN((parsed), (
+               // 已解析的请求字典 → HANDLE 的响应（复用静态内核，入口不含任何业务规则）;
+               LET(target, AT_K(parsed, "path", "/"));
+               HANDLE(INDEX_SET(INDEX_SET(INDEX_SET(INDEX_SET(DICT(), "root", root), "method", AT_K(parsed, "method", "GET")), "path", PATH_OF(target)), "query", QUERY_OF(target)))
+     )));
+
+// // 服务一条 TLS 连接
+     LET(SERVE_CONN, FUN((conn), (
+               // 一条连接的完整生命周期：RECV → PARSE_REQUEST → HANDLE → SEND → CLOSE。;
+               // ⚠ 每条路径都必须 CLOSE（漏关会泄漏句柄）。;
+               // ⚠ 空读 = 超时 / 对端已关 ⇒ 直接关，不写响应（写也写不出去）。;
+               LET(io, RECV(conn, 16384, 5000));
+               IF(IS_ERR(io), (
+                    PRINT_ERR("tls RECV failed: ", ERR_PAYLOAD(io));
+                    CLOSE(conn)
+               ), (
+                    IF(==(AT_K(io, "text", ""), ""), (
+                         CLOSE(conn)
+                    ), (
+                         LET(raw, AT_K(io, "text", ""));
+                         IF(IS_ERR(PARSE_REQUEST(raw)), (
+                              SEND_PLAIN(conn, 400, "Bad Request");
+                              CLOSE(conn)
+                         ), (
+                              SEND_WIRE(conn, RESPONSE_FOR(PARSE_REQUEST(raw)));
+                              CLOSE(conn)
+                         ))
+                    ))
+               ))
+     )));
+
+// ── 配置（环境变量；缺省值 = tinypage/config.py 的缺省 + 443 端口）───────
+LET(root, PATH_CANONICAL(ENV_GET("TP_ROOT", "pages")));
+LET(host, ENV_GET("TP_HOST", "0.0.0.0"));
+LET(port_s, ENV_GET("TP_PORT", "443"));
+LET(port_t, TO_INT(port_s));
+LET(port, IF(IS_ERR(port_t), -1, port_t));
+LET(cert, ENV_GET("TP_CERT", ""));
+LET(key, ENV_GET("TP_KEY", ""));
+LET MUT(running, TRUE);
+LET MUT(served, 0);
+LET MUT(accept_errors, 0);
+
+// ── 启动守卫 ①：证书 / 私钥必填（缺 ⇒ 明确失败，**不得**降级成明文监听）──
+IF(||(==(cert, ""), ==(key, "")), (
+     PRINT_ERR("TP_CERT / TP_KEY are required — refusing to serve without TLS");
+     PANIC("missing TP_CERT / TP_KEY")
+), (
+     NULL
+));
+
+// ── 启动守卫 ②：证书 / 私钥文件必须真的存在 ─────────────────────────
+LET(cert_meta, FILE_META(cert));
+IF(!AT_K(cert_meta, "exists", FALSE), (
+     PRINT_ERR("TP_CERT does not exist: ", cert);
+     PANIC("bad TP_CERT")
+), (
+     NULL
+));
+LET(key_meta, FILE_META(key));
+IF(!AT_K(key_meta, "exists", FALSE), (
+     PRINT_ERR("TP_KEY does not exist: ", key);
+     PANIC("bad TP_KEY")
+), (
+     NULL
+));
+
+// ── 启动守卫 ③：端口 / 产物根目录 ──────────────────────────────────
+IF(<(port, 0), (
+     PRINT_ERR("TP_PORT is not a valid port number: ", port_s);
+     PANIC("bad TP_PORT")
+), (
+     NULL
+));
+LET(root_meta, FILE_META(root));
+IF(||(!AT_K(root_meta, "exists", FALSE), !AT_K(root_meta, "is_dir", FALSE)), (
+     PRINT_ERR("TP_ROOT is not a directory: ", root);
+     PANIC("bad TP_ROOT")
+), (
+     NULL
+));
+
+// ── 优雅停机：ON_SIGNAL 置标志 + STOP()（STOP 只**请求**，不杀进程）────
+ON_SIGNAL("SIGINT", FUN(() , (SET(running, FALSE); STOP())));
+ON_SIGNAL("SIGTERM", FUN(() , (SET(running, FALSE); STOP())));
+
+// ── tls.LISTEN：返 ERR ⇒ **显式消费**（打印 + PANIC），不让它逃到顶层 ────
+LET(l, LISTEN(host, port, INDEX_SET(INDEX_SET(DICT(), "cert", cert), "key", key)));
+IF(IS_ERR(l), (
+     PRINT_ERR("tls.LISTEN failed: ", ERR_PAYLOAD(l));
+     PANIC("tls listen failed")
+), (
+     PRINT("serve_tls: listening on ", host, ":", AT_K(LOCAL_ADDR(l), "port", 0), " root=", root);
+     PRINT("serve_tls: cert=", cert);
+     WHILE(running, (
+          LET(conn, ACCEPT(l, 1000));
+          IF(IS_ERR(conn), (
+               PRINT_ERR("tls ACCEPT failed: ", ERR_PAYLOAD(conn));
+               SET(accept_errors, +(accept_errors, 1))
+          ), (
+               IF(==(TYPE(conn), "NULL"), (
+                    NULL
+               ), (
+                    SERVE_CONN(conn);
+                    SET(served, +(served, 1))
+               ))
+          ))
+     ))
+));
+
+CLOSE(l);
+PRINT("serve_tls: served=", served, " accept_errors=", accept_errors, " — bye");

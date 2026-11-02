@@ -1,0 +1,1322 @@
+// tp/test/test_static_serve.wll —— 静态服务内核的脱网测试（卡 S3-1）
+//
+// ⚠ 本文件由 tp/test/gen_test_static_serve.py 生成 —— 请勿手改。
+//
+// 被测：tp/lib/static_serve.wll 的 HANDLE / MIME_TYPE / SECURITY_HEADERS。
+// 基准：tp/test/fixtures/static_serve_baseline.json
+//   · 手写期望值 + 出处行号（nginx.conf / security.py / frontend.py）
+//   · 生成期已对 tinypage 的真 Python 做交叉校验（见该 JSON 的 meta.cross_checks）
+//
+// 本文件是**脱网**的：产物树在 TEMP_DIR() 里现造，不碰 socket。
+//
+// ⚠ RUN_TESTS() 的失败**不影响退出码**（规范明载）⇒ 本文件自己把关。
+IMPORT("wlwl:std.test", ["TEST", "ASSERT", "ASSERT_EQ", "RUN_TESTS", "TEMP_DIR"]);
+IMPORT("wlwl:std.fs", ["MKDIRS", "WRITE_FILE", "PATH_JOIN", "PATH_CANONICAL"]);
+IMPORT("wlwl:std.str", ["JOIN", "CAT"]);
+IMPORT("./../lib/static_serve.wll", ["HANDLE", "MIME_TYPE", "SECURITY_HEADERS"]);
+
+// ── 产物树（结构照 tinypage 的产物布局；内容见夹具 tree.files）──────
+LET(root, PATH_CANONICAL(TEMP_DIR()));
+PRINT("fixture root: ", root);
+IF(IS_ERR(MKDIRS(PATH_JOIN(root, "article"))), PANIC("mkdirs failed: article"), NULL);
+IF(IS_ERR(MKDIRS(PATH_JOIN(root, "list"))), PANIC("mkdirs failed: list"), NULL);
+IF(IS_ERR(MKDIRS(PATH_JOIN(root, "static"))), PANIC("mkdirs failed: static"), NULL);
+IF(IS_ERR(MKDIRS(PATH_JOIN(root, "nested"))), PANIC("mkdirs failed: nested"), NULL);
+IF(IS_ERR(MKDIRS(PATH_JOIN(root, ".git"))), PANIC("mkdirs failed: .git"), NULL);
+IF(IS_ERR(MKDIRS(PATH_JOIN(root, "emptydir"))), PANIC("mkdirs failed: emptydir"), NULL);
+IF(IS_ERR(WRITE_FILE(PATH_JOIN(root, "index.html"), "<!doctype html>\n<html lang=\"zh\">\n<head><title>home</title></head>\n<body><h1>首页</h1></body>\n</html>\n")), PANIC("write failed: index.html"), NULL);
+IF(IS_ERR(WRITE_FILE(PATH_JOIN(root, "article/x.html"), "<!doctype html>\n<html><body><article>x</article></body></html>\n")), PANIC("write failed: article/x.html"), NULL);
+IF(IS_ERR(WRITE_FILE(PATH_JOIN(root, "article/中文.html"), "<!doctype html>\n<html><body><article>中文</article></body></html>\n")), PANIC("write failed: article/中文.html"), NULL);
+IF(IS_ERR(WRITE_FILE(PATH_JOIN(root, "list/index.html"), "<!doctype html>\n<html><body><ul><li>2</li></ul></body></html>\n")), PANIC("write failed: list/index.html"), NULL);
+IF(IS_ERR(WRITE_FILE(PATH_JOIN(root, "list/2.html"), "<!doctype html>\n<html><body><article>2</article></body></html>\n")), PANIC("write failed: list/2.html"), NULL);
+IF(IS_ERR(WRITE_FILE(PATH_JOIN(root, "style.css"), "body{margin:0}\n")), PANIC("write failed: style.css"), NULL);
+IF(IS_ERR(WRITE_FILE(PATH_JOIN(root, "font.woff2"), "wOF2 fake font bytes for tests\n")), PANIC("write failed: font.woff2"), NULL);
+IF(IS_ERR(WRITE_FILE(PATH_JOIN(root, "app.woff"), "wOFF fake font bytes for tests\n")), PANIC("write failed: app.woff"), NULL);
+IF(IS_ERR(WRITE_FILE(PATH_JOIN(root, "static/app.js"), "console.log(\"hi\");\n")), PANIC("write failed: static/app.js"), NULL);
+IF(IS_ERR(WRITE_FILE(PATH_JOIN(root, "plain.txt"), "hello 中文\n")), PANIC("write failed: plain.txt"), NULL);
+IF(IS_ERR(WRITE_FILE(PATH_JOIN(root, ".git/config"), "[core]\n\trepositoryformatversion = 0\n")), PANIC("write failed: .git/config"), NULL);
+IF(IS_ERR(WRITE_FILE(PATH_JOIN(root, "admin_password.txt"), "hunter2\n")), PANIC("write failed: admin_password.txt"), NULL);
+IF(IS_ERR(WRITE_FILE(PATH_JOIN(root, "nested/.env"), "SECRET=1\n")), PANIC("write failed: nested/.env"), NULL);
+
+// ── 预计算每个用例的响应（⚠ LET 不能放进 TEST 的 FUN 体）────────────
+// root_index —— 请求 / ⇒ 回落根目录 index.html
+//   出处：nginx.conf:4-6,18-20; frontend.py:49-50
+LET(resp_root_index, HANDLE(INDEX_SET(INDEX_SET(INDEX_SET(INDEX_SET(DICT(), "root", root), "method", "GET"), "path", "/"), "query", "")));
+// index_explicit —— 显式 /index.html 与 / 等价
+//   出处：nginx.conf:18-20
+LET(resp_index_explicit, HANDLE(INDEX_SET(INDEX_SET(INDEX_SET(INDEX_SET(DICT(), "root", root), "method", "GET"), "path", "/index.html"), "query", "")));
+// article —— 普通子目录文件；.html ⇒ 短缓存（长缓存未命中）
+//   出处：nginx.conf:43（未命中）; frontend.py:78
+LET(resp_article, HANDLE(INDEX_SET(INDEX_SET(INDEX_SET(INDEX_SET(DICT(), "root", root), "method", "GET"), "path", "/article/x.html"), "query", "")));
+// list_dir_slash —— 目录（带尾斜杠）⇒ 回落 index.html
+//   出处：nginx.conf:18-20
+LET(resp_list_dir_slash, HANDLE(INDEX_SET(INDEX_SET(INDEX_SET(INDEX_SET(DICT(), "root", root), "method", "GET"), "path", "/list/"), "query", "")));
+// list_dir_noslash —— 目录（无尾斜杠）⇒ 也给 index.html（nginx 会先 301 到 /list/，本实现不重定向）
+//   出处：nginx.conf:18-20（登记为偏差 D-3）
+LET(resp_list_dir_noslash, HANDLE(INDEX_SET(INDEX_SET(INDEX_SET(INDEX_SET(DICT(), "root", root), "method", "GET"), "path", "/list"), "query", "")));
+// percent_cjk —— percent-decode：中文文件名（浏览器把 CJK 编码成 %XX）
+//   出处：nginx 先解码再匹配 location；URL_DECODE（std.encode）
+LET(resp_percent_cjk, HANDLE(INDEX_SET(INDEX_SET(INDEX_SET(INDEX_SET(DICT(), "root", root), "method", "GET"), "path", "/article/%E4%B8%AD%E6%96%87.html"), "query", "")));
+// css_long_cache —— nginx.conf:43 命中 ⇒ public, max-age=31536000, immutable
+//   出处：nginx.conf:43-47
+LET(resp_css_long_cache, HANDLE(INDEX_SET(INDEX_SET(INDEX_SET(INDEX_SET(DICT(), "root", root), "method", "GET"), "path", "/style.css"), "query", "")));
+// woff2_long_cache —— 字体命中长缓存；MIME 取 nginx 值（见 divergences D-2）
+//   出处：nginx.conf:43; 见 meta.divergences
+LET(resp_woff2_long_cache, HANDLE(INDEX_SET(INDEX_SET(INDEX_SET(INDEX_SET(DICT(), "root", root), "method", "GET"), "path", "/font.woff2"), "query", "")));
+// woff_long_cache —— .woff 也在 nginx.conf:43 的列表里
+//   出处：nginx.conf:43
+LET(resp_woff_long_cache, HANDLE(INDEX_SET(INDEX_SET(INDEX_SET(INDEX_SET(DICT(), "root", root), "method", "GET"), "path", "/app.woff"), "query", "")));
+// js_long_cache —— .js 命中长缓存（子目录同样命中）
+//   出处：nginx.conf:43
+LET(resp_js_long_cache, HANDLE(INDEX_SET(INDEX_SET(INDEX_SET(INDEX_SET(DICT(), "root", root), "method", "GET"), "path", "/static/app.js"), "query", "")));
+// multibyte_length —— 含 CJK ⇒ Content-Length 必须是 **UTF-8 字节数**（不是码点数）
+//   出处：frontend.py:77（len(bytes)）; BYTE_LEN
+LET(resp_multibyte_length, HANDLE(INDEX_SET(INDEX_SET(INDEX_SET(INDEX_SET(DICT(), "root", root), "method", "GET"), "path", "/plain.txt"), "query", "")));
+// head_article —— HEAD：body 空，但头齐全且 Content-Length 是**真实长度**
+//   出处：HTTP 语义；frontend.py:75-79 的头集（Python 的 WSGI 不区分 HEAD）
+LET(resp_head_article, HANDLE(INDEX_SET(INDEX_SET(INDEX_SET(INDEX_SET(DICT(), "root", root), "method", "HEAD"), "path", "/article/x.html"), "query", "")));
+// query_opt_ignored —— query 不参与解析（对齐 WSGI 的 PATH_INFO / QUERY_STRING 分离）
+//   出处：frontend.py:43（只用 PATH_INFO）
+LET(resp_query_opt_ignored, HANDLE(INDEX_SET(INDEX_SET(INDEX_SET(INDEX_SET(DICT(), "root", root), "method", "GET"), "path", "/article/x.html"), "query", "utm=1&a=2")));
+// path_with_query_string —— path 自带查询串也能切掉（入口兜底）
+//   出处：frontend.py:43
+LET(resp_path_with_query_string, HANDLE(INDEX_SET(INDEX_SET(INDEX_SET(INDEX_SET(DICT(), "root", root), "method", "GET"), "path", "/article/x.html?utm=1&a=2"), "query", "")));
+// not_found —— 不存在 ⇒ 404（不得 500）
+//   出处：nginx.conf:19 =404; frontend.py:69-70
+LET(resp_not_found, HANDLE(INDEX_SET(INDEX_SET(INDEX_SET(INDEX_SET(DICT(), "root", root), "method", "GET"), "path", "/nope.html"), "query", "")));
+// not_found_dir —— 不存在的目录 ⇒ 404
+//   出处：nginx.conf:19 =404
+LET(resp_not_found_dir, HANDLE(INDEX_SET(INDEX_SET(INDEX_SET(INDEX_SET(DICT(), "root", root), "method", "GET"), "path", "/nope/"), "query", "")));
+// empty_dir_no_index —— 目录存在但没有 index.html ⇒ 404
+//   出处：nginx.conf:18-20（try_files … =404）
+LET(resp_empty_dir_no_index, HANDLE(INDEX_SET(INDEX_SET(INDEX_SET(INDEX_SET(DICT(), "root", root), "method", "GET"), "path", "/emptydir/"), "query", "")));
+// hidden_git_config —— 【反向守卫】隐藏路径 ⇒ 404
+//   出处：nginx.conf:50-53
+LET(resp_hidden_git_config, HANDLE(INDEX_SET(INDEX_SET(INDEX_SET(INDEX_SET(DICT(), "root", root), "method", "GET"), "path", "/.git/config"), "query", "")));
+// hidden_dir_slash —— 【反向守卫】隐藏目录 ⇒ 404
+//   出处：nginx.conf:50-53
+LET(resp_hidden_dir_slash, HANDLE(INDEX_SET(INDEX_SET(INDEX_SET(INDEX_SET(DICT(), "root", root), "method", "GET"), "path", "/.git/"), "query", "")));
+// traversal_plain —— 【反向守卫】字面 .. ⇒ 404（PATH_CONTAINS + 显式拒绝）
+//   出处：卡 S3-1 反向守卫; security.py:269-287 的包含性判定
+LET(resp_traversal_plain, HANDLE(INDEX_SET(INDEX_SET(INDEX_SET(INDEX_SET(DICT(), "root", root), "method", "GET"), "path", "/../secret.txt"), "query", "")));
+// traversal_nested —— 【反向守卫】夹在中间 .. ⇒ 404
+//   出处：卡 S3-1 反向守卫
+LET(resp_traversal_nested, HANDLE(INDEX_SET(INDEX_SET(INDEX_SET(INDEX_SET(DICT(), "root", root), "method", "GET"), "path", "/article/../../secret.txt"), "query", "")));
+// traversal_encoded —— 【反向守卫】percent-encoded .. ⇒ 解码后仍是 .. ⇒ 404
+//   出处：nginx 先解码再匹配；卡 S3-1 反向守卫
+LET(resp_traversal_encoded, HANDLE(INDEX_SET(INDEX_SET(INDEX_SET(INDEX_SET(DICT(), "root", root), "method", "GET"), "path", "/%2e%2e/secret.txt"), "query", "")));
+// sensitive_admin_password —— 【反向守卫】admin_password.txt ⇒ 404
+//   出处：nginx.conf:54-57
+LET(resp_sensitive_admin_password, HANDLE(INDEX_SET(INDEX_SET(INDEX_SET(INDEX_SET(DICT(), "root", root), "method", "GET"), "path", "/admin_password.txt"), "query", "")));
+// sensitive_env_file —— .env 文件 ⇒ 404（隐藏规则也会命中，两条都对）
+//   出处：nginx.conf:50-57
+LET(resp_sensitive_env_file, HANDLE(INDEX_SET(INDEX_SET(INDEX_SET(INDEX_SET(DICT(), "root", root), "method", "GET"), "path", "/nested/.env"), "query", "")));
+// sensitive_env_substring —— 敏感名是**子串**匹配 ⇒ /foo.env 即使不存在也 404（不是「文件不存在」那一路）
+//   出处：nginx.conf:54-57（`~*` 子串）
+LET(resp_sensitive_env_substring, HANDLE(INDEX_SET(INDEX_SET(INDEX_SET(INDEX_SET(DICT(), "root", root), "method", "GET"), "path", "/foo.env"), "query", "")));
+// sensitive_git_substring —— `.git` 子串匹配 ⇒ /my.git-repo/… 也 404
+//   出处：nginx.conf:54-57（`~*` 子串）
+LET(resp_sensitive_git_substring, HANDLE(INDEX_SET(INDEX_SET(INDEX_SET(INDEX_SET(DICT(), "root", root), "method", "GET"), "path", "/my.git-repo/x.html"), "query", "")));
+// sensitive_case_insensitive —— 敏感名大小写不敏感（nginx 用 `~*`）
+//   出处：nginx.conf:54（`~*`）
+LET(resp_sensitive_case_insensitive, HANDLE(INDEX_SET(INDEX_SET(INDEX_SET(INDEX_SET(DICT(), "root", root), "method", "GET"), "path", "/Admin_Password.TXT"), "query", "")));
+// bad_percent_escape —— 非法 percent 转义 ⇒ fail closed 404
+//   出处：URL_DECODE 返 ERR（std.encode）
+LET(resp_bad_percent_escape, HANDLE(INDEX_SET(INDEX_SET(INDEX_SET(INDEX_SET(DICT(), "root", root), "method", "GET"), "path", "/bad%zz"), "query", "")));
+// post_root —— POST ⇒ 405（Python 的 StaticApp 没有这道门，见 D-4）
+//   出处：卡 S3-1
+LET(resp_post_root, HANDLE(INDEX_SET(INDEX_SET(INDEX_SET(INDEX_SET(DICT(), "root", root), "method", "POST"), "path", "/"), "query", "")));
+// put_index —— PUT ⇒ 405
+//   出处：卡 S3-1
+LET(resp_put_index, HANDLE(INDEX_SET(INDEX_SET(INDEX_SET(INDEX_SET(DICT(), "root", root), "method", "PUT"), "path", "/index.html"), "query", "")));
+// delete_article —— DELETE ⇒ 405
+//   出处：卡 S3-1
+LET(resp_delete_article, HANDLE(INDEX_SET(INDEX_SET(INDEX_SET(INDEX_SET(DICT(), "root", root), "method", "DELETE"), "path", "/article/x.html"), "query", "")));
+
+// ── 用例断言：status / 头序 / 每个头的值 / body ──────────────────
+
+// root_index
+TEST("handle/root_index/status", FUN(() ,
+    (ASSERT_EQ(AT_K(resp_root_index, "status", -1), 200));
+    TRUE));
+TEST("handle/root_index/header_order", FUN(() ,
+    (ASSERT_EQ(JOIN(KEYS(AT_K(resp_root_index, "headers", DICT())), "|"), "Content-Type|Content-Length|Cache-Control|X-Content-Type-Options|X-Frame-Options|Referrer-Policy|Cross-Origin-Opener-Policy|Permissions-Policy"));
+    TRUE));
+TEST("handle/root_index/header/Content-Type", FUN(() ,
+    (ASSERT_EQ(AT_K(AT_K(resp_root_index, "headers", DICT()), "Content-Type", "<missing>"), "text/html; charset=utf-8"));
+    TRUE));
+TEST("handle/root_index/header/Content-Length", FUN(() ,
+    (ASSERT_EQ(AT_K(AT_K(resp_root_index, "headers", DICT()), "Content-Length", "<missing>"), "103"));
+    TRUE));
+TEST("handle/root_index/header/Cache-Control", FUN(() ,
+    (ASSERT_EQ(AT_K(AT_K(resp_root_index, "headers", DICT()), "Cache-Control", "<missing>"), "max-age=300, must-revalidate"));
+    TRUE));
+TEST("handle/root_index/header/X-Content-Type-Options", FUN(() ,
+    (ASSERT_EQ(AT_K(AT_K(resp_root_index, "headers", DICT()), "X-Content-Type-Options", "<missing>"), "nosniff"));
+    TRUE));
+TEST("handle/root_index/header/X-Frame-Options", FUN(() ,
+    (ASSERT_EQ(AT_K(AT_K(resp_root_index, "headers", DICT()), "X-Frame-Options", "<missing>"), "DENY"));
+    TRUE));
+TEST("handle/root_index/header/Referrer-Policy", FUN(() ,
+    (ASSERT_EQ(AT_K(AT_K(resp_root_index, "headers", DICT()), "Referrer-Policy", "<missing>"), "no-referrer"));
+    TRUE));
+TEST("handle/root_index/header/Cross-Origin-Opener-Policy", FUN(() ,
+    (ASSERT_EQ(AT_K(AT_K(resp_root_index, "headers", DICT()), "Cross-Origin-Opener-Policy", "<missing>"), "same-origin"));
+    TRUE));
+TEST("handle/root_index/header/Permissions-Policy", FUN(() ,
+    (ASSERT_EQ(AT_K(AT_K(resp_root_index, "headers", DICT()), "Permissions-Policy", "<missing>"), "accelerometer=(), camera=(), geolocation=(), gyroscope=(), magnetometer=(), microphone=(), payment=(), usb=()"));
+    TRUE));
+TEST("handle/root_index/body", FUN(() ,
+    (ASSERT_EQ(AT_K(resp_root_index, "body", "<missing>"), "<!doctype html>\n<html lang=\"zh\">\n<head><title>home</title></head>\n<body><h1>首页</h1></body>\n</html>\n"));
+    TRUE));
+
+// index_explicit
+TEST("handle/index_explicit/status", FUN(() ,
+    (ASSERT_EQ(AT_K(resp_index_explicit, "status", -1), 200));
+    TRUE));
+TEST("handle/index_explicit/header_order", FUN(() ,
+    (ASSERT_EQ(JOIN(KEYS(AT_K(resp_index_explicit, "headers", DICT())), "|"), "Content-Type|Content-Length|Cache-Control|X-Content-Type-Options|X-Frame-Options|Referrer-Policy|Cross-Origin-Opener-Policy|Permissions-Policy"));
+    TRUE));
+TEST("handle/index_explicit/header/Content-Type", FUN(() ,
+    (ASSERT_EQ(AT_K(AT_K(resp_index_explicit, "headers", DICT()), "Content-Type", "<missing>"), "text/html; charset=utf-8"));
+    TRUE));
+TEST("handle/index_explicit/header/Content-Length", FUN(() ,
+    (ASSERT_EQ(AT_K(AT_K(resp_index_explicit, "headers", DICT()), "Content-Length", "<missing>"), "103"));
+    TRUE));
+TEST("handle/index_explicit/header/Cache-Control", FUN(() ,
+    (ASSERT_EQ(AT_K(AT_K(resp_index_explicit, "headers", DICT()), "Cache-Control", "<missing>"), "max-age=300, must-revalidate"));
+    TRUE));
+TEST("handle/index_explicit/header/X-Content-Type-Options", FUN(() ,
+    (ASSERT_EQ(AT_K(AT_K(resp_index_explicit, "headers", DICT()), "X-Content-Type-Options", "<missing>"), "nosniff"));
+    TRUE));
+TEST("handle/index_explicit/header/X-Frame-Options", FUN(() ,
+    (ASSERT_EQ(AT_K(AT_K(resp_index_explicit, "headers", DICT()), "X-Frame-Options", "<missing>"), "DENY"));
+    TRUE));
+TEST("handle/index_explicit/header/Referrer-Policy", FUN(() ,
+    (ASSERT_EQ(AT_K(AT_K(resp_index_explicit, "headers", DICT()), "Referrer-Policy", "<missing>"), "no-referrer"));
+    TRUE));
+TEST("handle/index_explicit/header/Cross-Origin-Opener-Policy", FUN(() ,
+    (ASSERT_EQ(AT_K(AT_K(resp_index_explicit, "headers", DICT()), "Cross-Origin-Opener-Policy", "<missing>"), "same-origin"));
+    TRUE));
+TEST("handle/index_explicit/header/Permissions-Policy", FUN(() ,
+    (ASSERT_EQ(AT_K(AT_K(resp_index_explicit, "headers", DICT()), "Permissions-Policy", "<missing>"), "accelerometer=(), camera=(), geolocation=(), gyroscope=(), magnetometer=(), microphone=(), payment=(), usb=()"));
+    TRUE));
+TEST("handle/index_explicit/body", FUN(() ,
+    (ASSERT_EQ(AT_K(resp_index_explicit, "body", "<missing>"), "<!doctype html>\n<html lang=\"zh\">\n<head><title>home</title></head>\n<body><h1>首页</h1></body>\n</html>\n"));
+    TRUE));
+
+// article
+TEST("handle/article/status", FUN(() ,
+    (ASSERT_EQ(AT_K(resp_article, "status", -1), 200));
+    TRUE));
+TEST("handle/article/header_order", FUN(() ,
+    (ASSERT_EQ(JOIN(KEYS(AT_K(resp_article, "headers", DICT())), "|"), "Content-Type|Content-Length|Cache-Control|X-Content-Type-Options|X-Frame-Options|Referrer-Policy|Cross-Origin-Opener-Policy|Permissions-Policy"));
+    TRUE));
+TEST("handle/article/header/Content-Type", FUN(() ,
+    (ASSERT_EQ(AT_K(AT_K(resp_article, "headers", DICT()), "Content-Type", "<missing>"), "text/html; charset=utf-8"));
+    TRUE));
+TEST("handle/article/header/Content-Length", FUN(() ,
+    (ASSERT_EQ(AT_K(AT_K(resp_article, "headers", DICT()), "Content-Length", "<missing>"), "63"));
+    TRUE));
+TEST("handle/article/header/Cache-Control", FUN(() ,
+    (ASSERT_EQ(AT_K(AT_K(resp_article, "headers", DICT()), "Cache-Control", "<missing>"), "max-age=300, must-revalidate"));
+    TRUE));
+TEST("handle/article/header/X-Content-Type-Options", FUN(() ,
+    (ASSERT_EQ(AT_K(AT_K(resp_article, "headers", DICT()), "X-Content-Type-Options", "<missing>"), "nosniff"));
+    TRUE));
+TEST("handle/article/header/X-Frame-Options", FUN(() ,
+    (ASSERT_EQ(AT_K(AT_K(resp_article, "headers", DICT()), "X-Frame-Options", "<missing>"), "DENY"));
+    TRUE));
+TEST("handle/article/header/Referrer-Policy", FUN(() ,
+    (ASSERT_EQ(AT_K(AT_K(resp_article, "headers", DICT()), "Referrer-Policy", "<missing>"), "no-referrer"));
+    TRUE));
+TEST("handle/article/header/Cross-Origin-Opener-Policy", FUN(() ,
+    (ASSERT_EQ(AT_K(AT_K(resp_article, "headers", DICT()), "Cross-Origin-Opener-Policy", "<missing>"), "same-origin"));
+    TRUE));
+TEST("handle/article/header/Permissions-Policy", FUN(() ,
+    (ASSERT_EQ(AT_K(AT_K(resp_article, "headers", DICT()), "Permissions-Policy", "<missing>"), "accelerometer=(), camera=(), geolocation=(), gyroscope=(), magnetometer=(), microphone=(), payment=(), usb=()"));
+    TRUE));
+TEST("handle/article/body", FUN(() ,
+    (ASSERT_EQ(AT_K(resp_article, "body", "<missing>"), "<!doctype html>\n<html><body><article>x</article></body></html>\n"));
+    TRUE));
+
+// list_dir_slash
+TEST("handle/list_dir_slash/status", FUN(() ,
+    (ASSERT_EQ(AT_K(resp_list_dir_slash, "status", -1), 200));
+    TRUE));
+TEST("handle/list_dir_slash/header_order", FUN(() ,
+    (ASSERT_EQ(JOIN(KEYS(AT_K(resp_list_dir_slash, "headers", DICT())), "|"), "Content-Type|Content-Length|Cache-Control|X-Content-Type-Options|X-Frame-Options|Referrer-Policy|Cross-Origin-Opener-Policy|Permissions-Policy"));
+    TRUE));
+TEST("handle/list_dir_slash/header/Content-Type", FUN(() ,
+    (ASSERT_EQ(AT_K(AT_K(resp_list_dir_slash, "headers", DICT()), "Content-Type", "<missing>"), "text/html; charset=utf-8"));
+    TRUE));
+TEST("handle/list_dir_slash/header/Content-Length", FUN(() ,
+    (ASSERT_EQ(AT_K(AT_K(resp_list_dir_slash, "headers", DICT()), "Content-Length", "<missing>"), "62"));
+    TRUE));
+TEST("handle/list_dir_slash/header/Cache-Control", FUN(() ,
+    (ASSERT_EQ(AT_K(AT_K(resp_list_dir_slash, "headers", DICT()), "Cache-Control", "<missing>"), "max-age=300, must-revalidate"));
+    TRUE));
+TEST("handle/list_dir_slash/header/X-Content-Type-Options", FUN(() ,
+    (ASSERT_EQ(AT_K(AT_K(resp_list_dir_slash, "headers", DICT()), "X-Content-Type-Options", "<missing>"), "nosniff"));
+    TRUE));
+TEST("handle/list_dir_slash/header/X-Frame-Options", FUN(() ,
+    (ASSERT_EQ(AT_K(AT_K(resp_list_dir_slash, "headers", DICT()), "X-Frame-Options", "<missing>"), "DENY"));
+    TRUE));
+TEST("handle/list_dir_slash/header/Referrer-Policy", FUN(() ,
+    (ASSERT_EQ(AT_K(AT_K(resp_list_dir_slash, "headers", DICT()), "Referrer-Policy", "<missing>"), "no-referrer"));
+    TRUE));
+TEST("handle/list_dir_slash/header/Cross-Origin-Opener-Policy", FUN(() ,
+    (ASSERT_EQ(AT_K(AT_K(resp_list_dir_slash, "headers", DICT()), "Cross-Origin-Opener-Policy", "<missing>"), "same-origin"));
+    TRUE));
+TEST("handle/list_dir_slash/header/Permissions-Policy", FUN(() ,
+    (ASSERT_EQ(AT_K(AT_K(resp_list_dir_slash, "headers", DICT()), "Permissions-Policy", "<missing>"), "accelerometer=(), camera=(), geolocation=(), gyroscope=(), magnetometer=(), microphone=(), payment=(), usb=()"));
+    TRUE));
+TEST("handle/list_dir_slash/body", FUN(() ,
+    (ASSERT_EQ(AT_K(resp_list_dir_slash, "body", "<missing>"), "<!doctype html>\n<html><body><ul><li>2</li></ul></body></html>\n"));
+    TRUE));
+
+// list_dir_noslash
+TEST("handle/list_dir_noslash/status", FUN(() ,
+    (ASSERT_EQ(AT_K(resp_list_dir_noslash, "status", -1), 200));
+    TRUE));
+TEST("handle/list_dir_noslash/header_order", FUN(() ,
+    (ASSERT_EQ(JOIN(KEYS(AT_K(resp_list_dir_noslash, "headers", DICT())), "|"), "Content-Type|Content-Length|Cache-Control|X-Content-Type-Options|X-Frame-Options|Referrer-Policy|Cross-Origin-Opener-Policy|Permissions-Policy"));
+    TRUE));
+TEST("handle/list_dir_noslash/header/Content-Type", FUN(() ,
+    (ASSERT_EQ(AT_K(AT_K(resp_list_dir_noslash, "headers", DICT()), "Content-Type", "<missing>"), "text/html; charset=utf-8"));
+    TRUE));
+TEST("handle/list_dir_noslash/header/Content-Length", FUN(() ,
+    (ASSERT_EQ(AT_K(AT_K(resp_list_dir_noslash, "headers", DICT()), "Content-Length", "<missing>"), "62"));
+    TRUE));
+TEST("handle/list_dir_noslash/header/Cache-Control", FUN(() ,
+    (ASSERT_EQ(AT_K(AT_K(resp_list_dir_noslash, "headers", DICT()), "Cache-Control", "<missing>"), "max-age=300, must-revalidate"));
+    TRUE));
+TEST("handle/list_dir_noslash/header/X-Content-Type-Options", FUN(() ,
+    (ASSERT_EQ(AT_K(AT_K(resp_list_dir_noslash, "headers", DICT()), "X-Content-Type-Options", "<missing>"), "nosniff"));
+    TRUE));
+TEST("handle/list_dir_noslash/header/X-Frame-Options", FUN(() ,
+    (ASSERT_EQ(AT_K(AT_K(resp_list_dir_noslash, "headers", DICT()), "X-Frame-Options", "<missing>"), "DENY"));
+    TRUE));
+TEST("handle/list_dir_noslash/header/Referrer-Policy", FUN(() ,
+    (ASSERT_EQ(AT_K(AT_K(resp_list_dir_noslash, "headers", DICT()), "Referrer-Policy", "<missing>"), "no-referrer"));
+    TRUE));
+TEST("handle/list_dir_noslash/header/Cross-Origin-Opener-Policy", FUN(() ,
+    (ASSERT_EQ(AT_K(AT_K(resp_list_dir_noslash, "headers", DICT()), "Cross-Origin-Opener-Policy", "<missing>"), "same-origin"));
+    TRUE));
+TEST("handle/list_dir_noslash/header/Permissions-Policy", FUN(() ,
+    (ASSERT_EQ(AT_K(AT_K(resp_list_dir_noslash, "headers", DICT()), "Permissions-Policy", "<missing>"), "accelerometer=(), camera=(), geolocation=(), gyroscope=(), magnetometer=(), microphone=(), payment=(), usb=()"));
+    TRUE));
+TEST("handle/list_dir_noslash/body", FUN(() ,
+    (ASSERT_EQ(AT_K(resp_list_dir_noslash, "body", "<missing>"), "<!doctype html>\n<html><body><ul><li>2</li></ul></body></html>\n"));
+    TRUE));
+
+// percent_cjk
+TEST("handle/percent_cjk/status", FUN(() ,
+    (ASSERT_EQ(AT_K(resp_percent_cjk, "status", -1), 200));
+    TRUE));
+TEST("handle/percent_cjk/header_order", FUN(() ,
+    (ASSERT_EQ(JOIN(KEYS(AT_K(resp_percent_cjk, "headers", DICT())), "|"), "Content-Type|Content-Length|Cache-Control|X-Content-Type-Options|X-Frame-Options|Referrer-Policy|Cross-Origin-Opener-Policy|Permissions-Policy"));
+    TRUE));
+TEST("handle/percent_cjk/header/Content-Type", FUN(() ,
+    (ASSERT_EQ(AT_K(AT_K(resp_percent_cjk, "headers", DICT()), "Content-Type", "<missing>"), "text/html; charset=utf-8"));
+    TRUE));
+TEST("handle/percent_cjk/header/Content-Length", FUN(() ,
+    (ASSERT_EQ(AT_K(AT_K(resp_percent_cjk, "headers", DICT()), "Content-Length", "<missing>"), "68"));
+    TRUE));
+TEST("handle/percent_cjk/header/Cache-Control", FUN(() ,
+    (ASSERT_EQ(AT_K(AT_K(resp_percent_cjk, "headers", DICT()), "Cache-Control", "<missing>"), "max-age=300, must-revalidate"));
+    TRUE));
+TEST("handle/percent_cjk/header/X-Content-Type-Options", FUN(() ,
+    (ASSERT_EQ(AT_K(AT_K(resp_percent_cjk, "headers", DICT()), "X-Content-Type-Options", "<missing>"), "nosniff"));
+    TRUE));
+TEST("handle/percent_cjk/header/X-Frame-Options", FUN(() ,
+    (ASSERT_EQ(AT_K(AT_K(resp_percent_cjk, "headers", DICT()), "X-Frame-Options", "<missing>"), "DENY"));
+    TRUE));
+TEST("handle/percent_cjk/header/Referrer-Policy", FUN(() ,
+    (ASSERT_EQ(AT_K(AT_K(resp_percent_cjk, "headers", DICT()), "Referrer-Policy", "<missing>"), "no-referrer"));
+    TRUE));
+TEST("handle/percent_cjk/header/Cross-Origin-Opener-Policy", FUN(() ,
+    (ASSERT_EQ(AT_K(AT_K(resp_percent_cjk, "headers", DICT()), "Cross-Origin-Opener-Policy", "<missing>"), "same-origin"));
+    TRUE));
+TEST("handle/percent_cjk/header/Permissions-Policy", FUN(() ,
+    (ASSERT_EQ(AT_K(AT_K(resp_percent_cjk, "headers", DICT()), "Permissions-Policy", "<missing>"), "accelerometer=(), camera=(), geolocation=(), gyroscope=(), magnetometer=(), microphone=(), payment=(), usb=()"));
+    TRUE));
+TEST("handle/percent_cjk/body", FUN(() ,
+    (ASSERT_EQ(AT_K(resp_percent_cjk, "body", "<missing>"), "<!doctype html>\n<html><body><article>中文</article></body></html>\n"));
+    TRUE));
+
+// css_long_cache
+TEST("handle/css_long_cache/status", FUN(() ,
+    (ASSERT_EQ(AT_K(resp_css_long_cache, "status", -1), 200));
+    TRUE));
+TEST("handle/css_long_cache/header_order", FUN(() ,
+    (ASSERT_EQ(JOIN(KEYS(AT_K(resp_css_long_cache, "headers", DICT())), "|"), "Content-Type|Content-Length|Cache-Control|X-Content-Type-Options|X-Frame-Options|Referrer-Policy|Cross-Origin-Opener-Policy|Permissions-Policy"));
+    TRUE));
+TEST("handle/css_long_cache/header/Content-Type", FUN(() ,
+    (ASSERT_EQ(AT_K(AT_K(resp_css_long_cache, "headers", DICT()), "Content-Type", "<missing>"), "text/css; charset=utf-8"));
+    TRUE));
+TEST("handle/css_long_cache/header/Content-Length", FUN(() ,
+    (ASSERT_EQ(AT_K(AT_K(resp_css_long_cache, "headers", DICT()), "Content-Length", "<missing>"), "15"));
+    TRUE));
+TEST("handle/css_long_cache/header/Cache-Control", FUN(() ,
+    (ASSERT_EQ(AT_K(AT_K(resp_css_long_cache, "headers", DICT()), "Cache-Control", "<missing>"), "public, max-age=31536000, immutable"));
+    TRUE));
+TEST("handle/css_long_cache/header/X-Content-Type-Options", FUN(() ,
+    (ASSERT_EQ(AT_K(AT_K(resp_css_long_cache, "headers", DICT()), "X-Content-Type-Options", "<missing>"), "nosniff"));
+    TRUE));
+TEST("handle/css_long_cache/header/X-Frame-Options", FUN(() ,
+    (ASSERT_EQ(AT_K(AT_K(resp_css_long_cache, "headers", DICT()), "X-Frame-Options", "<missing>"), "DENY"));
+    TRUE));
+TEST("handle/css_long_cache/header/Referrer-Policy", FUN(() ,
+    (ASSERT_EQ(AT_K(AT_K(resp_css_long_cache, "headers", DICT()), "Referrer-Policy", "<missing>"), "no-referrer"));
+    TRUE));
+TEST("handle/css_long_cache/header/Cross-Origin-Opener-Policy", FUN(() ,
+    (ASSERT_EQ(AT_K(AT_K(resp_css_long_cache, "headers", DICT()), "Cross-Origin-Opener-Policy", "<missing>"), "same-origin"));
+    TRUE));
+TEST("handle/css_long_cache/header/Permissions-Policy", FUN(() ,
+    (ASSERT_EQ(AT_K(AT_K(resp_css_long_cache, "headers", DICT()), "Permissions-Policy", "<missing>"), "accelerometer=(), camera=(), geolocation=(), gyroscope=(), magnetometer=(), microphone=(), payment=(), usb=()"));
+    TRUE));
+TEST("handle/css_long_cache/body", FUN(() ,
+    (ASSERT_EQ(AT_K(resp_css_long_cache, "body", "<missing>"), "body{margin:0}\n"));
+    TRUE));
+
+// woff2_long_cache
+TEST("handle/woff2_long_cache/status", FUN(() ,
+    (ASSERT_EQ(AT_K(resp_woff2_long_cache, "status", -1), 200));
+    TRUE));
+TEST("handle/woff2_long_cache/header_order", FUN(() ,
+    (ASSERT_EQ(JOIN(KEYS(AT_K(resp_woff2_long_cache, "headers", DICT())), "|"), "Content-Type|Content-Length|Cache-Control|X-Content-Type-Options|X-Frame-Options|Referrer-Policy|Cross-Origin-Opener-Policy|Permissions-Policy"));
+    TRUE));
+TEST("handle/woff2_long_cache/header/Content-Type", FUN(() ,
+    (ASSERT_EQ(AT_K(AT_K(resp_woff2_long_cache, "headers", DICT()), "Content-Type", "<missing>"), "font/woff2"));
+    TRUE));
+TEST("handle/woff2_long_cache/header/Content-Length", FUN(() ,
+    (ASSERT_EQ(AT_K(AT_K(resp_woff2_long_cache, "headers", DICT()), "Content-Length", "<missing>"), "31"));
+    TRUE));
+TEST("handle/woff2_long_cache/header/Cache-Control", FUN(() ,
+    (ASSERT_EQ(AT_K(AT_K(resp_woff2_long_cache, "headers", DICT()), "Cache-Control", "<missing>"), "public, max-age=31536000, immutable"));
+    TRUE));
+TEST("handle/woff2_long_cache/header/X-Content-Type-Options", FUN(() ,
+    (ASSERT_EQ(AT_K(AT_K(resp_woff2_long_cache, "headers", DICT()), "X-Content-Type-Options", "<missing>"), "nosniff"));
+    TRUE));
+TEST("handle/woff2_long_cache/header/X-Frame-Options", FUN(() ,
+    (ASSERT_EQ(AT_K(AT_K(resp_woff2_long_cache, "headers", DICT()), "X-Frame-Options", "<missing>"), "DENY"));
+    TRUE));
+TEST("handle/woff2_long_cache/header/Referrer-Policy", FUN(() ,
+    (ASSERT_EQ(AT_K(AT_K(resp_woff2_long_cache, "headers", DICT()), "Referrer-Policy", "<missing>"), "no-referrer"));
+    TRUE));
+TEST("handle/woff2_long_cache/header/Cross-Origin-Opener-Policy", FUN(() ,
+    (ASSERT_EQ(AT_K(AT_K(resp_woff2_long_cache, "headers", DICT()), "Cross-Origin-Opener-Policy", "<missing>"), "same-origin"));
+    TRUE));
+TEST("handle/woff2_long_cache/header/Permissions-Policy", FUN(() ,
+    (ASSERT_EQ(AT_K(AT_K(resp_woff2_long_cache, "headers", DICT()), "Permissions-Policy", "<missing>"), "accelerometer=(), camera=(), geolocation=(), gyroscope=(), magnetometer=(), microphone=(), payment=(), usb=()"));
+    TRUE));
+TEST("handle/woff2_long_cache/body", FUN(() ,
+    (ASSERT_EQ(AT_K(resp_woff2_long_cache, "body", "<missing>"), "wOF2 fake font bytes for tests\n"));
+    TRUE));
+
+// woff_long_cache
+TEST("handle/woff_long_cache/status", FUN(() ,
+    (ASSERT_EQ(AT_K(resp_woff_long_cache, "status", -1), 200));
+    TRUE));
+TEST("handle/woff_long_cache/header_order", FUN(() ,
+    (ASSERT_EQ(JOIN(KEYS(AT_K(resp_woff_long_cache, "headers", DICT())), "|"), "Content-Type|Content-Length|Cache-Control|X-Content-Type-Options|X-Frame-Options|Referrer-Policy|Cross-Origin-Opener-Policy|Permissions-Policy"));
+    TRUE));
+TEST("handle/woff_long_cache/header/Content-Type", FUN(() ,
+    (ASSERT_EQ(AT_K(AT_K(resp_woff_long_cache, "headers", DICT()), "Content-Type", "<missing>"), "font/woff"));
+    TRUE));
+TEST("handle/woff_long_cache/header/Content-Length", FUN(() ,
+    (ASSERT_EQ(AT_K(AT_K(resp_woff_long_cache, "headers", DICT()), "Content-Length", "<missing>"), "31"));
+    TRUE));
+TEST("handle/woff_long_cache/header/Cache-Control", FUN(() ,
+    (ASSERT_EQ(AT_K(AT_K(resp_woff_long_cache, "headers", DICT()), "Cache-Control", "<missing>"), "public, max-age=31536000, immutable"));
+    TRUE));
+TEST("handle/woff_long_cache/header/X-Content-Type-Options", FUN(() ,
+    (ASSERT_EQ(AT_K(AT_K(resp_woff_long_cache, "headers", DICT()), "X-Content-Type-Options", "<missing>"), "nosniff"));
+    TRUE));
+TEST("handle/woff_long_cache/header/X-Frame-Options", FUN(() ,
+    (ASSERT_EQ(AT_K(AT_K(resp_woff_long_cache, "headers", DICT()), "X-Frame-Options", "<missing>"), "DENY"));
+    TRUE));
+TEST("handle/woff_long_cache/header/Referrer-Policy", FUN(() ,
+    (ASSERT_EQ(AT_K(AT_K(resp_woff_long_cache, "headers", DICT()), "Referrer-Policy", "<missing>"), "no-referrer"));
+    TRUE));
+TEST("handle/woff_long_cache/header/Cross-Origin-Opener-Policy", FUN(() ,
+    (ASSERT_EQ(AT_K(AT_K(resp_woff_long_cache, "headers", DICT()), "Cross-Origin-Opener-Policy", "<missing>"), "same-origin"));
+    TRUE));
+TEST("handle/woff_long_cache/header/Permissions-Policy", FUN(() ,
+    (ASSERT_EQ(AT_K(AT_K(resp_woff_long_cache, "headers", DICT()), "Permissions-Policy", "<missing>"), "accelerometer=(), camera=(), geolocation=(), gyroscope=(), magnetometer=(), microphone=(), payment=(), usb=()"));
+    TRUE));
+TEST("handle/woff_long_cache/body", FUN(() ,
+    (ASSERT_EQ(AT_K(resp_woff_long_cache, "body", "<missing>"), "wOFF fake font bytes for tests\n"));
+    TRUE));
+
+// js_long_cache
+TEST("handle/js_long_cache/status", FUN(() ,
+    (ASSERT_EQ(AT_K(resp_js_long_cache, "status", -1), 200));
+    TRUE));
+TEST("handle/js_long_cache/header_order", FUN(() ,
+    (ASSERT_EQ(JOIN(KEYS(AT_K(resp_js_long_cache, "headers", DICT())), "|"), "Content-Type|Content-Length|Cache-Control|X-Content-Type-Options|X-Frame-Options|Referrer-Policy|Cross-Origin-Opener-Policy|Permissions-Policy"));
+    TRUE));
+TEST("handle/js_long_cache/header/Content-Type", FUN(() ,
+    (ASSERT_EQ(AT_K(AT_K(resp_js_long_cache, "headers", DICT()), "Content-Type", "<missing>"), "application/javascript"));
+    TRUE));
+TEST("handle/js_long_cache/header/Content-Length", FUN(() ,
+    (ASSERT_EQ(AT_K(AT_K(resp_js_long_cache, "headers", DICT()), "Content-Length", "<missing>"), "19"));
+    TRUE));
+TEST("handle/js_long_cache/header/Cache-Control", FUN(() ,
+    (ASSERT_EQ(AT_K(AT_K(resp_js_long_cache, "headers", DICT()), "Cache-Control", "<missing>"), "public, max-age=31536000, immutable"));
+    TRUE));
+TEST("handle/js_long_cache/header/X-Content-Type-Options", FUN(() ,
+    (ASSERT_EQ(AT_K(AT_K(resp_js_long_cache, "headers", DICT()), "X-Content-Type-Options", "<missing>"), "nosniff"));
+    TRUE));
+TEST("handle/js_long_cache/header/X-Frame-Options", FUN(() ,
+    (ASSERT_EQ(AT_K(AT_K(resp_js_long_cache, "headers", DICT()), "X-Frame-Options", "<missing>"), "DENY"));
+    TRUE));
+TEST("handle/js_long_cache/header/Referrer-Policy", FUN(() ,
+    (ASSERT_EQ(AT_K(AT_K(resp_js_long_cache, "headers", DICT()), "Referrer-Policy", "<missing>"), "no-referrer"));
+    TRUE));
+TEST("handle/js_long_cache/header/Cross-Origin-Opener-Policy", FUN(() ,
+    (ASSERT_EQ(AT_K(AT_K(resp_js_long_cache, "headers", DICT()), "Cross-Origin-Opener-Policy", "<missing>"), "same-origin"));
+    TRUE));
+TEST("handle/js_long_cache/header/Permissions-Policy", FUN(() ,
+    (ASSERT_EQ(AT_K(AT_K(resp_js_long_cache, "headers", DICT()), "Permissions-Policy", "<missing>"), "accelerometer=(), camera=(), geolocation=(), gyroscope=(), magnetometer=(), microphone=(), payment=(), usb=()"));
+    TRUE));
+TEST("handle/js_long_cache/body", FUN(() ,
+    (ASSERT_EQ(AT_K(resp_js_long_cache, "body", "<missing>"), "console.log(\"hi\");\n"));
+    TRUE));
+
+// multibyte_length
+TEST("handle/multibyte_length/status", FUN(() ,
+    (ASSERT_EQ(AT_K(resp_multibyte_length, "status", -1), 200));
+    TRUE));
+TEST("handle/multibyte_length/header_order", FUN(() ,
+    (ASSERT_EQ(JOIN(KEYS(AT_K(resp_multibyte_length, "headers", DICT())), "|"), "Content-Type|Content-Length|Cache-Control|X-Content-Type-Options|X-Frame-Options|Referrer-Policy|Cross-Origin-Opener-Policy|Permissions-Policy"));
+    TRUE));
+TEST("handle/multibyte_length/header/Content-Type", FUN(() ,
+    (ASSERT_EQ(AT_K(AT_K(resp_multibyte_length, "headers", DICT()), "Content-Type", "<missing>"), "text/plain; charset=utf-8"));
+    TRUE));
+TEST("handle/multibyte_length/header/Content-Length", FUN(() ,
+    (ASSERT_EQ(AT_K(AT_K(resp_multibyte_length, "headers", DICT()), "Content-Length", "<missing>"), "13"));
+    TRUE));
+TEST("handle/multibyte_length/header/Cache-Control", FUN(() ,
+    (ASSERT_EQ(AT_K(AT_K(resp_multibyte_length, "headers", DICT()), "Cache-Control", "<missing>"), "max-age=300, must-revalidate"));
+    TRUE));
+TEST("handle/multibyte_length/header/X-Content-Type-Options", FUN(() ,
+    (ASSERT_EQ(AT_K(AT_K(resp_multibyte_length, "headers", DICT()), "X-Content-Type-Options", "<missing>"), "nosniff"));
+    TRUE));
+TEST("handle/multibyte_length/header/X-Frame-Options", FUN(() ,
+    (ASSERT_EQ(AT_K(AT_K(resp_multibyte_length, "headers", DICT()), "X-Frame-Options", "<missing>"), "DENY"));
+    TRUE));
+TEST("handle/multibyte_length/header/Referrer-Policy", FUN(() ,
+    (ASSERT_EQ(AT_K(AT_K(resp_multibyte_length, "headers", DICT()), "Referrer-Policy", "<missing>"), "no-referrer"));
+    TRUE));
+TEST("handle/multibyte_length/header/Cross-Origin-Opener-Policy", FUN(() ,
+    (ASSERT_EQ(AT_K(AT_K(resp_multibyte_length, "headers", DICT()), "Cross-Origin-Opener-Policy", "<missing>"), "same-origin"));
+    TRUE));
+TEST("handle/multibyte_length/header/Permissions-Policy", FUN(() ,
+    (ASSERT_EQ(AT_K(AT_K(resp_multibyte_length, "headers", DICT()), "Permissions-Policy", "<missing>"), "accelerometer=(), camera=(), geolocation=(), gyroscope=(), magnetometer=(), microphone=(), payment=(), usb=()"));
+    TRUE));
+TEST("handle/multibyte_length/body", FUN(() ,
+    (ASSERT_EQ(AT_K(resp_multibyte_length, "body", "<missing>"), "hello 中文\n"));
+    TRUE));
+
+// head_article
+TEST("handle/head_article/status", FUN(() ,
+    (ASSERT_EQ(AT_K(resp_head_article, "status", -1), 200));
+    TRUE));
+TEST("handle/head_article/header_order", FUN(() ,
+    (ASSERT_EQ(JOIN(KEYS(AT_K(resp_head_article, "headers", DICT())), "|"), "Content-Type|Content-Length|Cache-Control|X-Content-Type-Options|X-Frame-Options|Referrer-Policy|Cross-Origin-Opener-Policy|Permissions-Policy"));
+    TRUE));
+TEST("handle/head_article/header/Content-Type", FUN(() ,
+    (ASSERT_EQ(AT_K(AT_K(resp_head_article, "headers", DICT()), "Content-Type", "<missing>"), "text/html; charset=utf-8"));
+    TRUE));
+TEST("handle/head_article/header/Content-Length", FUN(() ,
+    (ASSERT_EQ(AT_K(AT_K(resp_head_article, "headers", DICT()), "Content-Length", "<missing>"), "63"));
+    TRUE));
+TEST("handle/head_article/header/Cache-Control", FUN(() ,
+    (ASSERT_EQ(AT_K(AT_K(resp_head_article, "headers", DICT()), "Cache-Control", "<missing>"), "max-age=300, must-revalidate"));
+    TRUE));
+TEST("handle/head_article/header/X-Content-Type-Options", FUN(() ,
+    (ASSERT_EQ(AT_K(AT_K(resp_head_article, "headers", DICT()), "X-Content-Type-Options", "<missing>"), "nosniff"));
+    TRUE));
+TEST("handle/head_article/header/X-Frame-Options", FUN(() ,
+    (ASSERT_EQ(AT_K(AT_K(resp_head_article, "headers", DICT()), "X-Frame-Options", "<missing>"), "DENY"));
+    TRUE));
+TEST("handle/head_article/header/Referrer-Policy", FUN(() ,
+    (ASSERT_EQ(AT_K(AT_K(resp_head_article, "headers", DICT()), "Referrer-Policy", "<missing>"), "no-referrer"));
+    TRUE));
+TEST("handle/head_article/header/Cross-Origin-Opener-Policy", FUN(() ,
+    (ASSERT_EQ(AT_K(AT_K(resp_head_article, "headers", DICT()), "Cross-Origin-Opener-Policy", "<missing>"), "same-origin"));
+    TRUE));
+TEST("handle/head_article/header/Permissions-Policy", FUN(() ,
+    (ASSERT_EQ(AT_K(AT_K(resp_head_article, "headers", DICT()), "Permissions-Policy", "<missing>"), "accelerometer=(), camera=(), geolocation=(), gyroscope=(), magnetometer=(), microphone=(), payment=(), usb=()"));
+    TRUE));
+TEST("handle/head_article/body", FUN(() ,
+    (ASSERT_EQ(AT_K(resp_head_article, "body", "<missing>"), ""));
+    TRUE));
+
+// query_opt_ignored
+TEST("handle/query_opt_ignored/status", FUN(() ,
+    (ASSERT_EQ(AT_K(resp_query_opt_ignored, "status", -1), 200));
+    TRUE));
+TEST("handle/query_opt_ignored/header_order", FUN(() ,
+    (ASSERT_EQ(JOIN(KEYS(AT_K(resp_query_opt_ignored, "headers", DICT())), "|"), "Content-Type|Content-Length|Cache-Control|X-Content-Type-Options|X-Frame-Options|Referrer-Policy|Cross-Origin-Opener-Policy|Permissions-Policy"));
+    TRUE));
+TEST("handle/query_opt_ignored/header/Content-Type", FUN(() ,
+    (ASSERT_EQ(AT_K(AT_K(resp_query_opt_ignored, "headers", DICT()), "Content-Type", "<missing>"), "text/html; charset=utf-8"));
+    TRUE));
+TEST("handle/query_opt_ignored/header/Content-Length", FUN(() ,
+    (ASSERT_EQ(AT_K(AT_K(resp_query_opt_ignored, "headers", DICT()), "Content-Length", "<missing>"), "63"));
+    TRUE));
+TEST("handle/query_opt_ignored/header/Cache-Control", FUN(() ,
+    (ASSERT_EQ(AT_K(AT_K(resp_query_opt_ignored, "headers", DICT()), "Cache-Control", "<missing>"), "max-age=300, must-revalidate"));
+    TRUE));
+TEST("handle/query_opt_ignored/header/X-Content-Type-Options", FUN(() ,
+    (ASSERT_EQ(AT_K(AT_K(resp_query_opt_ignored, "headers", DICT()), "X-Content-Type-Options", "<missing>"), "nosniff"));
+    TRUE));
+TEST("handle/query_opt_ignored/header/X-Frame-Options", FUN(() ,
+    (ASSERT_EQ(AT_K(AT_K(resp_query_opt_ignored, "headers", DICT()), "X-Frame-Options", "<missing>"), "DENY"));
+    TRUE));
+TEST("handle/query_opt_ignored/header/Referrer-Policy", FUN(() ,
+    (ASSERT_EQ(AT_K(AT_K(resp_query_opt_ignored, "headers", DICT()), "Referrer-Policy", "<missing>"), "no-referrer"));
+    TRUE));
+TEST("handle/query_opt_ignored/header/Cross-Origin-Opener-Policy", FUN(() ,
+    (ASSERT_EQ(AT_K(AT_K(resp_query_opt_ignored, "headers", DICT()), "Cross-Origin-Opener-Policy", "<missing>"), "same-origin"));
+    TRUE));
+TEST("handle/query_opt_ignored/header/Permissions-Policy", FUN(() ,
+    (ASSERT_EQ(AT_K(AT_K(resp_query_opt_ignored, "headers", DICT()), "Permissions-Policy", "<missing>"), "accelerometer=(), camera=(), geolocation=(), gyroscope=(), magnetometer=(), microphone=(), payment=(), usb=()"));
+    TRUE));
+TEST("handle/query_opt_ignored/body", FUN(() ,
+    (ASSERT_EQ(AT_K(resp_query_opt_ignored, "body", "<missing>"), "<!doctype html>\n<html><body><article>x</article></body></html>\n"));
+    TRUE));
+
+// path_with_query_string
+TEST("handle/path_with_query_string/status", FUN(() ,
+    (ASSERT_EQ(AT_K(resp_path_with_query_string, "status", -1), 200));
+    TRUE));
+TEST("handle/path_with_query_string/header_order", FUN(() ,
+    (ASSERT_EQ(JOIN(KEYS(AT_K(resp_path_with_query_string, "headers", DICT())), "|"), "Content-Type|Content-Length|Cache-Control|X-Content-Type-Options|X-Frame-Options|Referrer-Policy|Cross-Origin-Opener-Policy|Permissions-Policy"));
+    TRUE));
+TEST("handle/path_with_query_string/header/Content-Type", FUN(() ,
+    (ASSERT_EQ(AT_K(AT_K(resp_path_with_query_string, "headers", DICT()), "Content-Type", "<missing>"), "text/html; charset=utf-8"));
+    TRUE));
+TEST("handle/path_with_query_string/header/Content-Length", FUN(() ,
+    (ASSERT_EQ(AT_K(AT_K(resp_path_with_query_string, "headers", DICT()), "Content-Length", "<missing>"), "63"));
+    TRUE));
+TEST("handle/path_with_query_string/header/Cache-Control", FUN(() ,
+    (ASSERT_EQ(AT_K(AT_K(resp_path_with_query_string, "headers", DICT()), "Cache-Control", "<missing>"), "max-age=300, must-revalidate"));
+    TRUE));
+TEST("handle/path_with_query_string/header/X-Content-Type-Options", FUN(() ,
+    (ASSERT_EQ(AT_K(AT_K(resp_path_with_query_string, "headers", DICT()), "X-Content-Type-Options", "<missing>"), "nosniff"));
+    TRUE));
+TEST("handle/path_with_query_string/header/X-Frame-Options", FUN(() ,
+    (ASSERT_EQ(AT_K(AT_K(resp_path_with_query_string, "headers", DICT()), "X-Frame-Options", "<missing>"), "DENY"));
+    TRUE));
+TEST("handle/path_with_query_string/header/Referrer-Policy", FUN(() ,
+    (ASSERT_EQ(AT_K(AT_K(resp_path_with_query_string, "headers", DICT()), "Referrer-Policy", "<missing>"), "no-referrer"));
+    TRUE));
+TEST("handle/path_with_query_string/header/Cross-Origin-Opener-Policy", FUN(() ,
+    (ASSERT_EQ(AT_K(AT_K(resp_path_with_query_string, "headers", DICT()), "Cross-Origin-Opener-Policy", "<missing>"), "same-origin"));
+    TRUE));
+TEST("handle/path_with_query_string/header/Permissions-Policy", FUN(() ,
+    (ASSERT_EQ(AT_K(AT_K(resp_path_with_query_string, "headers", DICT()), "Permissions-Policy", "<missing>"), "accelerometer=(), camera=(), geolocation=(), gyroscope=(), magnetometer=(), microphone=(), payment=(), usb=()"));
+    TRUE));
+TEST("handle/path_with_query_string/body", FUN(() ,
+    (ASSERT_EQ(AT_K(resp_path_with_query_string, "body", "<missing>"), "<!doctype html>\n<html><body><article>x</article></body></html>\n"));
+    TRUE));
+
+// not_found
+TEST("handle/not_found/status", FUN(() ,
+    (ASSERT_EQ(AT_K(resp_not_found, "status", -1), 404));
+    TRUE));
+TEST("handle/not_found/header_order", FUN(() ,
+    (ASSERT_EQ(JOIN(KEYS(AT_K(resp_not_found, "headers", DICT())), "|"), "Content-Type|Content-Length|X-Content-Type-Options|X-Frame-Options|Referrer-Policy|Cross-Origin-Opener-Policy|Permissions-Policy"));
+    TRUE));
+TEST("handle/not_found/header/Content-Type", FUN(() ,
+    (ASSERT_EQ(AT_K(AT_K(resp_not_found, "headers", DICT()), "Content-Type", "<missing>"), "text/plain"));
+    TRUE));
+TEST("handle/not_found/header/Content-Length", FUN(() ,
+    (ASSERT_EQ(AT_K(AT_K(resp_not_found, "headers", DICT()), "Content-Length", "<missing>"), "9"));
+    TRUE));
+TEST("handle/not_found/header/X-Content-Type-Options", FUN(() ,
+    (ASSERT_EQ(AT_K(AT_K(resp_not_found, "headers", DICT()), "X-Content-Type-Options", "<missing>"), "nosniff"));
+    TRUE));
+TEST("handle/not_found/header/X-Frame-Options", FUN(() ,
+    (ASSERT_EQ(AT_K(AT_K(resp_not_found, "headers", DICT()), "X-Frame-Options", "<missing>"), "DENY"));
+    TRUE));
+TEST("handle/not_found/header/Referrer-Policy", FUN(() ,
+    (ASSERT_EQ(AT_K(AT_K(resp_not_found, "headers", DICT()), "Referrer-Policy", "<missing>"), "no-referrer"));
+    TRUE));
+TEST("handle/not_found/header/Cross-Origin-Opener-Policy", FUN(() ,
+    (ASSERT_EQ(AT_K(AT_K(resp_not_found, "headers", DICT()), "Cross-Origin-Opener-Policy", "<missing>"), "same-origin"));
+    TRUE));
+TEST("handle/not_found/header/Permissions-Policy", FUN(() ,
+    (ASSERT_EQ(AT_K(AT_K(resp_not_found, "headers", DICT()), "Permissions-Policy", "<missing>"), "accelerometer=(), camera=(), geolocation=(), gyroscope=(), magnetometer=(), microphone=(), payment=(), usb=()"));
+    TRUE));
+TEST("handle/not_found/body", FUN(() ,
+    (ASSERT_EQ(AT_K(resp_not_found, "body", "<missing>"), "Not found"));
+    TRUE));
+
+// not_found_dir
+TEST("handle/not_found_dir/status", FUN(() ,
+    (ASSERT_EQ(AT_K(resp_not_found_dir, "status", -1), 404));
+    TRUE));
+TEST("handle/not_found_dir/header_order", FUN(() ,
+    (ASSERT_EQ(JOIN(KEYS(AT_K(resp_not_found_dir, "headers", DICT())), "|"), "Content-Type|Content-Length|X-Content-Type-Options|X-Frame-Options|Referrer-Policy|Cross-Origin-Opener-Policy|Permissions-Policy"));
+    TRUE));
+TEST("handle/not_found_dir/header/Content-Type", FUN(() ,
+    (ASSERT_EQ(AT_K(AT_K(resp_not_found_dir, "headers", DICT()), "Content-Type", "<missing>"), "text/plain"));
+    TRUE));
+TEST("handle/not_found_dir/header/Content-Length", FUN(() ,
+    (ASSERT_EQ(AT_K(AT_K(resp_not_found_dir, "headers", DICT()), "Content-Length", "<missing>"), "9"));
+    TRUE));
+TEST("handle/not_found_dir/header/X-Content-Type-Options", FUN(() ,
+    (ASSERT_EQ(AT_K(AT_K(resp_not_found_dir, "headers", DICT()), "X-Content-Type-Options", "<missing>"), "nosniff"));
+    TRUE));
+TEST("handle/not_found_dir/header/X-Frame-Options", FUN(() ,
+    (ASSERT_EQ(AT_K(AT_K(resp_not_found_dir, "headers", DICT()), "X-Frame-Options", "<missing>"), "DENY"));
+    TRUE));
+TEST("handle/not_found_dir/header/Referrer-Policy", FUN(() ,
+    (ASSERT_EQ(AT_K(AT_K(resp_not_found_dir, "headers", DICT()), "Referrer-Policy", "<missing>"), "no-referrer"));
+    TRUE));
+TEST("handle/not_found_dir/header/Cross-Origin-Opener-Policy", FUN(() ,
+    (ASSERT_EQ(AT_K(AT_K(resp_not_found_dir, "headers", DICT()), "Cross-Origin-Opener-Policy", "<missing>"), "same-origin"));
+    TRUE));
+TEST("handle/not_found_dir/header/Permissions-Policy", FUN(() ,
+    (ASSERT_EQ(AT_K(AT_K(resp_not_found_dir, "headers", DICT()), "Permissions-Policy", "<missing>"), "accelerometer=(), camera=(), geolocation=(), gyroscope=(), magnetometer=(), microphone=(), payment=(), usb=()"));
+    TRUE));
+TEST("handle/not_found_dir/body", FUN(() ,
+    (ASSERT_EQ(AT_K(resp_not_found_dir, "body", "<missing>"), "Not found"));
+    TRUE));
+
+// empty_dir_no_index
+TEST("handle/empty_dir_no_index/status", FUN(() ,
+    (ASSERT_EQ(AT_K(resp_empty_dir_no_index, "status", -1), 404));
+    TRUE));
+TEST("handle/empty_dir_no_index/header_order", FUN(() ,
+    (ASSERT_EQ(JOIN(KEYS(AT_K(resp_empty_dir_no_index, "headers", DICT())), "|"), "Content-Type|Content-Length|X-Content-Type-Options|X-Frame-Options|Referrer-Policy|Cross-Origin-Opener-Policy|Permissions-Policy"));
+    TRUE));
+TEST("handle/empty_dir_no_index/header/Content-Type", FUN(() ,
+    (ASSERT_EQ(AT_K(AT_K(resp_empty_dir_no_index, "headers", DICT()), "Content-Type", "<missing>"), "text/plain"));
+    TRUE));
+TEST("handle/empty_dir_no_index/header/Content-Length", FUN(() ,
+    (ASSERT_EQ(AT_K(AT_K(resp_empty_dir_no_index, "headers", DICT()), "Content-Length", "<missing>"), "9"));
+    TRUE));
+TEST("handle/empty_dir_no_index/header/X-Content-Type-Options", FUN(() ,
+    (ASSERT_EQ(AT_K(AT_K(resp_empty_dir_no_index, "headers", DICT()), "X-Content-Type-Options", "<missing>"), "nosniff"));
+    TRUE));
+TEST("handle/empty_dir_no_index/header/X-Frame-Options", FUN(() ,
+    (ASSERT_EQ(AT_K(AT_K(resp_empty_dir_no_index, "headers", DICT()), "X-Frame-Options", "<missing>"), "DENY"));
+    TRUE));
+TEST("handle/empty_dir_no_index/header/Referrer-Policy", FUN(() ,
+    (ASSERT_EQ(AT_K(AT_K(resp_empty_dir_no_index, "headers", DICT()), "Referrer-Policy", "<missing>"), "no-referrer"));
+    TRUE));
+TEST("handle/empty_dir_no_index/header/Cross-Origin-Opener-Policy", FUN(() ,
+    (ASSERT_EQ(AT_K(AT_K(resp_empty_dir_no_index, "headers", DICT()), "Cross-Origin-Opener-Policy", "<missing>"), "same-origin"));
+    TRUE));
+TEST("handle/empty_dir_no_index/header/Permissions-Policy", FUN(() ,
+    (ASSERT_EQ(AT_K(AT_K(resp_empty_dir_no_index, "headers", DICT()), "Permissions-Policy", "<missing>"), "accelerometer=(), camera=(), geolocation=(), gyroscope=(), magnetometer=(), microphone=(), payment=(), usb=()"));
+    TRUE));
+TEST("handle/empty_dir_no_index/body", FUN(() ,
+    (ASSERT_EQ(AT_K(resp_empty_dir_no_index, "body", "<missing>"), "Not found"));
+    TRUE));
+
+// hidden_git_config
+TEST("handle/hidden_git_config/status", FUN(() ,
+    (ASSERT_EQ(AT_K(resp_hidden_git_config, "status", -1), 404));
+    TRUE));
+TEST("handle/hidden_git_config/header_order", FUN(() ,
+    (ASSERT_EQ(JOIN(KEYS(AT_K(resp_hidden_git_config, "headers", DICT())), "|"), "Content-Type|Content-Length|X-Content-Type-Options|X-Frame-Options|Referrer-Policy|Cross-Origin-Opener-Policy|Permissions-Policy"));
+    TRUE));
+TEST("handle/hidden_git_config/header/Content-Type", FUN(() ,
+    (ASSERT_EQ(AT_K(AT_K(resp_hidden_git_config, "headers", DICT()), "Content-Type", "<missing>"), "text/plain"));
+    TRUE));
+TEST("handle/hidden_git_config/header/Content-Length", FUN(() ,
+    (ASSERT_EQ(AT_K(AT_K(resp_hidden_git_config, "headers", DICT()), "Content-Length", "<missing>"), "9"));
+    TRUE));
+TEST("handle/hidden_git_config/header/X-Content-Type-Options", FUN(() ,
+    (ASSERT_EQ(AT_K(AT_K(resp_hidden_git_config, "headers", DICT()), "X-Content-Type-Options", "<missing>"), "nosniff"));
+    TRUE));
+TEST("handle/hidden_git_config/header/X-Frame-Options", FUN(() ,
+    (ASSERT_EQ(AT_K(AT_K(resp_hidden_git_config, "headers", DICT()), "X-Frame-Options", "<missing>"), "DENY"));
+    TRUE));
+TEST("handle/hidden_git_config/header/Referrer-Policy", FUN(() ,
+    (ASSERT_EQ(AT_K(AT_K(resp_hidden_git_config, "headers", DICT()), "Referrer-Policy", "<missing>"), "no-referrer"));
+    TRUE));
+TEST("handle/hidden_git_config/header/Cross-Origin-Opener-Policy", FUN(() ,
+    (ASSERT_EQ(AT_K(AT_K(resp_hidden_git_config, "headers", DICT()), "Cross-Origin-Opener-Policy", "<missing>"), "same-origin"));
+    TRUE));
+TEST("handle/hidden_git_config/header/Permissions-Policy", FUN(() ,
+    (ASSERT_EQ(AT_K(AT_K(resp_hidden_git_config, "headers", DICT()), "Permissions-Policy", "<missing>"), "accelerometer=(), camera=(), geolocation=(), gyroscope=(), magnetometer=(), microphone=(), payment=(), usb=()"));
+    TRUE));
+TEST("handle/hidden_git_config/body", FUN(() ,
+    (ASSERT_EQ(AT_K(resp_hidden_git_config, "body", "<missing>"), "Not found"));
+    TRUE));
+
+// hidden_dir_slash
+TEST("handle/hidden_dir_slash/status", FUN(() ,
+    (ASSERT_EQ(AT_K(resp_hidden_dir_slash, "status", -1), 404));
+    TRUE));
+TEST("handle/hidden_dir_slash/header_order", FUN(() ,
+    (ASSERT_EQ(JOIN(KEYS(AT_K(resp_hidden_dir_slash, "headers", DICT())), "|"), "Content-Type|Content-Length|X-Content-Type-Options|X-Frame-Options|Referrer-Policy|Cross-Origin-Opener-Policy|Permissions-Policy"));
+    TRUE));
+TEST("handle/hidden_dir_slash/header/Content-Type", FUN(() ,
+    (ASSERT_EQ(AT_K(AT_K(resp_hidden_dir_slash, "headers", DICT()), "Content-Type", "<missing>"), "text/plain"));
+    TRUE));
+TEST("handle/hidden_dir_slash/header/Content-Length", FUN(() ,
+    (ASSERT_EQ(AT_K(AT_K(resp_hidden_dir_slash, "headers", DICT()), "Content-Length", "<missing>"), "9"));
+    TRUE));
+TEST("handle/hidden_dir_slash/header/X-Content-Type-Options", FUN(() ,
+    (ASSERT_EQ(AT_K(AT_K(resp_hidden_dir_slash, "headers", DICT()), "X-Content-Type-Options", "<missing>"), "nosniff"));
+    TRUE));
+TEST("handle/hidden_dir_slash/header/X-Frame-Options", FUN(() ,
+    (ASSERT_EQ(AT_K(AT_K(resp_hidden_dir_slash, "headers", DICT()), "X-Frame-Options", "<missing>"), "DENY"));
+    TRUE));
+TEST("handle/hidden_dir_slash/header/Referrer-Policy", FUN(() ,
+    (ASSERT_EQ(AT_K(AT_K(resp_hidden_dir_slash, "headers", DICT()), "Referrer-Policy", "<missing>"), "no-referrer"));
+    TRUE));
+TEST("handle/hidden_dir_slash/header/Cross-Origin-Opener-Policy", FUN(() ,
+    (ASSERT_EQ(AT_K(AT_K(resp_hidden_dir_slash, "headers", DICT()), "Cross-Origin-Opener-Policy", "<missing>"), "same-origin"));
+    TRUE));
+TEST("handle/hidden_dir_slash/header/Permissions-Policy", FUN(() ,
+    (ASSERT_EQ(AT_K(AT_K(resp_hidden_dir_slash, "headers", DICT()), "Permissions-Policy", "<missing>"), "accelerometer=(), camera=(), geolocation=(), gyroscope=(), magnetometer=(), microphone=(), payment=(), usb=()"));
+    TRUE));
+TEST("handle/hidden_dir_slash/body", FUN(() ,
+    (ASSERT_EQ(AT_K(resp_hidden_dir_slash, "body", "<missing>"), "Not found"));
+    TRUE));
+
+// traversal_plain
+TEST("handle/traversal_plain/status", FUN(() ,
+    (ASSERT_EQ(AT_K(resp_traversal_plain, "status", -1), 404));
+    TRUE));
+TEST("handle/traversal_plain/header_order", FUN(() ,
+    (ASSERT_EQ(JOIN(KEYS(AT_K(resp_traversal_plain, "headers", DICT())), "|"), "Content-Type|Content-Length|X-Content-Type-Options|X-Frame-Options|Referrer-Policy|Cross-Origin-Opener-Policy|Permissions-Policy"));
+    TRUE));
+TEST("handle/traversal_plain/header/Content-Type", FUN(() ,
+    (ASSERT_EQ(AT_K(AT_K(resp_traversal_plain, "headers", DICT()), "Content-Type", "<missing>"), "text/plain"));
+    TRUE));
+TEST("handle/traversal_plain/header/Content-Length", FUN(() ,
+    (ASSERT_EQ(AT_K(AT_K(resp_traversal_plain, "headers", DICT()), "Content-Length", "<missing>"), "9"));
+    TRUE));
+TEST("handle/traversal_plain/header/X-Content-Type-Options", FUN(() ,
+    (ASSERT_EQ(AT_K(AT_K(resp_traversal_plain, "headers", DICT()), "X-Content-Type-Options", "<missing>"), "nosniff"));
+    TRUE));
+TEST("handle/traversal_plain/header/X-Frame-Options", FUN(() ,
+    (ASSERT_EQ(AT_K(AT_K(resp_traversal_plain, "headers", DICT()), "X-Frame-Options", "<missing>"), "DENY"));
+    TRUE));
+TEST("handle/traversal_plain/header/Referrer-Policy", FUN(() ,
+    (ASSERT_EQ(AT_K(AT_K(resp_traversal_plain, "headers", DICT()), "Referrer-Policy", "<missing>"), "no-referrer"));
+    TRUE));
+TEST("handle/traversal_plain/header/Cross-Origin-Opener-Policy", FUN(() ,
+    (ASSERT_EQ(AT_K(AT_K(resp_traversal_plain, "headers", DICT()), "Cross-Origin-Opener-Policy", "<missing>"), "same-origin"));
+    TRUE));
+TEST("handle/traversal_plain/header/Permissions-Policy", FUN(() ,
+    (ASSERT_EQ(AT_K(AT_K(resp_traversal_plain, "headers", DICT()), "Permissions-Policy", "<missing>"), "accelerometer=(), camera=(), geolocation=(), gyroscope=(), magnetometer=(), microphone=(), payment=(), usb=()"));
+    TRUE));
+TEST("handle/traversal_plain/body", FUN(() ,
+    (ASSERT_EQ(AT_K(resp_traversal_plain, "body", "<missing>"), "Not found"));
+    TRUE));
+
+// traversal_nested
+TEST("handle/traversal_nested/status", FUN(() ,
+    (ASSERT_EQ(AT_K(resp_traversal_nested, "status", -1), 404));
+    TRUE));
+TEST("handle/traversal_nested/header_order", FUN(() ,
+    (ASSERT_EQ(JOIN(KEYS(AT_K(resp_traversal_nested, "headers", DICT())), "|"), "Content-Type|Content-Length|X-Content-Type-Options|X-Frame-Options|Referrer-Policy|Cross-Origin-Opener-Policy|Permissions-Policy"));
+    TRUE));
+TEST("handle/traversal_nested/header/Content-Type", FUN(() ,
+    (ASSERT_EQ(AT_K(AT_K(resp_traversal_nested, "headers", DICT()), "Content-Type", "<missing>"), "text/plain"));
+    TRUE));
+TEST("handle/traversal_nested/header/Content-Length", FUN(() ,
+    (ASSERT_EQ(AT_K(AT_K(resp_traversal_nested, "headers", DICT()), "Content-Length", "<missing>"), "9"));
+    TRUE));
+TEST("handle/traversal_nested/header/X-Content-Type-Options", FUN(() ,
+    (ASSERT_EQ(AT_K(AT_K(resp_traversal_nested, "headers", DICT()), "X-Content-Type-Options", "<missing>"), "nosniff"));
+    TRUE));
+TEST("handle/traversal_nested/header/X-Frame-Options", FUN(() ,
+    (ASSERT_EQ(AT_K(AT_K(resp_traversal_nested, "headers", DICT()), "X-Frame-Options", "<missing>"), "DENY"));
+    TRUE));
+TEST("handle/traversal_nested/header/Referrer-Policy", FUN(() ,
+    (ASSERT_EQ(AT_K(AT_K(resp_traversal_nested, "headers", DICT()), "Referrer-Policy", "<missing>"), "no-referrer"));
+    TRUE));
+TEST("handle/traversal_nested/header/Cross-Origin-Opener-Policy", FUN(() ,
+    (ASSERT_EQ(AT_K(AT_K(resp_traversal_nested, "headers", DICT()), "Cross-Origin-Opener-Policy", "<missing>"), "same-origin"));
+    TRUE));
+TEST("handle/traversal_nested/header/Permissions-Policy", FUN(() ,
+    (ASSERT_EQ(AT_K(AT_K(resp_traversal_nested, "headers", DICT()), "Permissions-Policy", "<missing>"), "accelerometer=(), camera=(), geolocation=(), gyroscope=(), magnetometer=(), microphone=(), payment=(), usb=()"));
+    TRUE));
+TEST("handle/traversal_nested/body", FUN(() ,
+    (ASSERT_EQ(AT_K(resp_traversal_nested, "body", "<missing>"), "Not found"));
+    TRUE));
+
+// traversal_encoded
+TEST("handle/traversal_encoded/status", FUN(() ,
+    (ASSERT_EQ(AT_K(resp_traversal_encoded, "status", -1), 404));
+    TRUE));
+TEST("handle/traversal_encoded/header_order", FUN(() ,
+    (ASSERT_EQ(JOIN(KEYS(AT_K(resp_traversal_encoded, "headers", DICT())), "|"), "Content-Type|Content-Length|X-Content-Type-Options|X-Frame-Options|Referrer-Policy|Cross-Origin-Opener-Policy|Permissions-Policy"));
+    TRUE));
+TEST("handle/traversal_encoded/header/Content-Type", FUN(() ,
+    (ASSERT_EQ(AT_K(AT_K(resp_traversal_encoded, "headers", DICT()), "Content-Type", "<missing>"), "text/plain"));
+    TRUE));
+TEST("handle/traversal_encoded/header/Content-Length", FUN(() ,
+    (ASSERT_EQ(AT_K(AT_K(resp_traversal_encoded, "headers", DICT()), "Content-Length", "<missing>"), "9"));
+    TRUE));
+TEST("handle/traversal_encoded/header/X-Content-Type-Options", FUN(() ,
+    (ASSERT_EQ(AT_K(AT_K(resp_traversal_encoded, "headers", DICT()), "X-Content-Type-Options", "<missing>"), "nosniff"));
+    TRUE));
+TEST("handle/traversal_encoded/header/X-Frame-Options", FUN(() ,
+    (ASSERT_EQ(AT_K(AT_K(resp_traversal_encoded, "headers", DICT()), "X-Frame-Options", "<missing>"), "DENY"));
+    TRUE));
+TEST("handle/traversal_encoded/header/Referrer-Policy", FUN(() ,
+    (ASSERT_EQ(AT_K(AT_K(resp_traversal_encoded, "headers", DICT()), "Referrer-Policy", "<missing>"), "no-referrer"));
+    TRUE));
+TEST("handle/traversal_encoded/header/Cross-Origin-Opener-Policy", FUN(() ,
+    (ASSERT_EQ(AT_K(AT_K(resp_traversal_encoded, "headers", DICT()), "Cross-Origin-Opener-Policy", "<missing>"), "same-origin"));
+    TRUE));
+TEST("handle/traversal_encoded/header/Permissions-Policy", FUN(() ,
+    (ASSERT_EQ(AT_K(AT_K(resp_traversal_encoded, "headers", DICT()), "Permissions-Policy", "<missing>"), "accelerometer=(), camera=(), geolocation=(), gyroscope=(), magnetometer=(), microphone=(), payment=(), usb=()"));
+    TRUE));
+TEST("handle/traversal_encoded/body", FUN(() ,
+    (ASSERT_EQ(AT_K(resp_traversal_encoded, "body", "<missing>"), "Not found"));
+    TRUE));
+
+// sensitive_admin_password
+TEST("handle/sensitive_admin_password/status", FUN(() ,
+    (ASSERT_EQ(AT_K(resp_sensitive_admin_password, "status", -1), 404));
+    TRUE));
+TEST("handle/sensitive_admin_password/header_order", FUN(() ,
+    (ASSERT_EQ(JOIN(KEYS(AT_K(resp_sensitive_admin_password, "headers", DICT())), "|"), "Content-Type|Content-Length|X-Content-Type-Options|X-Frame-Options|Referrer-Policy|Cross-Origin-Opener-Policy|Permissions-Policy"));
+    TRUE));
+TEST("handle/sensitive_admin_password/header/Content-Type", FUN(() ,
+    (ASSERT_EQ(AT_K(AT_K(resp_sensitive_admin_password, "headers", DICT()), "Content-Type", "<missing>"), "text/plain"));
+    TRUE));
+TEST("handle/sensitive_admin_password/header/Content-Length", FUN(() ,
+    (ASSERT_EQ(AT_K(AT_K(resp_sensitive_admin_password, "headers", DICT()), "Content-Length", "<missing>"), "9"));
+    TRUE));
+TEST("handle/sensitive_admin_password/header/X-Content-Type-Options", FUN(() ,
+    (ASSERT_EQ(AT_K(AT_K(resp_sensitive_admin_password, "headers", DICT()), "X-Content-Type-Options", "<missing>"), "nosniff"));
+    TRUE));
+TEST("handle/sensitive_admin_password/header/X-Frame-Options", FUN(() ,
+    (ASSERT_EQ(AT_K(AT_K(resp_sensitive_admin_password, "headers", DICT()), "X-Frame-Options", "<missing>"), "DENY"));
+    TRUE));
+TEST("handle/sensitive_admin_password/header/Referrer-Policy", FUN(() ,
+    (ASSERT_EQ(AT_K(AT_K(resp_sensitive_admin_password, "headers", DICT()), "Referrer-Policy", "<missing>"), "no-referrer"));
+    TRUE));
+TEST("handle/sensitive_admin_password/header/Cross-Origin-Opener-Policy", FUN(() ,
+    (ASSERT_EQ(AT_K(AT_K(resp_sensitive_admin_password, "headers", DICT()), "Cross-Origin-Opener-Policy", "<missing>"), "same-origin"));
+    TRUE));
+TEST("handle/sensitive_admin_password/header/Permissions-Policy", FUN(() ,
+    (ASSERT_EQ(AT_K(AT_K(resp_sensitive_admin_password, "headers", DICT()), "Permissions-Policy", "<missing>"), "accelerometer=(), camera=(), geolocation=(), gyroscope=(), magnetometer=(), microphone=(), payment=(), usb=()"));
+    TRUE));
+TEST("handle/sensitive_admin_password/body", FUN(() ,
+    (ASSERT_EQ(AT_K(resp_sensitive_admin_password, "body", "<missing>"), "Not found"));
+    TRUE));
+
+// sensitive_env_file
+TEST("handle/sensitive_env_file/status", FUN(() ,
+    (ASSERT_EQ(AT_K(resp_sensitive_env_file, "status", -1), 404));
+    TRUE));
+TEST("handle/sensitive_env_file/header_order", FUN(() ,
+    (ASSERT_EQ(JOIN(KEYS(AT_K(resp_sensitive_env_file, "headers", DICT())), "|"), "Content-Type|Content-Length|X-Content-Type-Options|X-Frame-Options|Referrer-Policy|Cross-Origin-Opener-Policy|Permissions-Policy"));
+    TRUE));
+TEST("handle/sensitive_env_file/header/Content-Type", FUN(() ,
+    (ASSERT_EQ(AT_K(AT_K(resp_sensitive_env_file, "headers", DICT()), "Content-Type", "<missing>"), "text/plain"));
+    TRUE));
+TEST("handle/sensitive_env_file/header/Content-Length", FUN(() ,
+    (ASSERT_EQ(AT_K(AT_K(resp_sensitive_env_file, "headers", DICT()), "Content-Length", "<missing>"), "9"));
+    TRUE));
+TEST("handle/sensitive_env_file/header/X-Content-Type-Options", FUN(() ,
+    (ASSERT_EQ(AT_K(AT_K(resp_sensitive_env_file, "headers", DICT()), "X-Content-Type-Options", "<missing>"), "nosniff"));
+    TRUE));
+TEST("handle/sensitive_env_file/header/X-Frame-Options", FUN(() ,
+    (ASSERT_EQ(AT_K(AT_K(resp_sensitive_env_file, "headers", DICT()), "X-Frame-Options", "<missing>"), "DENY"));
+    TRUE));
+TEST("handle/sensitive_env_file/header/Referrer-Policy", FUN(() ,
+    (ASSERT_EQ(AT_K(AT_K(resp_sensitive_env_file, "headers", DICT()), "Referrer-Policy", "<missing>"), "no-referrer"));
+    TRUE));
+TEST("handle/sensitive_env_file/header/Cross-Origin-Opener-Policy", FUN(() ,
+    (ASSERT_EQ(AT_K(AT_K(resp_sensitive_env_file, "headers", DICT()), "Cross-Origin-Opener-Policy", "<missing>"), "same-origin"));
+    TRUE));
+TEST("handle/sensitive_env_file/header/Permissions-Policy", FUN(() ,
+    (ASSERT_EQ(AT_K(AT_K(resp_sensitive_env_file, "headers", DICT()), "Permissions-Policy", "<missing>"), "accelerometer=(), camera=(), geolocation=(), gyroscope=(), magnetometer=(), microphone=(), payment=(), usb=()"));
+    TRUE));
+TEST("handle/sensitive_env_file/body", FUN(() ,
+    (ASSERT_EQ(AT_K(resp_sensitive_env_file, "body", "<missing>"), "Not found"));
+    TRUE));
+
+// sensitive_env_substring
+TEST("handle/sensitive_env_substring/status", FUN(() ,
+    (ASSERT_EQ(AT_K(resp_sensitive_env_substring, "status", -1), 404));
+    TRUE));
+TEST("handle/sensitive_env_substring/header_order", FUN(() ,
+    (ASSERT_EQ(JOIN(KEYS(AT_K(resp_sensitive_env_substring, "headers", DICT())), "|"), "Content-Type|Content-Length|X-Content-Type-Options|X-Frame-Options|Referrer-Policy|Cross-Origin-Opener-Policy|Permissions-Policy"));
+    TRUE));
+TEST("handle/sensitive_env_substring/header/Content-Type", FUN(() ,
+    (ASSERT_EQ(AT_K(AT_K(resp_sensitive_env_substring, "headers", DICT()), "Content-Type", "<missing>"), "text/plain"));
+    TRUE));
+TEST("handle/sensitive_env_substring/header/Content-Length", FUN(() ,
+    (ASSERT_EQ(AT_K(AT_K(resp_sensitive_env_substring, "headers", DICT()), "Content-Length", "<missing>"), "9"));
+    TRUE));
+TEST("handle/sensitive_env_substring/header/X-Content-Type-Options", FUN(() ,
+    (ASSERT_EQ(AT_K(AT_K(resp_sensitive_env_substring, "headers", DICT()), "X-Content-Type-Options", "<missing>"), "nosniff"));
+    TRUE));
+TEST("handle/sensitive_env_substring/header/X-Frame-Options", FUN(() ,
+    (ASSERT_EQ(AT_K(AT_K(resp_sensitive_env_substring, "headers", DICT()), "X-Frame-Options", "<missing>"), "DENY"));
+    TRUE));
+TEST("handle/sensitive_env_substring/header/Referrer-Policy", FUN(() ,
+    (ASSERT_EQ(AT_K(AT_K(resp_sensitive_env_substring, "headers", DICT()), "Referrer-Policy", "<missing>"), "no-referrer"));
+    TRUE));
+TEST("handle/sensitive_env_substring/header/Cross-Origin-Opener-Policy", FUN(() ,
+    (ASSERT_EQ(AT_K(AT_K(resp_sensitive_env_substring, "headers", DICT()), "Cross-Origin-Opener-Policy", "<missing>"), "same-origin"));
+    TRUE));
+TEST("handle/sensitive_env_substring/header/Permissions-Policy", FUN(() ,
+    (ASSERT_EQ(AT_K(AT_K(resp_sensitive_env_substring, "headers", DICT()), "Permissions-Policy", "<missing>"), "accelerometer=(), camera=(), geolocation=(), gyroscope=(), magnetometer=(), microphone=(), payment=(), usb=()"));
+    TRUE));
+TEST("handle/sensitive_env_substring/body", FUN(() ,
+    (ASSERT_EQ(AT_K(resp_sensitive_env_substring, "body", "<missing>"), "Not found"));
+    TRUE));
+
+// sensitive_git_substring
+TEST("handle/sensitive_git_substring/status", FUN(() ,
+    (ASSERT_EQ(AT_K(resp_sensitive_git_substring, "status", -1), 404));
+    TRUE));
+TEST("handle/sensitive_git_substring/header_order", FUN(() ,
+    (ASSERT_EQ(JOIN(KEYS(AT_K(resp_sensitive_git_substring, "headers", DICT())), "|"), "Content-Type|Content-Length|X-Content-Type-Options|X-Frame-Options|Referrer-Policy|Cross-Origin-Opener-Policy|Permissions-Policy"));
+    TRUE));
+TEST("handle/sensitive_git_substring/header/Content-Type", FUN(() ,
+    (ASSERT_EQ(AT_K(AT_K(resp_sensitive_git_substring, "headers", DICT()), "Content-Type", "<missing>"), "text/plain"));
+    TRUE));
+TEST("handle/sensitive_git_substring/header/Content-Length", FUN(() ,
+    (ASSERT_EQ(AT_K(AT_K(resp_sensitive_git_substring, "headers", DICT()), "Content-Length", "<missing>"), "9"));
+    TRUE));
+TEST("handle/sensitive_git_substring/header/X-Content-Type-Options", FUN(() ,
+    (ASSERT_EQ(AT_K(AT_K(resp_sensitive_git_substring, "headers", DICT()), "X-Content-Type-Options", "<missing>"), "nosniff"));
+    TRUE));
+TEST("handle/sensitive_git_substring/header/X-Frame-Options", FUN(() ,
+    (ASSERT_EQ(AT_K(AT_K(resp_sensitive_git_substring, "headers", DICT()), "X-Frame-Options", "<missing>"), "DENY"));
+    TRUE));
+TEST("handle/sensitive_git_substring/header/Referrer-Policy", FUN(() ,
+    (ASSERT_EQ(AT_K(AT_K(resp_sensitive_git_substring, "headers", DICT()), "Referrer-Policy", "<missing>"), "no-referrer"));
+    TRUE));
+TEST("handle/sensitive_git_substring/header/Cross-Origin-Opener-Policy", FUN(() ,
+    (ASSERT_EQ(AT_K(AT_K(resp_sensitive_git_substring, "headers", DICT()), "Cross-Origin-Opener-Policy", "<missing>"), "same-origin"));
+    TRUE));
+TEST("handle/sensitive_git_substring/header/Permissions-Policy", FUN(() ,
+    (ASSERT_EQ(AT_K(AT_K(resp_sensitive_git_substring, "headers", DICT()), "Permissions-Policy", "<missing>"), "accelerometer=(), camera=(), geolocation=(), gyroscope=(), magnetometer=(), microphone=(), payment=(), usb=()"));
+    TRUE));
+TEST("handle/sensitive_git_substring/body", FUN(() ,
+    (ASSERT_EQ(AT_K(resp_sensitive_git_substring, "body", "<missing>"), "Not found"));
+    TRUE));
+
+// sensitive_case_insensitive
+TEST("handle/sensitive_case_insensitive/status", FUN(() ,
+    (ASSERT_EQ(AT_K(resp_sensitive_case_insensitive, "status", -1), 404));
+    TRUE));
+TEST("handle/sensitive_case_insensitive/header_order", FUN(() ,
+    (ASSERT_EQ(JOIN(KEYS(AT_K(resp_sensitive_case_insensitive, "headers", DICT())), "|"), "Content-Type|Content-Length|X-Content-Type-Options|X-Frame-Options|Referrer-Policy|Cross-Origin-Opener-Policy|Permissions-Policy"));
+    TRUE));
+TEST("handle/sensitive_case_insensitive/header/Content-Type", FUN(() ,
+    (ASSERT_EQ(AT_K(AT_K(resp_sensitive_case_insensitive, "headers", DICT()), "Content-Type", "<missing>"), "text/plain"));
+    TRUE));
+TEST("handle/sensitive_case_insensitive/header/Content-Length", FUN(() ,
+    (ASSERT_EQ(AT_K(AT_K(resp_sensitive_case_insensitive, "headers", DICT()), "Content-Length", "<missing>"), "9"));
+    TRUE));
+TEST("handle/sensitive_case_insensitive/header/X-Content-Type-Options", FUN(() ,
+    (ASSERT_EQ(AT_K(AT_K(resp_sensitive_case_insensitive, "headers", DICT()), "X-Content-Type-Options", "<missing>"), "nosniff"));
+    TRUE));
+TEST("handle/sensitive_case_insensitive/header/X-Frame-Options", FUN(() ,
+    (ASSERT_EQ(AT_K(AT_K(resp_sensitive_case_insensitive, "headers", DICT()), "X-Frame-Options", "<missing>"), "DENY"));
+    TRUE));
+TEST("handle/sensitive_case_insensitive/header/Referrer-Policy", FUN(() ,
+    (ASSERT_EQ(AT_K(AT_K(resp_sensitive_case_insensitive, "headers", DICT()), "Referrer-Policy", "<missing>"), "no-referrer"));
+    TRUE));
+TEST("handle/sensitive_case_insensitive/header/Cross-Origin-Opener-Policy", FUN(() ,
+    (ASSERT_EQ(AT_K(AT_K(resp_sensitive_case_insensitive, "headers", DICT()), "Cross-Origin-Opener-Policy", "<missing>"), "same-origin"));
+    TRUE));
+TEST("handle/sensitive_case_insensitive/header/Permissions-Policy", FUN(() ,
+    (ASSERT_EQ(AT_K(AT_K(resp_sensitive_case_insensitive, "headers", DICT()), "Permissions-Policy", "<missing>"), "accelerometer=(), camera=(), geolocation=(), gyroscope=(), magnetometer=(), microphone=(), payment=(), usb=()"));
+    TRUE));
+TEST("handle/sensitive_case_insensitive/body", FUN(() ,
+    (ASSERT_EQ(AT_K(resp_sensitive_case_insensitive, "body", "<missing>"), "Not found"));
+    TRUE));
+
+// bad_percent_escape
+TEST("handle/bad_percent_escape/status", FUN(() ,
+    (ASSERT_EQ(AT_K(resp_bad_percent_escape, "status", -1), 404));
+    TRUE));
+TEST("handle/bad_percent_escape/header_order", FUN(() ,
+    (ASSERT_EQ(JOIN(KEYS(AT_K(resp_bad_percent_escape, "headers", DICT())), "|"), "Content-Type|Content-Length|X-Content-Type-Options|X-Frame-Options|Referrer-Policy|Cross-Origin-Opener-Policy|Permissions-Policy"));
+    TRUE));
+TEST("handle/bad_percent_escape/header/Content-Type", FUN(() ,
+    (ASSERT_EQ(AT_K(AT_K(resp_bad_percent_escape, "headers", DICT()), "Content-Type", "<missing>"), "text/plain"));
+    TRUE));
+TEST("handle/bad_percent_escape/header/Content-Length", FUN(() ,
+    (ASSERT_EQ(AT_K(AT_K(resp_bad_percent_escape, "headers", DICT()), "Content-Length", "<missing>"), "9"));
+    TRUE));
+TEST("handle/bad_percent_escape/header/X-Content-Type-Options", FUN(() ,
+    (ASSERT_EQ(AT_K(AT_K(resp_bad_percent_escape, "headers", DICT()), "X-Content-Type-Options", "<missing>"), "nosniff"));
+    TRUE));
+TEST("handle/bad_percent_escape/header/X-Frame-Options", FUN(() ,
+    (ASSERT_EQ(AT_K(AT_K(resp_bad_percent_escape, "headers", DICT()), "X-Frame-Options", "<missing>"), "DENY"));
+    TRUE));
+TEST("handle/bad_percent_escape/header/Referrer-Policy", FUN(() ,
+    (ASSERT_EQ(AT_K(AT_K(resp_bad_percent_escape, "headers", DICT()), "Referrer-Policy", "<missing>"), "no-referrer"));
+    TRUE));
+TEST("handle/bad_percent_escape/header/Cross-Origin-Opener-Policy", FUN(() ,
+    (ASSERT_EQ(AT_K(AT_K(resp_bad_percent_escape, "headers", DICT()), "Cross-Origin-Opener-Policy", "<missing>"), "same-origin"));
+    TRUE));
+TEST("handle/bad_percent_escape/header/Permissions-Policy", FUN(() ,
+    (ASSERT_EQ(AT_K(AT_K(resp_bad_percent_escape, "headers", DICT()), "Permissions-Policy", "<missing>"), "accelerometer=(), camera=(), geolocation=(), gyroscope=(), magnetometer=(), microphone=(), payment=(), usb=()"));
+    TRUE));
+TEST("handle/bad_percent_escape/body", FUN(() ,
+    (ASSERT_EQ(AT_K(resp_bad_percent_escape, "body", "<missing>"), "Not found"));
+    TRUE));
+
+// post_root
+TEST("handle/post_root/status", FUN(() ,
+    (ASSERT_EQ(AT_K(resp_post_root, "status", -1), 405));
+    TRUE));
+TEST("handle/post_root/header_order", FUN(() ,
+    (ASSERT_EQ(JOIN(KEYS(AT_K(resp_post_root, "headers", DICT())), "|"), "Content-Type|Content-Length|X-Content-Type-Options|X-Frame-Options|Referrer-Policy|Cross-Origin-Opener-Policy|Permissions-Policy"));
+    TRUE));
+TEST("handle/post_root/header/Content-Type", FUN(() ,
+    (ASSERT_EQ(AT_K(AT_K(resp_post_root, "headers", DICT()), "Content-Type", "<missing>"), "text/plain"));
+    TRUE));
+TEST("handle/post_root/header/Content-Length", FUN(() ,
+    (ASSERT_EQ(AT_K(AT_K(resp_post_root, "headers", DICT()), "Content-Length", "<missing>"), "18"));
+    TRUE));
+TEST("handle/post_root/header/X-Content-Type-Options", FUN(() ,
+    (ASSERT_EQ(AT_K(AT_K(resp_post_root, "headers", DICT()), "X-Content-Type-Options", "<missing>"), "nosniff"));
+    TRUE));
+TEST("handle/post_root/header/X-Frame-Options", FUN(() ,
+    (ASSERT_EQ(AT_K(AT_K(resp_post_root, "headers", DICT()), "X-Frame-Options", "<missing>"), "DENY"));
+    TRUE));
+TEST("handle/post_root/header/Referrer-Policy", FUN(() ,
+    (ASSERT_EQ(AT_K(AT_K(resp_post_root, "headers", DICT()), "Referrer-Policy", "<missing>"), "no-referrer"));
+    TRUE));
+TEST("handle/post_root/header/Cross-Origin-Opener-Policy", FUN(() ,
+    (ASSERT_EQ(AT_K(AT_K(resp_post_root, "headers", DICT()), "Cross-Origin-Opener-Policy", "<missing>"), "same-origin"));
+    TRUE));
+TEST("handle/post_root/header/Permissions-Policy", FUN(() ,
+    (ASSERT_EQ(AT_K(AT_K(resp_post_root, "headers", DICT()), "Permissions-Policy", "<missing>"), "accelerometer=(), camera=(), geolocation=(), gyroscope=(), magnetometer=(), microphone=(), payment=(), usb=()"));
+    TRUE));
+TEST("handle/post_root/body", FUN(() ,
+    (ASSERT_EQ(AT_K(resp_post_root, "body", "<missing>"), "Method not allowed"));
+    TRUE));
+
+// put_index
+TEST("handle/put_index/status", FUN(() ,
+    (ASSERT_EQ(AT_K(resp_put_index, "status", -1), 405));
+    TRUE));
+TEST("handle/put_index/header_order", FUN(() ,
+    (ASSERT_EQ(JOIN(KEYS(AT_K(resp_put_index, "headers", DICT())), "|"), "Content-Type|Content-Length|X-Content-Type-Options|X-Frame-Options|Referrer-Policy|Cross-Origin-Opener-Policy|Permissions-Policy"));
+    TRUE));
+TEST("handle/put_index/header/Content-Type", FUN(() ,
+    (ASSERT_EQ(AT_K(AT_K(resp_put_index, "headers", DICT()), "Content-Type", "<missing>"), "text/plain"));
+    TRUE));
+TEST("handle/put_index/header/Content-Length", FUN(() ,
+    (ASSERT_EQ(AT_K(AT_K(resp_put_index, "headers", DICT()), "Content-Length", "<missing>"), "18"));
+    TRUE));
+TEST("handle/put_index/header/X-Content-Type-Options", FUN(() ,
+    (ASSERT_EQ(AT_K(AT_K(resp_put_index, "headers", DICT()), "X-Content-Type-Options", "<missing>"), "nosniff"));
+    TRUE));
+TEST("handle/put_index/header/X-Frame-Options", FUN(() ,
+    (ASSERT_EQ(AT_K(AT_K(resp_put_index, "headers", DICT()), "X-Frame-Options", "<missing>"), "DENY"));
+    TRUE));
+TEST("handle/put_index/header/Referrer-Policy", FUN(() ,
+    (ASSERT_EQ(AT_K(AT_K(resp_put_index, "headers", DICT()), "Referrer-Policy", "<missing>"), "no-referrer"));
+    TRUE));
+TEST("handle/put_index/header/Cross-Origin-Opener-Policy", FUN(() ,
+    (ASSERT_EQ(AT_K(AT_K(resp_put_index, "headers", DICT()), "Cross-Origin-Opener-Policy", "<missing>"), "same-origin"));
+    TRUE));
+TEST("handle/put_index/header/Permissions-Policy", FUN(() ,
+    (ASSERT_EQ(AT_K(AT_K(resp_put_index, "headers", DICT()), "Permissions-Policy", "<missing>"), "accelerometer=(), camera=(), geolocation=(), gyroscope=(), magnetometer=(), microphone=(), payment=(), usb=()"));
+    TRUE));
+TEST("handle/put_index/body", FUN(() ,
+    (ASSERT_EQ(AT_K(resp_put_index, "body", "<missing>"), "Method not allowed"));
+    TRUE));
+
+// delete_article
+TEST("handle/delete_article/status", FUN(() ,
+    (ASSERT_EQ(AT_K(resp_delete_article, "status", -1), 405));
+    TRUE));
+TEST("handle/delete_article/header_order", FUN(() ,
+    (ASSERT_EQ(JOIN(KEYS(AT_K(resp_delete_article, "headers", DICT())), "|"), "Content-Type|Content-Length|X-Content-Type-Options|X-Frame-Options|Referrer-Policy|Cross-Origin-Opener-Policy|Permissions-Policy"));
+    TRUE));
+TEST("handle/delete_article/header/Content-Type", FUN(() ,
+    (ASSERT_EQ(AT_K(AT_K(resp_delete_article, "headers", DICT()), "Content-Type", "<missing>"), "text/plain"));
+    TRUE));
+TEST("handle/delete_article/header/Content-Length", FUN(() ,
+    (ASSERT_EQ(AT_K(AT_K(resp_delete_article, "headers", DICT()), "Content-Length", "<missing>"), "18"));
+    TRUE));
+TEST("handle/delete_article/header/X-Content-Type-Options", FUN(() ,
+    (ASSERT_EQ(AT_K(AT_K(resp_delete_article, "headers", DICT()), "X-Content-Type-Options", "<missing>"), "nosniff"));
+    TRUE));
+TEST("handle/delete_article/header/X-Frame-Options", FUN(() ,
+    (ASSERT_EQ(AT_K(AT_K(resp_delete_article, "headers", DICT()), "X-Frame-Options", "<missing>"), "DENY"));
+    TRUE));
+TEST("handle/delete_article/header/Referrer-Policy", FUN(() ,
+    (ASSERT_EQ(AT_K(AT_K(resp_delete_article, "headers", DICT()), "Referrer-Policy", "<missing>"), "no-referrer"));
+    TRUE));
+TEST("handle/delete_article/header/Cross-Origin-Opener-Policy", FUN(() ,
+    (ASSERT_EQ(AT_K(AT_K(resp_delete_article, "headers", DICT()), "Cross-Origin-Opener-Policy", "<missing>"), "same-origin"));
+    TRUE));
+TEST("handle/delete_article/header/Permissions-Policy", FUN(() ,
+    (ASSERT_EQ(AT_K(AT_K(resp_delete_article, "headers", DICT()), "Permissions-Policy", "<missing>"), "accelerometer=(), camera=(), geolocation=(), gyroscope=(), magnetometer=(), microphone=(), payment=(), usb=()"));
+    TRUE));
+TEST("handle/delete_article/body", FUN(() ,
+    (ASSERT_EQ(AT_K(resp_delete_article, "body", "<missing>"), "Method not allowed"));
+    TRUE));
+
+// ── 反向守卫（卡 S3-1 明确要求的三条，单独钉一次）─────────────────
+TEST("guard/git_config_must_404", FUN(() ,
+    (ASSERT_EQ(AT_K(resp_hidden_git_config, "status", -1), 404));
+    TRUE));
+TEST("guard/traversal_must_404", FUN(() ,
+    (ASSERT_EQ(AT_K(resp_traversal_plain, "status", -1), 404));
+    TRUE));
+TEST("guard/admin_password_must_404", FUN(() ,
+    (ASSERT_EQ(AT_K(resp_sensitive_admin_password, "status", -1), 404));
+    TRUE));
+
+// ── 反向守卫：Cache-Control 只发**一个**（发两个就会多出一个键）────────
+LET(resp_keys_200, KEYS(AT_K(resp_article, "headers", DICT())));
+TEST("guard/single_cache_control", FUN(() ,
+    (ASSERT_EQ(LEN(resp_keys_200), 8));
+    TRUE));
+TEST("guard/no_csp_on_public_site", FUN(() ,
+    (ASSERT_EQ(AT_K(AT_K(resp_article, "headers", DICT()), "Content-Security-Policy", "<absent>"), "<absent>"));
+    TRUE));
+
+// ── 单元：SECURITY_HEADERS（顺序 = nginx.conf:9-13 = security.py:331）──
+LET(sh, SECURITY_HEADERS());
+TEST("security/order", FUN(() ,
+    (ASSERT_EQ(JOIN(KEYS(sh), "|"), "X-Content-Type-Options|X-Frame-Options|Referrer-Policy|Cross-Origin-Opener-Policy|Permissions-Policy"));
+    TRUE));
+TEST("security/X-Content-Type-Options", FUN(() ,
+    (ASSERT_EQ(AT_K(sh, "X-Content-Type-Options", "<missing>"), "nosniff"));
+    TRUE));
+TEST("security/X-Frame-Options", FUN(() ,
+    (ASSERT_EQ(AT_K(sh, "X-Frame-Options", "<missing>"), "DENY"));
+    TRUE));
+TEST("security/Referrer-Policy", FUN(() ,
+    (ASSERT_EQ(AT_K(sh, "Referrer-Policy", "<missing>"), "no-referrer"));
+    TRUE));
+TEST("security/Cross-Origin-Opener-Policy", FUN(() ,
+    (ASSERT_EQ(AT_K(sh, "Cross-Origin-Opener-Policy", "<missing>"), "same-origin"));
+    TRUE));
+TEST("security/Permissions-Policy", FUN(() ,
+    (ASSERT_EQ(AT_K(sh, "Permissions-Policy", "<missing>"), "accelerometer=(), camera=(), geolocation=(), gyroscope=(), magnetometer=(), microphone=(), payment=(), usb=()"));
+    TRUE));
+// ⚠ Permissions-Policy 的项数：`nginx.conf:13` 与 `security.py:338` **都是 8 项**
+//   （accelerometer / camera / geolocation / gyroscope / magnetometer /
+//     microphone / payment / usb）—— 卡 S3-1 写「9 项」是数错，本实现以源码为准；
+//   生成期已断言它与 `get_security_headers()` **逐字相等**。
+//   这里再用逗号数钉一次，防「漏一项 / 多一项」的回归。
+TEST("security/permissions_policy_items", FUN(() ,
+    (ASSERT_EQ(LEN(SPLIT(AT_K(sh, "Permissions-Policy", ""), ",")), 8));
+    TRUE));
+// 反向守卫：公开站**不**发 CSP（security.py:342 是 admin 专用）
+TEST("security/no_csp", FUN(() ,
+    (ASSERT_EQ(AT_K(sh, "Content-Security-Policy", "<absent>"), "<absent>"));
+    TRUE));
+
+// ── 单元：MIME_TYPE（对齐 frontend.py:74；字体按 D-2 取 nginx 值）────
+TEST("mime/a_html", FUN(() ,
+    (ASSERT_EQ(MIME_TYPE(INDEX_SET(DICT(), "path", "a.html")), "text/html"));
+    TRUE));
+TEST("mime/a_htm", FUN(() ,
+    (ASSERT_EQ(MIME_TYPE(INDEX_SET(DICT(), "path", "a.htm")), "text/html"));
+    TRUE));
+TEST("mime/a_css", FUN(() ,
+    (ASSERT_EQ(MIME_TYPE(INDEX_SET(DICT(), "path", "a.css")), "text/css"));
+    TRUE));
+TEST("mime/a_js", FUN(() ,
+    (ASSERT_EQ(MIME_TYPE(INDEX_SET(DICT(), "path", "a.js")), "application/javascript"));
+    TRUE));
+TEST("mime/a_json", FUN(() ,
+    (ASSERT_EQ(MIME_TYPE(INDEX_SET(DICT(), "path", "a.json")), "application/json"));
+    TRUE));
+TEST("mime/a_webmanifest", FUN(() ,
+    (ASSERT_EQ(MIME_TYPE(INDEX_SET(DICT(), "path", "a.webmanifest")), "application/manifest+json"));
+    TRUE));
+TEST("mime/a_xml", FUN(() ,
+    (ASSERT_EQ(MIME_TYPE(INDEX_SET(DICT(), "path", "a.xml")), "text/xml"));
+    TRUE));
+TEST("mime/a_txt", FUN(() ,
+    (ASSERT_EQ(MIME_TYPE(INDEX_SET(DICT(), "path", "a.txt")), "text/plain"));
+    TRUE));
+TEST("mime/a_md", FUN(() ,
+    (ASSERT_EQ(MIME_TYPE(INDEX_SET(DICT(), "path", "a.md")), "text/markdown"));
+    TRUE));
+TEST("mime/a_png", FUN(() ,
+    (ASSERT_EQ(MIME_TYPE(INDEX_SET(DICT(), "path", "a.png")), "image/png"));
+    TRUE));
+TEST("mime/a_jpg", FUN(() ,
+    (ASSERT_EQ(MIME_TYPE(INDEX_SET(DICT(), "path", "a.jpg")), "image/jpeg"));
+    TRUE));
+TEST("mime/a_jpeg", FUN(() ,
+    (ASSERT_EQ(MIME_TYPE(INDEX_SET(DICT(), "path", "a.jpeg")), "image/jpeg"));
+    TRUE));
+TEST("mime/a_gif", FUN(() ,
+    (ASSERT_EQ(MIME_TYPE(INDEX_SET(DICT(), "path", "a.gif")), "image/gif"));
+    TRUE));
+TEST("mime/a_ico", FUN(() ,
+    (ASSERT_EQ(MIME_TYPE(INDEX_SET(DICT(), "path", "a.ico")), "image/x-icon"));
+    TRUE));
+TEST("mime/a_svg", FUN(() ,
+    (ASSERT_EQ(MIME_TYPE(INDEX_SET(DICT(), "path", "a.svg")), "image/svg+xml"));
+    TRUE));
+TEST("mime/a_webp", FUN(() ,
+    (ASSERT_EQ(MIME_TYPE(INDEX_SET(DICT(), "path", "a.webp")), "image/webp"));
+    TRUE));
+TEST("mime/a_avif", FUN(() ,
+    (ASSERT_EQ(MIME_TYPE(INDEX_SET(DICT(), "path", "a.avif")), "image/avif"));
+    TRUE));
+TEST("mime/a_woff", FUN(() ,
+    (ASSERT_EQ(MIME_TYPE(INDEX_SET(DICT(), "path", "a.woff")), "font/woff"));
+    TRUE));
+TEST("mime/a_woff2", FUN(() ,
+    (ASSERT_EQ(MIME_TYPE(INDEX_SET(DICT(), "path", "a.woff2")), "font/woff2"));
+    TRUE));
+TEST("mime/a_ttf", FUN(() ,
+    (ASSERT_EQ(MIME_TYPE(INDEX_SET(DICT(), "path", "a.ttf")), "font/ttf"));
+    TRUE));
+TEST("mime/a_otf", FUN(() ,
+    (ASSERT_EQ(MIME_TYPE(INDEX_SET(DICT(), "path", "a.otf")), "font/otf"));
+    TRUE));
+TEST("mime/a_pdf", FUN(() ,
+    (ASSERT_EQ(MIME_TYPE(INDEX_SET(DICT(), "path", "a.pdf")), "application/pdf"));
+    TRUE));
+TEST("mime/a_wasm", FUN(() ,
+    (ASSERT_EQ(MIME_TYPE(INDEX_SET(DICT(), "path", "a.wasm")), "application/wasm"));
+    TRUE));
+TEST("mime/noext", FUN(() ,
+    (ASSERT_EQ(MIME_TYPE(INDEX_SET(DICT(), "path", "noext")), "text/html"));
+    TRUE));
+TEST("mime/a_unknownext", FUN(() ,
+    (ASSERT_EQ(MIME_TYPE(INDEX_SET(DICT(), "path", "a.unknownext")), "text/html"));
+    TRUE));
+TEST("mime/dir_sub_page_html", FUN(() ,
+    (ASSERT_EQ(MIME_TYPE(INDEX_SET(DICT(), "path", "dir/sub/page.html")), "text/html"));
+    TRUE));
+TEST("mime/A_CSS", FUN(() ,
+    (ASSERT_EQ(MIME_TYPE(INDEX_SET(DICT(), "path", "A.CSS")), "text/css"));
+    TRUE));
+TEST("mime/A_WOFF2", FUN(() ,
+    (ASSERT_EQ(MIME_TYPE(INDEX_SET(DICT(), "path", "A.WOFF2")), "font/woff2"));
+    TRUE));
+
+// ── 跑测试 + 自己把关退出码 ─────────────────────────────────────
+LET(records, RUN_TESTS());
+PRINT("test_static_serve: ", LEN(records), " test(s) run");
+LET MUT(failed, 0);
+FOR(rec, records,
+    (IF(AT_K(rec, "passed", FALSE),
+        PRINT("  PASS ", AT_K(rec, "name", "?")),
+        (SET(failed, +(failed, 1));
+         PRINT("  FAIL ", AT_K(rec, "name", "?"), " :: ", AT_K(rec, "error", ""))))));
+PRINT("test_static_serve: failed=", failed);
+IF(>(failed, 0), (PRINT_ERR("test_static_serve: FAILED"); PANIC("static_serve tests failed")), NULL);
+PRINT("test_static_serve: OK");

@@ -1,0 +1,509 @@
+{
+  "schema": 1,
+  "generated_by": "tp/test/gen_incremental_baseline.py",
+  "source": "tinypage/core/incremental.py",
+  "rules": {
+    "should_use_incremental": "article_count < threshold ⇒ FALSE；modified_ratio = modified_count / article_count （article_count == 0 时取 1.0）；ratio < 0.1（严格小于）⇒ TRUE；threshold 默认 100",
+    "build_cache_key": "sorted(glob(\"*.html\")) 取 \"name:int(st_mtime)\"（秒级截断）用 \"|\" 拼接 ⇒ sha256 hexdigest 前 12 位；目录不存在 ⇒ \"empty\"",
+    "get_unchanged": "WLWL 口径：逐文件比 cache 里的秒级 mtime；cache 缺失/不是 DICT ⇒ 全部 modified"
+  },
+  "should_use_incremental": [
+    {
+      "name": "default_below_threshold",
+      "note": "默认 threshold=100：99 篇 < 100 ⇒ 不用增量（与修改比例无关）",
+      "article_count": 99,
+      "modified_count": 0,
+      "threshold": null,
+      "expected": false
+    },
+    {
+      "name": "default_at_threshold_no_change",
+      "note": "篇数恰好等于阈值 ⇒ 通过第一条；零修改 ⇒ 比值 0 < 0.1 ⇒ TRUE",
+      "article_count": 100,
+      "modified_count": 0,
+      "threshold": null,
+      "expected": true
+    },
+    {
+      "name": "boundary_ratio_exactly_0_1",
+      "note": "比值**恰好 0.1**（10/100）⇒ 严格小于不成立 ⇒ FALSE",
+      "article_count": 100,
+      "modified_count": 10,
+      "threshold": null,
+      "expected": false
+    },
+    {
+      "name": "boundary_ratio_just_below",
+      "note": "10/101 ≈ 0.099 < 0.1 ⇒ TRUE（比值的下边界，仅超一篇文章）",
+      "article_count": 101,
+      "modified_count": 10,
+      "threshold": null,
+      "expected": true
+    },
+    {
+      "name": "boundary_ratio_just_above",
+      "note": "11/100 = 0.11 > 0.1 ⇒ FALSE",
+      "article_count": 100,
+      "modified_count": 11,
+      "threshold": null,
+      "expected": false
+    },
+    {
+      "name": "ratio_9_of_100",
+      "note": "9/100 = 0.09 < 0.1 ⇒ TRUE",
+      "article_count": 100,
+      "modified_count": 9,
+      "threshold": null,
+      "expected": true
+    },
+    {
+      "name": "zero_articles_default",
+      "note": "0 篇 ⇒ 0 < 100 ⇒ FALSE（Python 连比值都不算）",
+      "article_count": 0,
+      "modified_count": 0,
+      "threshold": null,
+      "expected": false
+    },
+    {
+      "name": "zero_articles_threshold_0",
+      "note": "0 篇 + threshold=0 ⇒ 越过第一条；`article_count > 0` 为假 ⇒ 比值取 1.0 ⇒ FALSE",
+      "article_count": 0,
+      "modified_count": 0,
+      "threshold": 0,
+      "expected": false
+    },
+    {
+      "name": "threshold_0_one_article",
+      "note": "threshold=0 + 1 篇零修改 ⇒ 比值 0 < 0.1 ⇒ TRUE",
+      "article_count": 1,
+      "modified_count": 0,
+      "threshold": 0,
+      "expected": true
+    },
+    {
+      "name": "all_modified",
+      "note": "全改 ⇒ 比值 1.0 ⇒ FALSE",
+      "article_count": 200,
+      "modified_count": 200,
+      "threshold": null,
+      "expected": false
+    },
+    {
+      "name": "custom_threshold_high",
+      "note": "threshold=10 且 50 篇 ⇒ 1/50 = 0.02 < 0.1 ⇒ TRUE",
+      "article_count": 50,
+      "modified_count": 1,
+      "threshold": 10,
+      "expected": true
+    },
+    {
+      "name": "custom_threshold_blocks",
+      "note": "threshold=10 且 5 篇 ⇒ 5 < 10 ⇒ FALSE（篇数不足，比值再小也没用）",
+      "article_count": 5,
+      "modified_count": 0,
+      "threshold": 10,
+      "expected": false
+    },
+    {
+      "name": "big_at_boundary",
+      "note": "1000 篇里 100 篇改 ⇒ 比值恰好 0.1 ⇒ FALSE（大数上的同一把尺）",
+      "article_count": 1000,
+      "modified_count": 100,
+      "threshold": null,
+      "expected": false
+    },
+    {
+      "name": "big_just_below",
+      "note": "100/1001 ≈ 0.09990 < 0.1 ⇒ TRUE",
+      "article_count": 1001,
+      "modified_count": 100,
+      "threshold": null,
+      "expected": true
+    }
+  ],
+  "cache_key": {
+    "fixed": [
+      {
+        "name": "nonexistent_dir",
+        "note": "不存在 ⇒ 字面量 \"empty\"（:171 的提前返回）",
+        "expected": "empty",
+        "entries": [],
+        "preimage": ""
+      },
+      {
+        "name": "existing_empty_dir",
+        "note": "存在但为空 ⇒ 不是 \"empty\"，是 sha256(\"\")[:12] = e3b0c44298fc",
+        "entries": [],
+        "preimage": "",
+        "expected": "e3b0c44298fc"
+      },
+      {
+        "name": "single_file",
+        "note": "单文件：preimage = \"a.html:1700000000\"",
+        "entries": [
+          {
+            "name": "a.html",
+            "sec": 1700000000,
+            "is_dir": false
+          }
+        ],
+        "preimage": "a.html:1700000000",
+        "expected": "a20ff047d262"
+      },
+      {
+        "name": "three_files",
+        "note": "多文件 ⇒ 按名排序后拼接（创建顺序与结果无关）；含中文文件名",
+        "entries": [
+          {
+            "name": "b.html",
+            "sec": 1700000001,
+            "is_dir": false
+          },
+          {
+            "name": "a.html",
+            "sec": 1700000002,
+            "is_dir": false
+          },
+          {
+            "name": "中文.html",
+            "sec": 1700000003,
+            "is_dir": false
+          }
+        ],
+        "preimage": "a.html:1700000002|b.html:1700000001|中文.html:1700000003",
+        "expected": "ecb1111f0609"
+      },
+      {
+        "name": "dir_named_html",
+        "note": "⚠ glob(\"*.html\") **会把目录也算进去** ⇒ 目录的真实 mtime 参与 key",
+        "entries": [
+          {
+            "name": "a.html",
+            "sec": 1700000000,
+            "is_dir": false
+          },
+          {
+            "name": "dir.html",
+            "sec": 1700000005,
+            "is_dir": true
+          }
+        ],
+        "preimage": "a.html:1700000000|dir.html:1700000005",
+        "expected": "e626b54602a8"
+      },
+      {
+        "name": "non_html_ignored",
+        "note": "非 .html 后缀不参与",
+        "entries": [
+          {
+            "name": "a.html",
+            "sec": 1700000000,
+            "is_dir": false
+          },
+          {
+            "name": "notes.txt",
+            "sec": 1700000009,
+            "is_dir": false
+          }
+        ],
+        "preimage": "a.html:1700000000",
+        "expected": "a20ff047d262"
+      }
+    ],
+    "file_instead_of_dir": {
+      "name": "file_instead_of_dir",
+      "note": "传入的是**文件**（exists 为真、glob 为空）⇒ sha256(\"\")[:12]；与「目录不存在 ⇒ \"empty\"」是两条不同分支（实测）",
+      "expected": "e3b0c44298fc"
+    },
+    "truncation": {
+      "name": "subsecond_same_second",
+      "note": "同一秒内 ms 不同（123 / 987）⇒ 秒级截断 ⇒ key 与整秒版相同；若改用毫秒拼接会得到另一个 key（守卫判据）",
+      "ms_key": "c5f2de971cac",
+      "sec_key": "c5f2de971cac",
+      "would_be_key_with_ms": "1fcc9b564771",
+      "equal": true
+    },
+    "runtime": [
+      {
+        "name": "rt_single",
+        "note": "单文件（运行期 mtime）",
+        "files": [
+          "a.html"
+        ],
+        "dirs": []
+      },
+      {
+        "name": "rt_multi",
+        "note": "多文件 + 中文名（运行期 mtime）",
+        "files": [
+          "b.html",
+          "a.html",
+          "中文.html"
+        ],
+        "dirs": []
+      },
+      {
+        "name": "rt_dir_named_html",
+        "note": "含一个名为 dir.html 的**目录**（运行期 mtime）",
+        "files": [
+          "a.html"
+        ],
+        "dirs": [
+          "dir.html"
+        ]
+      },
+      {
+        "name": "rt_non_html",
+        "note": "含非 .html 后缀（必须被忽略）",
+        "files": [
+          "a.html",
+          "notes.txt"
+        ],
+        "dirs": []
+      }
+    ]
+  },
+  "get_unchanged": [
+    {
+      "name": "hit_all_unchanged",
+      "note": "cache 全命中 ⇒ 全部未变（Python 走的正是这条 hit 路径）",
+      "files": [
+        "a.html",
+        "b.html"
+      ],
+      "cache_mode": "exact",
+      "expected_python": {
+        "unchanged": [
+          "a.html",
+          "b.html"
+        ],
+        "modified": []
+      },
+      "expected_wlwl": {
+        "unchanged": [
+          "a.html",
+          "b.html"
+        ],
+        "modified": []
+      },
+      "agrees_with_python": true
+    },
+    {
+      "name": "stale_mtimes_changed",
+      "note": "cache 来自别处（不匹配）⇒ 兜底路径 ⇒ Python 误判「全部未变」；WLWL 侧逐文件比 mtime ⇒ 两篇都进 modified",
+      "files": [
+        "a.html",
+        "b.html"
+      ],
+      "cache_mode": "stale",
+      "expected_python": {
+        "unchanged": [
+          "a.html",
+          "b.html"
+        ],
+        "modified": []
+      },
+      "expected_wlwl": {
+        "unchanged": [],
+        "modified": [
+          "a.html",
+          "b.html"
+        ]
+      },
+      "agrees_with_python": false
+    },
+    {
+      "name": "stale_new_file",
+      "note": "新增文件 c.html 也走兜底路径 ⇒ Python 漏判；WLWL 侧进 modified",
+      "files": [
+        "a.html",
+        "b.html",
+        "c.html"
+      ],
+      "cache_mode": "stale",
+      "expected_python": {
+        "unchanged": [
+          "a.html",
+          "b.html",
+          "c.html"
+        ],
+        "modified": []
+      },
+      "expected_wlwl": {
+        "unchanged": [],
+        "modified": [
+          "a.html",
+          "b.html",
+          "c.html"
+        ]
+      },
+      "agrees_with_python": false
+    },
+    {
+      "name": "no_cache",
+      "note": "完全没有 cache ⇒ 无从证明未变 ⇒ WLWL 全部进 modified（安全侧）；Python 仍返回「全部未变」",
+      "files": [
+        "a.html",
+        "b.html"
+      ],
+      "cache_mode": "none",
+      "expected_python": {
+        "unchanged": [
+          "a.html",
+          "b.html"
+        ],
+        "modified": []
+      },
+      "expected_wlwl": {
+        "unchanged": [],
+        "modified": [
+          "a.html",
+          "b.html"
+        ]
+      },
+      "agrees_with_python": false
+    },
+    {
+      "name": "empty_dir",
+      "note": "空目录 ⇒ 两组都空（两侧一致）",
+      "files": [],
+      "cache_mode": "none",
+      "expected_python": {
+        "unchanged": [],
+        "modified": []
+      },
+      "expected_wlwl": {
+        "unchanged": [],
+        "modified": []
+      },
+      "agrees_with_python": true
+    },
+    {
+      "name": "partial_change_via_get_modified_files",
+      "note": "真 Python 的 get_modified_files（参数正确时才是对的参考实现）：b.html 产物缺失 ⇒ 已改；d.html 新增 ⇒ 已改；gone.html 源里已删 ⇒ 两组都不出现",
+      "files": [
+        "a.html",
+        "b.html",
+        "c.html",
+        "d.html"
+      ],
+      "cache_mode": "partial",
+      "expected_python": {
+        "unchanged": [
+          "a.html",
+          "c.html"
+        ],
+        "modified": [
+          "b.html",
+          "d.html"
+        ]
+      },
+      "expected_wlwl": {
+        "unchanged": [
+          "a.html",
+          "c.html"
+        ],
+        "modified": [
+          "b.html",
+          "d.html"
+        ]
+      },
+      "agrees_with_python": true,
+      "derived_via": "tinypage/core/incremental.py:17 get_modified_files(src, out)",
+      "deleted": [
+        "gone.html"
+      ]
+    },
+    {
+      "name": "cache_extra_name_deleted",
+      "note": "删除文件：cache 里有 gone.html、目录里已无 ⇒ 两组都不出现（Python 同口径：文章列表里本来就没有它）",
+      "files": [
+        "a.html",
+        "b.html"
+      ],
+      "cache_mode": "extra_name",
+      "expected_python": null,
+      "expected_wlwl": {
+        "unchanged": [
+          "a.html",
+          "b.html"
+        ],
+        "modified": []
+      },
+      "agrees_with_python": null
+    },
+    {
+      "name": "cache_wrong_value_type",
+      "note": "WLWL 专有：cache 的值不是 INTEGER ⇒ 判 modified（Python 没有 DICT cache 这个形态）",
+      "files": [
+        "a.html",
+        "b.html"
+      ],
+      "cache_mode": "wrong_type",
+      "expected_python": null,
+      "expected_wlwl": {
+        "unchanged": [
+          "b.html"
+        ],
+        "modified": [
+          "a.html"
+        ]
+      },
+      "agrees_with_python": null
+    }
+  ],
+  "known_differences": [
+    {
+      "name": "get_unchanged_fallback_dir_mismatch",
+      "function": "GET_UNCHANGED",
+      "python_behaviour": "cache 未命中时走 get_modified_files(article_dir, article_dir) ⇒ 恒空 ⇒ 全部判「未变」",
+      "wlwl_behaviour": "不再与目录比较：逐文件比 cache 里记录的秒级 mtime；cache 缺失/不是 DICT ⇒ 全部判 modified",
+      "reason": "Python 的兜底路径把同一目录既当源又当产物 ⇒ mtime 比较恒假 ⇒ 该重建的全被漏掉（新增文件也漏）。WLWL 侧改成「与 cache 比」，缺失即视为已变 ⇒ 退化为全量重建（安全侧），而不是静默不重建。判据仍是 mtime（秒级截断），**不引入内容 hash**",
+      "evidence": {
+        "site": "tinypage/core/incremental.py:207",
+        "code": "modified_files = get_modified_files(article_dir, article_dir)",
+        "why": "把 article_dir 同时当 source 与 output ⇒ out 就是 src 自己 ⇒ src.st_mtime > out.st_mtime 恒假 ⇒ modified_files 恒空",
+        "key_before": "c48123754eb4",
+        "key_after": "674ff4c0f72b",
+        "changed_after_mtime_edit": [],
+        "unchanged_after_mtime_edit": [
+          "a.html",
+          "b.html"
+        ],
+        "changed_after_new_file": [],
+        "unchanged_after_new_file": [
+          "a.html",
+          "b.html",
+          "c.html"
+        ],
+        "measured": true
+      }
+    }
+  ],
+  "limitations": [
+    {
+      "name": "case_interleaved_order",
+      "what": "仅大小写不同的多个 .html 名字交错时（如 B.html 与 a.html），Python 的 sorted() 按 lower 比较 ⇒ [a.html, B.html]；WLWL 侧用 DIR_ENTRIES 的**码点序** ⇒ [B.html, a.html] ⇒ 两者的 key 不同",
+      "python_sorted": [
+        "a.html",
+        "B.html"
+      ],
+      "python_glob": [
+        "a.html",
+        "B.html"
+      ],
+      "python_key": "b8099ec02ac3",
+      "not_tested": "WLWL 侧未按 lower 重排（要做得多一遍带键的排序，而 lower 相同的名字在 Python 侧本身按文件系统枚举序稳定排序 ⇒ 那一档本来不可复现）；其余名字集合（全小写 ASCII / 含 CJK）两侧一致"
+    },
+    {
+      "name": "permission_denied_dir",
+      "what": "目录不可读时 FILE_META / DIR_ENTRIES 返 ERR；Python 的 exists() 吞掉 OSError",
+      "not_tested": "本机（Windows + 管理员）造不出稳定的权限失败 ⇒ 未实测；WLWL 侧选择「FILE_META 是 ERR ⇒ 当作不存在 ⇒ \"empty\"」"
+    },
+    {
+      "name": "glob_case_sensitivity",
+      "what": "Python 的 glob(\"*.html\") 在本机**不匹配** A.HTML（大小写敏感，实测）",
+      "not_tested": "WLWL 侧按 PATH_EXT == \"html\" 精确比较 ⇒ 与实测口径同向；若在大小写不敏感的文件系统上 Python 行为不同，本夹具不覆盖"
+    }
+  ]
+}

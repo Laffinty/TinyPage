@@ -1,0 +1,72 @@
+// tp/probe/probe_s3_serve.wll —— S3-1 静态服务的**明文 TCP 冒烟探针**
+//
+// ⚠ 这**不是** CI 测试：`.github/workflows/wlwl.yml` 只跑 tp/lib 与 tp/test，
+//   `tp/probe/` 一律不在 CI 内（与仓里其它 probe 同规）。CI 里覆盖 HTTP 语义的是
+//   `tp/test/test_static_serve.wll`（脱网、纯函数）；本探针补的是「同一份 HANDLE
+//   在真 socket 上跑得通」这一条。
+//
+// 为什么手写而不是生成：本目录所有 probe 都是手写的一次性探针（见
+//   tp/probe/README.md），且 probe/ 不在「生成器 ↔ 产物」的 CI 漂移检查范围里。
+//
+// 它做什么：
+//   ① 在 TEMP_DIR() 里现造一棵小产物树（index / article / css / .git / admin_password）
+//   ② TCP_LISTEN 127.0.0.1:$TP_PROBE_PORT（缺省 18085）
+//   ③ 打印 LISTEN 行（含真实端口）后进入 TCP_SERVE 循环，最多服务 8 条连接，
+//      空闲 5000ms 即退出
+//   ④ 每条请求把 method + path 打到 stdout，响应由 tp/lib/static_serve.wll 的 HANDLE 决定
+//
+// 跑法（两个终端 / 或先后台再 curl）：
+//   $env:TP_PROBE_PORT="18085"
+//   & D:\wlwl_v0.12.1\wlwl.exe run tp\probe\probe_s3_serve.wll      # 前台，会阻塞
+//   curl -sI  http://127.0.0.1:18085/index.html
+//   curl -s   http://127.0.0.1:18085/article/x.html
+//   curl -sI  http://127.0.0.1:18085/style.css
+//   curl -sI  http://127.0.0.1:18085/.git/config
+//   curl -sI  http://127.0.0.1:18085/admin_password.txt
+//   curl -sI  -X POST http://127.0.0.1:18085/index.html
+//   curl -sI  http://127.0.0.1:18085/%2e%2e/secret.txt
+IMPORT("wlwl:std.net", ["TCP_LISTEN", "TCP_SERVE", "TCP_CLOSE_LISTENER", "TCP_LOCAL_ADDR"]);
+IMPORT("wlwl:std.env", ["ENV_GET"]);
+IMPORT("wlwl:std.fs", ["PATH_CANONICAL", "MKDIRS", "WRITE_FILE", "PATH_JOIN"]);
+IMPORT("wlwl:std.str", ["CAT", "INDEX_OF"]);
+IMPORT("wlwl:std.text", ["TO_INT"]);
+IMPORT("wlwl:std.test", ["TEMP_DIR"]);
+IMPORT("./../lib/static_serve.wll", ["HANDLE"]);
+
+// ── ① 现造一棵小产物树 ────────────────────────────────────────────────
+LET(root, PATH_CANONICAL(TEMP_DIR()));
+IF(IS_ERR(MKDIRS(PATH_JOIN(root, "article"))), PANIC("probe: mkdirs article failed"), NULL);
+IF(IS_ERR(MKDIRS(PATH_JOIN(root, ".git"))), PANIC("probe: mkdirs .git failed"), NULL);
+IF(IS_ERR(WRITE_FILE(PATH_JOIN(root, "index.html"), "<!doctype html>\n<h1>probe home</h1>\n")), PANIC("probe: write index.html failed"), NULL);
+IF(IS_ERR(WRITE_FILE(PATH_JOIN(root, "article", "x.html"), "<!doctype html>\n<article>probe x</article>\n")), PANIC("probe: write article/x.html failed"), NULL);
+IF(IS_ERR(WRITE_FILE(PATH_JOIN(root, "style.css"), "body{margin:0}\n")), PANIC("probe: write style.css failed"), NULL);
+IF(IS_ERR(WRITE_FILE(PATH_JOIN(root, ".git", "config"), "[core]\n")), PANIC("probe: write .git/config failed"), NULL);
+IF(IS_ERR(WRITE_FILE(PATH_JOIN(root, "admin_password.txt"), "hunter2\n")), PANIC("probe: write admin_password.txt failed"), NULL);
+PRINT("probe root: ", root);
+
+// ── ② 请求目标 → path / query ─────────────────────────────────────────
+LET(PATH_OF, FUN((t), (LET(i, INDEX_OF(t, "?")); IF(<(i, 0), t, SUB(t, 0, i)))));
+LET(QUERY_OF, FUN((t), (LET(i, INDEX_OF(t, "?")); IF(<(i, 0), "", SUB(t, +(i, 1))))));
+
+// ── ③ 每条请求：记一行日志 + 交给静态内核 ──────────────────────────────
+LET(handler, FUN((req), (PRINT("REQ ", AT_K(req, "method", "?"), " ", AT_K(req, "path", "?")); HANDLE(INDEX_SET(INDEX_SET(INDEX_SET(INDEX_SET(DICT(), "root", root), "method", AT_K(req, "method", "GET")), "path", PATH_OF(AT_K(req, "path", "/"))), "query", QUERY_OF(AT_K(req, "path", "/")))))));
+
+// ── ④ 监听 + 有限次的 accept 循环（TCP_SERVE 空闲 5000ms 即收工）────────
+LET(port_s, ENV_GET("TP_PROBE_PORT", "18085"));
+LET(port_t, TO_INT(port_s));
+LET(port, IF(IS_ERR(port_t), 18085, port_t));
+LET(l, TCP_LISTEN("127.0.0.1", port));
+IF(IS_ERR(l), (PRINT_ERR("probe: TCP_LISTEN failed: ", ERR_PAYLOAD(l)); PANIC("probe: listen failed")), NULL);
+LET(serve_opts, INDEX_SET(DICT(), "read_timeout_ms", 5000));
+PRINT("LISTEN ", AT_K(TCP_LOCAL_ADDR(l), "port", 0), " root=", root);
+
+// ⚠ 循环**两道界**都要有：`TCP_SERVE` 空闲超时只是**本轮**返回 0 条，
+//   单靠 `served < 8` 会让没有流量的探针永远转下去（实测：5s 一轮，不退出）
+//   ⇒ 再用 `rounds` 封顶，空闲 4 轮（≈20s）自动收工。
+LET MUT(served, 0);
+LET MUT(rounds, 0);
+WHILE(&&(<(served, 8), <(rounds, 4)), (SET(rounds, +(rounds, 1)); SET(served, +(served, TCP_SERVE(l, 5000, serve_opts, handler)))));
+TCP_CLOSE_LISTENER(l);
+PRINT("SERVED ", served);
+PRINT("ROUNDS ", rounds);
+PRINT("DONE");

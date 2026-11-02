@@ -223,6 +223,27 @@ def build_cases():
             esc_items, PageInfo(), make_config(), THEME_CSS, '', False, []),
     })
 
+    # ⚠ D1 回归（2026-11-02 父进程修）：tags 的非 ASCII 空白必须被剥。
+    #   Python 的 str.strip() 剥 U+3000（全角空格）/ U+00A0（NBSP），
+    #   而 WLWL 内建 TRIM **只剥 ASCII 空白** ⇒ 必须用 PY_STRIP。
+    #   这条用例在仍用 TRIM 的实现上会红，正是它的作用。
+    ws_items = [make_article(title='全角标签', date='2026-02-04',
+                             tags='\u3000全角\u3000, \u00a0nbsp\u00a0',
+                             summary='s', file='2026-02-04-ws.html')]
+    cases.append({
+        'name': 'list_tags_unicode_ws',
+        'fn': 'LIST_PAGE',
+        'note': 'D1 回归：tags 的 strip 必须按 Python 的 str.isspace() 剥 '
+                'Unicode 空白（U+3000 / U+00A0），不能只依赖 WLWL 内建 TRIM。',
+        'opts': base_opts(
+            articles=[art(title='全角标签', date='2026-02-04',
+                          tags='\u3000全角\u3000, \u00a0nbsp\u00a0',
+                          summary='s', file='2026-02-04-ws.html')],
+            page_info=page_info()),
+        'want': generate_list_page(
+            ws_items, PageInfo(), make_config(), THEME_CSS, '', False, []),
+    })
+
     dollar_items = [make_article(title='Price $5 and ${x}',
                                  date='2026-02-02', summary='cost $9',
                                  file='2026-02-02-dollar.html')]

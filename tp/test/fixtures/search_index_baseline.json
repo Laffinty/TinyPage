@@ -7,11 +7,12 @@
     "key_order": "插入序 title, summary, url, date, tags, category",
     "known_differences": [
       {
-        "evidence": "实测 WLWL TRIM(\"\\u3000a\\u3000\") 原样返回（len 仍为 3、!= \"a\"）；TRIM(NBSP+\"b\"+NBSP) 同样不动。Python 的 \"\\u3000a\\u3000\".strip() == \"a\"、\"\\xa0b\\xa0\".strip() == \"b\"（两者 isspace() 均为 True）。实测 2026-11-02（探针 s24trim.wll / pytrim.py）。",
-        "fix_if_needed": "按 tp/lib/article_page.wll 的 PY_WS() 写法，用 RE_REPLACE 在两侧剥 Unicode 空白集合（README 陷阱 #41 已登记同一事实）。本卡未改：父会话明确要求保留现有 tags 行为。",
+        "evidence": "内建 TRIM 只剥 ASCII 空白（实测 TRIM(\"\\u3000a\\u3000\") 原样返回），而 Python 的 str.strip() 按 str.isspace() 剥 Unicode 空白（U+3000 / U+00A0 / U+0085 / U+2000-200A / U+2028-2029 / U+202F / U+205F）。",
+        "fix": "按 tp/lib/article_page.wll 的 PY_WS() 写法自建 29 字符空白集合 + WS_LEAD_RE / WS_TRAIL_RE + PY_STRIP，替换 tags 处的 TRIM。（README 陷阱 #41 已登记同一事实。）",
         "id": "D1",
-        "impact": "仅当 tags 串里含 U+3000（全角空格）/ U+00A0（NBSP）等非 ASCII 空白时，本模块与 Python 的 tag 值不同。夹具的 tags_edges 只覆盖 ASCII 空白（空格 / \\t），所以测试全绿 —— 这条缺口**没有**被夹具钉住。",
-        "what": "tags 的 strip 只剥 ASCII 空白（Python 剥 Unicode 空白）"
+        "pinned_by": "tags_edges 用例里的 t8（tags=\"\\u3000全角\\u3000, \\u00a0nbsp\\u00a0\"）—— 仍用 TRIM 的实现会在这条上红。",
+        "status": "fixed",
+        "what": "tags 的 strip 口径 —— **已修**（2026-11-02 父进程）"
       }
     ],
     "module": "tp/lib/search_index.wll",
@@ -252,10 +253,15 @@
           "file": "t7.html",
           "tags": "a , b ,c",
           "title": "t7"
+        },
+        {
+          "file": "t8.html",
+          "tags": "　全角　,  nbsp ",
+          "title": "t8"
         }
       ],
       "standalones": null,
-      "want": "[{\"title\": \"t1\", \"summary\": \"\", \"url\": \"/article/t1.html\", \"date\": \"\", \"tags\": [], \"category\": \"\"}, {\"title\": \"t2\", \"summary\": \"\", \"url\": \"/article/t2.html\", \"date\": \"\", \"tags\": [], \"category\": \"\"}, {\"title\": \"t3\", \"summary\": \"\", \"url\": \"/article/t3.html\", \"date\": \"\", \"tags\": [\"a\"], \"category\": \"\"}, {\"title\": \"t4\", \"summary\": \"\", \"url\": \"/article/t4.html\", \"date\": \"\", \"tags\": [\"a\", \"b\"], \"category\": \"\"}, {\"title\": \"t5\", \"summary\": \"\", \"url\": \"/article/t5.html\", \"date\": \"\", \"tags\": [\"a\", \"b\"], \"category\": \"\"}, {\"title\": \"t6\", \"summary\": \"\", \"url\": \"/article/t6.html\", \"date\": \"\", \"tags\": [\"tab\"], \"category\": \"\"}, {\"title\": \"t7\", \"summary\": \"\", \"url\": \"/article/t7.html\", \"date\": \"\", \"tags\": [\"a\", \"b\", \"c\"], \"category\": \"\"}]"
+      "want": "[{\"title\": \"t1\", \"summary\": \"\", \"url\": \"/article/t1.html\", \"date\": \"\", \"tags\": [], \"category\": \"\"}, {\"title\": \"t2\", \"summary\": \"\", \"url\": \"/article/t2.html\", \"date\": \"\", \"tags\": [], \"category\": \"\"}, {\"title\": \"t3\", \"summary\": \"\", \"url\": \"/article/t3.html\", \"date\": \"\", \"tags\": [\"a\"], \"category\": \"\"}, {\"title\": \"t4\", \"summary\": \"\", \"url\": \"/article/t4.html\", \"date\": \"\", \"tags\": [\"a\", \"b\"], \"category\": \"\"}, {\"title\": \"t5\", \"summary\": \"\", \"url\": \"/article/t5.html\", \"date\": \"\", \"tags\": [\"a\", \"b\"], \"category\": \"\"}, {\"title\": \"t6\", \"summary\": \"\", \"url\": \"/article/t6.html\", \"date\": \"\", \"tags\": [\"tab\"], \"category\": \"\"}, {\"title\": \"t7\", \"summary\": \"\", \"url\": \"/article/t7.html\", \"date\": \"\", \"tags\": [\"a\", \"b\", \"c\"], \"category\": \"\"}, {\"title\": \"t8\", \"summary\": \"\", \"url\": \"/article/t8.html\", \"date\": \"\", \"tags\": [\"全角\", \"nbsp\"], \"category\": \"\"}]"
     },
     "with_standalones": {
       "articles": [

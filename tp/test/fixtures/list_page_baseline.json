@@ -255,6 +255,55 @@
       "want": "<!DOCTYPE html>\n<html lang=\"zh-CN\">\n<head>\n<meta charset=\"utf-8\">\n<meta name=\"viewport\" content=\"width=device-width,initial-scale=1\">\n\n<meta name=\"theme-color\" content=\"#2c3e50\" media=\"(prefers-color-scheme: light)\"><meta name=\"theme-color\" content=\"#ffffff\" media=\"(prefers-color-scheme: dark)\">\n<meta name=\"view-transition\" content=\"same-origin\">\n<meta name=\"description\" content=\"A modern static blog\">\n\n\n<link rel=\"manifest\" href=\"/manifest.json\">\n<title>首页 - TinyPage</title>\n<style>\nbody{color:#222}\n</style>\n\n\n</head>\n<body>\n<div class=\"container\">\n  <header class=\"site-header\">\n    <a href=\"/\" class=\"site-title\">TinyPage</a>\n    <nav class=\"site-nav\" aria-label=\"站点导航\">\n      <a href=\"/\">首页</a>\n      <a href=\"/search.html\">搜索</a>\n      \n    </nav>\n  </header>\n  <main>\n<h1 class=\"page-title\" style=\"position:absolute;left:-9999px;\">文章列表</h1>\n    <div class=\"posts\">\n      \n<article class=\"post-preview\">\n  <header>\n    <h2 class=\"post-title\"><a href=\"/article/2026-02-01-esc.html\">&lt;script&gt;alert(1)&lt;/script&gt;</a></h2>\n    <time class=\"post-date\" datetime=\"2026-02-01 10:00\">2026-02-01 10:00</time>\n    <span class=\"category-badge\">A&amp;B&lt;script&gt;</span>\n  </header>\n  <p class=\"post-summary\">&lt;p&gt;段落&lt;/p&gt; &amp; &lt;em&gt;x&lt;/em&gt;</p>\n  <div class=\"post-tags\"><span class=\"tag\">&lt;b&gt;</span> <span class=\"tag\">&quot;q&quot;</span> <span class=\"tag\">&amp;amp;</span></div>\n  <a href=\"/article/2026-02-01-esc.html\" class=\"read-more\">阅读全文 →</a>\n</article>\n\n    </div>\n    \n  </main>\n  <footer class=\"site-footer\">\n    <p>Powered by TinyPage</p>\n  </footer>\n</div>\n<script src=\"/search.js\" defer></script>\n\n</body>\n</html>"
     },
     {
+      "name": "list_tags_unicode_ws",
+      "fn": "LIST_PAGE",
+      "note": "D1 回归：tags 的 strip 必须按 Python 的 str.isspace() 剥 Unicode 空白（U+3000 / U+00A0），不能只依赖 WLWL 内建 TRIM。",
+      "opts": {
+        "config": {
+          "site_title": "TinyPage",
+          "site_description": "A modern static blog",
+          "site_url": "",
+          "site_author": "",
+          "footer_text": "Powered by TinyPage",
+          "lang": "zh-CN",
+          "theme_name": "default",
+          "page_size": 10,
+          "enable_pwa": true,
+          "enable_dark_mode": true,
+          "enable_search": true,
+          "enable_rss": true,
+          "enable_sitemap": true,
+          "enable_view_transitions": true,
+          "pwa_short_name": "TinyPage",
+          "pwa_theme_color": "#2c3e50",
+          "pwa_bg_color": "#ffffff"
+        },
+        "theme_css": "body{color:#222}",
+        "dark_css": "",
+        "has_dark": false,
+        "standalones": [],
+        "articles": [
+          {
+            "title": "全角标签",
+            "date": "2026-02-04",
+            "tags": "　全角　,  nbsp ",
+            "summary": "s",
+            "category": "",
+            "file": "2026-02-04-ws.html"
+          }
+        ],
+        "page_info": {
+          "current": 1,
+          "total": 1,
+          "has_prev": false,
+          "has_next": false,
+          "prev_url": "",
+          "next_url": ""
+        }
+      },
+      "want": "<!DOCTYPE html>\n<html lang=\"zh-CN\">\n<head>\n<meta charset=\"utf-8\">\n<meta name=\"viewport\" content=\"width=device-width,initial-scale=1\">\n\n<meta name=\"theme-color\" content=\"#2c3e50\" media=\"(prefers-color-scheme: light)\"><meta name=\"theme-color\" content=\"#ffffff\" media=\"(prefers-color-scheme: dark)\">\n<meta name=\"view-transition\" content=\"same-origin\">\n<meta name=\"description\" content=\"A modern static blog\">\n\n\n<link rel=\"manifest\" href=\"/manifest.json\">\n<title>首页 - TinyPage</title>\n<style>\nbody{color:#222}\n</style>\n\n\n</head>\n<body>\n<div class=\"container\">\n  <header class=\"site-header\">\n    <a href=\"/\" class=\"site-title\">TinyPage</a>\n    <nav class=\"site-nav\" aria-label=\"站点导航\">\n      <a href=\"/\">首页</a>\n      <a href=\"/search.html\">搜索</a>\n      \n    </nav>\n  </header>\n  <main>\n<h1 class=\"page-title\" style=\"position:absolute;left:-9999px;\">文章列表</h1>\n    <div class=\"posts\">\n      \n<article class=\"post-preview\">\n  <header>\n    <h2 class=\"post-title\"><a href=\"/article/2026-02-04-ws.html\">全角标签</a></h2>\n    <time class=\"post-date\" datetime=\"2026-02-04\">2026-02-04</time>\n    \n  </header>\n  <p class=\"post-summary\">s</p>\n  <div class=\"post-tags\"><span class=\"tag\">全角</span> <span class=\"tag\">nbsp</span></div>\n  <a href=\"/article/2026-02-04-ws.html\" class=\"read-more\">阅读全文 →</a>\n</article>\n\n    </div>\n    \n  </main>\n  <footer class=\"site-footer\">\n    <p>Powered by TinyPage</p>\n  </footer>\n</div>\n<script src=\"/search.js\" defer></script>\n\n</body>\n</html>"
+    },
+    {
       "name": "list_dollar",
       "fn": "LIST_PAGE",
       "note": "插值守卫：标题/摘要里的 `$` 必须**原样**输出。WLWL 字符串字面量里 `$` 是插值 ⇒ 夹具生成器必须转义成 `\\$`。",

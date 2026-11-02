@@ -31,7 +31,10 @@ Step 'regenerate + no drift' {
     $gens = @(Get-ChildItem -Path tp\test -Filter 'gen_*.py' -File | Sort-Object Name)
     if ($gens.Count -eq 0) { throw 'no generators found' }
     function Artifacts {
+        # tp\bin was added 2026-11-02 (S2-4): build.wll / serve_public.wll /
+        # serve_tls.wll are generator products too, so they need the same guard.
         @(Get-ChildItem tp\lib -Filter *.wll -File) +
+        @(Get-ChildItem tp\bin -Filter *.wll -File) +
         @(Get-ChildItem tp\test -Filter *.wll -File) +
         @(Get-ChildItem tp\test\fixtures -Filter *.json -File)
     }
@@ -52,7 +55,7 @@ Step 'regenerate + no drift' {
 
 # --- step 2: static checks ---
 Step 'static checks' {
-    $wll = @(Get-ChildItem -Path tp\lib, tp\test -Filter *.wll -File |
+    $wll = @(Get-ChildItem -Path tp\lib, tp\bin, tp\test -Filter *.wll -File |
              Where-Object { $_.FullName -notlike '*broken*' })
     Write-Host "  files: $($wll.Count)"
     python tp\test\paren_check.py @($wll | ForEach-Object { $_.FullName })
@@ -68,7 +71,7 @@ Step 'static checks' {
 
 # --- step 3: compile ---
 Step 'wlwl check' {
-    $wll = @(Get-ChildItem -Path tp\lib, tp\test -Filter *.wll -File |
+    $wll = @(Get-ChildItem -Path tp\lib, tp\bin, tp\test -Filter *.wll -File |
              Where-Object { $_.FullName -notlike '*broken*' })
     foreach ($f in $wll) {
         & $exe check $f.FullName | Out-Null
