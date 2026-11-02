@@ -1,0 +1,779 @@
+// tp/test/test_admin_ai.wll —— AI 端点接线的脱网测试（卡 S5-3）
+//
+// ⚠ 本文件由 tp/test/gen_test_admin_ai.py 生成 —— 请勿手改。
+//
+// 被测：tp/lib/admin_ai.wll
+//   AI_ASSIST / TRANSLATE_ENDPOINT      —— 分派 + cfg 摊平 + 出参口径
+//   AI_ASSIST_JSON / TRANSLATE_JSON     —— 响应体（= JSON_ENVELOPE(...)）
+// 基准：tp/test/fixtures/admin_ai_baseline.json
+//   · 期望值由 gen_admin_ai_baseline.py 调**真** ai_assist() 现算（不是手抄）
+//   · 六条刻意偏离登记在该 JSON 的 meta.divergences
+//
+// ⚠ **本文件不出网**：`opts.exchange` 逐层透传到卡 S5-1 的传输注入点，
+//   假传输回放夹具里的原始响应报文 ⇒ 不带 --ext、不碰 tls 也能全绿。
+//
+// ⚠ RUN_TESTS() 的失败**不影响退出码**（规范明载）⇒ 本文件自己把关。
+IMPORT("wlwl:std.test", ["TEST", "ASSERT", "ASSERT_EQ", "RUN_TESTS"]);
+IMPORT("wlwl:std.str", ["CAT", "JOIN", "CONTAINS_SUB", "INDEX_OF"]);
+IMPORT("wlwl:std.json", ["JSON_VALIDATE", "PARSE"]);
+IMPORT("./../lib/admin_ai.wll", [
+        "AI_ASSIST",
+        "TRANSLATE_ENDPOINT",
+        "AI_ASSIST_JSON",
+        "TRANSLATE_JSON"]);
+// 出参口径来自卡 S5-2（这里直接 import，钉的是**接线公式**而非另造形状）
+IMPORT("./../lib/ai.wll", ["JSON_ENVELOPE"]);
+
+// ── 测试缝：假传输（记下真实请求文本，回放夹具里的响应报文）──────────
+LET MUT(T5_seen, "");
+LET MUT(T5_reply, "");
+LET(T5_exchange, FUN((req), (SET(T5_seen, req); T5_reply)));
+
+// ── 用例 ────────────────────────────────────────────────────────
+// ⚠ 每个用例都是「先全部调用、后统一断言」⇒ 请求文本必须**就地快照**，
+//   并且每次调用前都要重设 T5_reply（否则回放的是上一条用例的响应）。
+
+// complete_ok —— complete：真消息构造 → 假 200 → content 取回后 strip ⇒ result "continued words."
+//   出处：admin/actions.py:307-308 + ai_assistance.py:100-113
+SET(T5_seen, "");
+SET(T5_reply, "HTTP/1.1 200 OK\r\nContent-Type: application/json\r\nContent-Length: 173\r\n\r\n{\"id\": \"chatcmpl-test\", \"object\": \"chat.completion\", \"choices\": [{\"index\": 0, \"message\": {\"role\": \"assistant\", \"content\": \"  continued words.  \"}, \"finish_reason\": \"stop\"}]}");
+LET(T5_a_complete_ok, AI_ASSIST(INDEX_SET(INDEX_SET(INDEX_SET(INDEX_SET(DICT(), "action", "complete"), "text", "Hello world"), "cfg", INDEX_SET(INDEX_SET(DICT(), "ai_enabled", TRUE), "ai_api_key", "sk-test")), "exchange", T5_exchange)));
+LET(T5_aw_complete_ok, T5_seen);
+LET(T5_aj_complete_ok, JSON_ENVELOPE(T5_a_complete_ok));
+
+// polish_ok —— polish：result 也 strip
+//   出处：admin/actions.py:309-310 + ai_assistance.py:138-139
+SET(T5_seen, "");
+SET(T5_reply, "HTTP/1.1 200 OK\r\nContent-Type: application/json\r\nContent-Length: 168\r\n\r\n{\"id\": \"chatcmpl-test\", \"object\": \"chat.completion\", \"choices\": [{\"index\": 0, \"message\": {\"role\": \"assistant\", \"content\": \"\\n\\nPolished.\\n\"}, \"finish_reason\": \"stop\"}]}");
+LET(T5_a_polish_ok, AI_ASSIST(INDEX_SET(INDEX_SET(INDEX_SET(INDEX_SET(DICT(), "action", "polish"), "text", "rough text"), "cfg", INDEX_SET(INDEX_SET(DICT(), "ai_enabled", TRUE), "ai_api_key", "sk-test")), "exchange", T5_exchange)));
+LET(T5_aw_polish_ok, T5_seen);
+LET(T5_aj_polish_ok, JSON_ENVELOPE(T5_a_polish_ok));
+
+// polish_chinese —— 出参 JSON 保留原字符（ensure_ascii=False 口径）⇒ 中文字面出现，不写 \\uXXXX
+//   出处：actions.py:325-329（json.dumps 的字节口径）+ ai.wll 刻意语义 ④
+SET(T5_seen, "");
+SET(T5_reply, "HTTP/1.1 200 OK\r\nContent-Type: application/json\r\nContent-Length: 169\r\n\r\n{\"id\": \"chatcmpl-test\", \"object\": \"chat.completion\", \"choices\": [{\"index\": 0, \"message\": {\"role\": \"assistant\", \"content\": \"  中文润色  \"}, \"finish_reason\": \"stop\"}]}");
+LET(T5_a_polish_chinese, AI_ASSIST(INDEX_SET(INDEX_SET(INDEX_SET(INDEX_SET(DICT(), "action", "polish"), "text", "Chinese body"), "cfg", INDEX_SET(INDEX_SET(DICT(), "ai_enabled", TRUE), "ai_api_key", "sk-test")), "exchange", T5_exchange)));
+LET(T5_aw_polish_chinese, T5_seen);
+LET(T5_aj_polish_chinese, JSON_ENVELOPE(T5_a_polish_chinese));
+
+// translate_default —— 不给 lang ⇒ Python 的缺省 "English" ⇒ lang_map 后仍是 English
+//   出处：admin/actions.py:312-315
+SET(T5_seen, "");
+SET(T5_reply, "HTTP/1.1 200 OK\r\nContent-Type: application/json\r\nContent-Length: 162\r\n\r\n{\"id\": \"chatcmpl-test\", \"object\": \"chat.completion\", \"choices\": [{\"index\": 0, \"message\": {\"role\": \"assistant\", \"content\": \"  hello  \"}, \"finish_reason\": \"stop\"}]}");
+LET(T5_a_translate_default, AI_ASSIST(INDEX_SET(INDEX_SET(INDEX_SET(INDEX_SET(DICT(), "action", "translate"), "text", "Hello"), "cfg", INDEX_SET(INDEX_SET(DICT(), "ai_enabled", TRUE), "ai_api_key", "sk-test")), "exchange", T5_exchange)));
+LET(T5_aw_translate_default, T5_seen);
+LET(T5_aj_translate_default, JSON_ENVELOPE(T5_a_translate_default));
+
+// translate_en —— lang=en ⇒ English（硬编码映射）
+//   出处：admin/actions.py:313-314 + ai_assistance.py:141-166
+SET(T5_seen, "");
+SET(T5_reply, "HTTP/1.1 200 OK\r\nContent-Type: application/json\r\nContent-Length: 160\r\n\r\n{\"id\": \"chatcmpl-test\", \"object\": \"chat.completion\", \"choices\": [{\"index\": 0, \"message\": {\"role\": \"assistant\", \"content\": \" hello \"}, \"finish_reason\": \"stop\"}]}");
+LET(T5_a_translate_en, AI_ASSIST(INDEX_SET(INDEX_SET(INDEX_SET(INDEX_SET(INDEX_SET(DICT(), "action", "translate"), "text", "Hello"), "target", "en"), "cfg", INDEX_SET(INDEX_SET(DICT(), "ai_enabled", TRUE), "ai_api_key", "sk-test")), "exchange", T5_exchange)));
+LET(T5_aw_translate_en, T5_seen);
+LET(T5_aj_translate_en, JSON_ENVELOPE(T5_a_translate_en));
+
+// translate_ja —— lang=ja ⇒ Japanese（**只有** ja 是日语，:314）
+//   出处：admin/actions.py:313-314 + content.py:794-795
+SET(T5_seen, "");
+SET(T5_reply, "HTTP/1.1 200 OK\r\nContent-Type: application/json\r\nContent-Length: 170\r\n\r\n{\"id\": \"chatcmpl-test\", \"object\": \"chat.completion\", \"choices\": [{\"index\": 0, \"message\": {\"role\": \"assistant\", \"content\": \" こんにちは \"}, \"finish_reason\": \"stop\"}]}");
+LET(T5_a_translate_ja, AI_ASSIST(INDEX_SET(INDEX_SET(INDEX_SET(INDEX_SET(INDEX_SET(DICT(), "action", "translate"), "text", "Hello"), "target", "ja"), "cfg", INDEX_SET(INDEX_SET(DICT(), "ai_enabled", TRUE), "ai_api_key", "sk-test")), "exchange", T5_exchange)));
+LET(T5_aw_translate_ja, T5_seen);
+LET(T5_aj_translate_ja, JSON_ENVELOPE(T5_a_translate_ja));
+
+// translate_fr —— 未知语言码 ⇒ `lang_map.get("fr", "English")` ⇒ English（不是原样透传）
+//   出处：admin/actions.py:314
+SET(T5_seen, "");
+SET(T5_reply, "HTTP/1.1 200 OK\r\nContent-Type: application/json\r\nContent-Length: 160\r\n\r\n{\"id\": \"chatcmpl-test\", \"object\": \"chat.completion\", \"choices\": [{\"index\": 0, \"message\": {\"role\": \"assistant\", \"content\": \" hello \"}, \"finish_reason\": \"stop\"}]}");
+LET(T5_a_translate_fr, AI_ASSIST(INDEX_SET(INDEX_SET(INDEX_SET(INDEX_SET(INDEX_SET(DICT(), "action", "translate"), "text", "Hello"), "target", "fr"), "cfg", INDEX_SET(INDEX_SET(DICT(), "ai_enabled", TRUE), "ai_api_key", "sk-test")), "exchange", T5_exchange)));
+LET(T5_aw_translate_fr, T5_seen);
+LET(T5_aj_translate_fr, JSON_ENVELOPE(T5_a_translate_fr));
+
+// summarize_long —— summarize：缺省 max_length=160，超长在最后一个空格前截断 + "..."
+//   出处：admin/actions.py:318-319 + ai_assistance.py:193-196
+SET(T5_seen, "");
+SET(T5_reply, "HTTP/1.1 200 OK\r\nContent-Type: application/json\r\nContent-Length: 353\r\n\r\n{\"id\": \"chatcmpl-test\", \"object\": \"chat.completion\", \"choices\": [{\"index\": 0, \"message\": {\"role\": \"assistant\", \"content\": \"word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word \"}, \"finish_reason\": \"stop\"}]}");
+LET(T5_a_summarize_long, AI_ASSIST(INDEX_SET(INDEX_SET(INDEX_SET(INDEX_SET(DICT(), "action", "summarize"), "text", "long text"), "cfg", INDEX_SET(INDEX_SET(DICT(), "ai_enabled", TRUE), "ai_api_key", "sk-test")), "exchange", T5_exchange)));
+LET(T5_aw_summarize_long, T5_seen);
+LET(T5_aj_summarize_long, JSON_ENVELOPE(T5_a_summarize_long));
+
+// summarize_short —— 不超上限 ⇒ strip 后原样
+//   出处：ai_assistance.py:193-196
+SET(T5_seen, "");
+SET(T5_reply, "HTTP/1.1 200 OK\r\nContent-Type: application/json\r\nContent-Length: 163\r\n\r\n{\"id\": \"chatcmpl-test\", \"object\": \"chat.completion\", \"choices\": [{\"index\": 0, \"message\": {\"role\": \"assistant\", \"content\": \"  Short.  \"}, \"finish_reason\": \"stop\"}]}");
+LET(T5_a_summarize_short, AI_ASSIST(INDEX_SET(INDEX_SET(INDEX_SET(INDEX_SET(DICT(), "action", "summarize"), "text", "long text"), "cfg", INDEX_SET(INDEX_SET(DICT(), "ai_enabled", TRUE), "ai_api_key", "sk-test")), "exchange", T5_exchange)));
+LET(T5_aw_summarize_short, T5_seen);
+LET(T5_aj_summarize_short, JSON_ENVELOPE(T5_a_summarize_short));
+
+// tags_json —— suggest_tags：JSON 数组 ⇒ result 是数组（出参里是 ["python", "web"]）
+//   出处：admin/actions.py:316-317 + ai_assistance.py:226-235
+SET(T5_seen, "");
+SET(T5_reply, "HTTP/1.1 200 OK\r\nContent-Type: application/json\r\nContent-Length: 174\r\n\r\n{\"id\": \"chatcmpl-test\", \"object\": \"chat.completion\", \"choices\": [{\"index\": 0, \"message\": {\"role\": \"assistant\", \"content\": \"[\\\"python\\\", \\\"web\\\"]\"}, \"finish_reason\": \"stop\"}]}");
+LET(T5_a_tags_json, AI_ASSIST(INDEX_SET(INDEX_SET(INDEX_SET(INDEX_SET(DICT(), "action", "suggest_tags"), "text", "python web"), "cfg", INDEX_SET(INDEX_SET(DICT(), "ai_enabled", TRUE), "ai_api_key", "sk-test")), "exchange", T5_exchange)));
+LET(T5_aw_tags_json, T5_seen);
+LET(T5_aj_tags_json, JSON_ENVELOPE(T5_a_tags_json));
+
+// tags_fallback —— 内容不是 JSON ⇒ **词频降级**（不是报错）：python 3 / web 2 / tutorial 1
+//   出处：ai_assistance.py:236-261
+SET(T5_seen, "");
+SET(T5_reply, "HTTP/1.1 200 OK\r\nContent-Type: application/json\r\nContent-Length: 176\r\n\r\n{\"id\": \"chatcmpl-test\", \"object\": \"chat.completion\", \"choices\": [{\"index\": 0, \"message\": {\"role\": \"assistant\", \"content\": \"Sure! tags: python, web\"}, \"finish_reason\": \"stop\"}]}");
+LET(T5_a_tags_fallback, AI_ASSIST(INDEX_SET(INDEX_SET(INDEX_SET(INDEX_SET(DICT(), "action", "suggest_tags"), "text", "python web python tutorial web python"), "cfg", INDEX_SET(INDEX_SET(DICT(), "ai_enabled", TRUE), "ai_api_key", "sk-test")), "exchange", T5_exchange)));
+LET(T5_aw_tags_fallback, T5_seen);
+LET(T5_aj_tags_fallback, JSON_ENVELOPE(T5_a_tags_fallback));
+
+// complete_empty —— 空文本 ⇒ Python 直接返回 ""，**不发请求**（:100-101）
+//   出处：ai_assistance.py:100-101
+SET(T5_seen, "");
+SET(T5_reply, "HTTP/1.1 200 OK\r\nContent-Type: application/json\r\nContent-Length: 163\r\n\r\n{\"id\": \"chatcmpl-test\", \"object\": \"chat.completion\", \"choices\": [{\"index\": 0, \"message\": {\"role\": \"assistant\", \"content\": \"never used\"}, \"finish_reason\": \"stop\"}]}");
+LET(T5_a_complete_empty, AI_ASSIST(INDEX_SET(INDEX_SET(INDEX_SET(DICT(), "action", "complete"), "text", ""), "cfg", INDEX_SET(INDEX_SET(DICT(), "ai_enabled", TRUE), "ai_api_key", "sk-test"))));
+LET(T5_aw_complete_empty, T5_seen);
+LET(T5_aj_complete_empty, JSON_ENVELOPE(T5_a_complete_empty));
+
+// unknown_action —— 未知 action ⇒ `{"error": "未知操作: frobnicate"}`，**不落默认分支**，也不发请求
+//   出处：admin/actions.py:320-321
+SET(T5_seen, "");
+SET(T5_reply, "HTTP/1.1 200 OK\r\nContent-Type: application/json\r\nContent-Length: 163\r\n\r\n{\"id\": \"chatcmpl-test\", \"object\": \"chat.completion\", \"choices\": [{\"index\": 0, \"message\": {\"role\": \"assistant\", \"content\": \"never used\"}, \"finish_reason\": \"stop\"}]}");
+LET(T5_a_unknown_action, AI_ASSIST(INDEX_SET(INDEX_SET(INDEX_SET(DICT(), "action", "frobnicate"), "text", "x"), "cfg", INDEX_SET(INDEX_SET(DICT(), "ai_enabled", TRUE), "ai_api_key", "sk-test"))));
+LET(T5_aw_unknown_action, T5_seen);
+LET(T5_aj_unknown_action, JSON_ENVELOPE(T5_a_unknown_action));
+
+// unconfigured_disabled —— ai_enabled 为假 ⇒ 卡面第 ① 条的逐字文案
+//   出处：admin/actions.py:302-304 + ai_assistance.py:273-274
+SET(T5_seen, "");
+SET(T5_reply, "HTTP/1.1 200 OK\r\nContent-Type: application/json\r\nContent-Length: 163\r\n\r\n{\"id\": \"chatcmpl-test\", \"object\": \"chat.completion\", \"choices\": [{\"index\": 0, \"message\": {\"role\": \"assistant\", \"content\": \"never used\"}, \"finish_reason\": \"stop\"}]}");
+LET(T5_a_unconfigured_disabled, AI_ASSIST(INDEX_SET(INDEX_SET(INDEX_SET(DICT(), "action", "complete"), "text", "Hello"), "cfg", INDEX_SET(DICT(), "ai_enabled", FALSE))));
+LET(T5_aw_unconfigured_disabled, T5_seen);
+LET(T5_aj_unconfigured_disabled, JSON_ENVELOPE(T5_a_unconfigured_disabled));
+
+// unconfigured_no_key —— 启用但没 key ⇒ 同一句文案（:275-276 的第二个前置条件）
+//   出处：admin/actions.py:302-304 + ai_assistance.py:275-276
+SET(T5_seen, "");
+SET(T5_reply, "HTTP/1.1 200 OK\r\nContent-Type: application/json\r\nContent-Length: 163\r\n\r\n{\"id\": \"chatcmpl-test\", \"object\": \"chat.completion\", \"choices\": [{\"index\": 0, \"message\": {\"role\": \"assistant\", \"content\": \"never used\"}, \"finish_reason\": \"stop\"}]}");
+LET(T5_a_unconfigured_no_key, AI_ASSIST(INDEX_SET(INDEX_SET(INDEX_SET(DICT(), "action", "polish"), "text", "Hello"), "cfg", INDEX_SET(INDEX_SET(DICT(), "ai_enabled", TRUE), "ai_api_key", ""))));
+LET(T5_aw_unconfigured_no_key, T5_seen);
+LET(T5_aj_unconfigured_no_key, JSON_ENVELOPE(T5_a_unconfigured_no_key));
+
+// unconfigured_unknown_action —— ⚠ 顺序守卫：未配置**先于**分派 ⇒ 报「未启用」，不是「未知操作」
+//   出处：admin/actions.py:302-304（判空在前）vs :320-321（分派在后）
+SET(T5_seen, "");
+SET(T5_reply, "HTTP/1.1 200 OK\r\nContent-Type: application/json\r\nContent-Length: 163\r\n\r\n{\"id\": \"chatcmpl-test\", \"object\": \"chat.completion\", \"choices\": [{\"index\": 0, \"message\": {\"role\": \"assistant\", \"content\": \"never used\"}, \"finish_reason\": \"stop\"}]}");
+LET(T5_a_unconfigured_unknown_action, AI_ASSIST(INDEX_SET(INDEX_SET(INDEX_SET(DICT(), "action", "frobnicate"), "text", "x"), "cfg", INDEX_SET(DICT(), "ai_enabled", FALSE))));
+LET(T5_aw_unconfigured_unknown_action, T5_seen);
+LET(T5_aj_unconfigured_unknown_action, JSON_ENVELOPE(T5_a_unconfigured_unknown_action));
+
+// backend_500 —— 后端 5xx ⇒ Python 抛 AIAssistanceError("API error: 500") ⇒ 200 + JSON 错误
+//   出处：ai_assistance.py:82-85 + actions.py:322-329
+SET(T5_seen, "");
+SET(T5_reply, "HTTP/1.1 500 Internal Server Error\r\nContent-Type: application/json\r\nContent-Length: 17\r\n\r\n{\"error\": \"boom\"}");
+LET(T5_a_backend_500, AI_ASSIST(INDEX_SET(INDEX_SET(INDEX_SET(INDEX_SET(DICT(), "action", "complete"), "text", "Hello"), "cfg", INDEX_SET(INDEX_SET(DICT(), "ai_enabled", TRUE), "ai_api_key", "sk-test")), "exchange", T5_exchange)));
+LET(T5_aw_backend_500, T5_seen);
+LET(T5_aj_backend_500, JSON_ENVELOPE(T5_a_backend_500));
+
+// backend_empty_choices —— choices 为空 ⇒ AIAssistanceError("No response from AI") ⇒ JSON 错误
+//   出处：ai_assistance.py:78-80
+SET(T5_seen, "");
+SET(T5_reply, "HTTP/1.1 200 OK\r\nContent-Type: application/json\r\nContent-Length: 26\r\n\r\n{\"id\": \"x\", \"choices\": []}");
+LET(T5_a_backend_empty_choices, AI_ASSIST(INDEX_SET(INDEX_SET(INDEX_SET(INDEX_SET(DICT(), "action", "complete"), "text", "Hello"), "cfg", INDEX_SET(INDEX_SET(DICT(), "ai_enabled", TRUE), "ai_api_key", "sk-test")), "exchange", T5_exchange)));
+LET(T5_aw_backend_empty_choices, T5_seen);
+LET(T5_aj_backend_empty_choices, JSON_ENVELOPE(T5_a_backend_empty_choices));
+
+// backend_html —— ⚠ 非 JSON 响应体：Python 的 JSONDecodeError **不被** ai_assist 捕获 ⇒ WSGI 500；我们返回 JSON 错误（卡面第 ② 条，登记为刻意语义 ③）
+//   出处：ai_assistance.py:77（json.loads）+ actions.py:322（只捕 AIAssistanceError）
+SET(T5_seen, "");
+SET(T5_reply, "HTTP/1.1 200 OK\r\nContent-Type: application/json\r\nContent-Length: 24\r\n\r\n<html>bad gateway</html>");
+LET(T5_a_backend_html, AI_ASSIST(INDEX_SET(INDEX_SET(INDEX_SET(INDEX_SET(DICT(), "action", "complete"), "text", "Hello"), "cfg", INDEX_SET(INDEX_SET(DICT(), "ai_enabled", TRUE), "ai_api_key", "sk-test")), "exchange", T5_exchange)));
+LET(T5_aw_backend_html, T5_seen);
+LET(T5_aj_backend_html, JSON_ENVELOPE(T5_a_backend_html));
+
+// endpoint/translate_en_default —— /translate 不给 lang ⇒ content.py 的缺省 "en" ⇒ English
+//   出处：content.py:794-795 + actions.py:334
+SET(T5_seen, "");
+SET(T5_reply, "HTTP/1.1 200 OK\r\nContent-Type: application/json\r\nContent-Length: 160\r\n\r\n{\"id\": \"chatcmpl-test\", \"object\": \"chat.completion\", \"choices\": [{\"index\": 0, \"message\": {\"role\": \"assistant\", \"content\": \" hello \"}, \"finish_reason\": \"stop\"}]}");
+LET(T5_e_translate_en_default, TRANSLATE_ENDPOINT(INDEX_SET(INDEX_SET(INDEX_SET(DICT(), "text", "Hello"), "cfg", INDEX_SET(INDEX_SET(DICT(), "ai_enabled", TRUE), "ai_api_key", "sk-test")), "exchange", T5_exchange)));
+LET(T5_ew_translate_en_default, T5_seen);
+LET(T5_ej_translate_en_default, JSON_ENVELOPE(T5_e_translate_en_default));
+
+// endpoint/translate_ja —— /translate lang=ja ⇒ Japanese
+//   出处：content.py:794-795,805
+SET(T5_seen, "");
+SET(T5_reply, "HTTP/1.1 200 OK\r\nContent-Type: application/json\r\nContent-Length: 170\r\n\r\n{\"id\": \"chatcmpl-test\", \"object\": \"chat.completion\", \"choices\": [{\"index\": 0, \"message\": {\"role\": \"assistant\", \"content\": \" こんにちは \"}, \"finish_reason\": \"stop\"}]}");
+LET(T5_e_translate_ja, TRANSLATE_ENDPOINT(INDEX_SET(INDEX_SET(INDEX_SET(INDEX_SET(DICT(), "text", "Hello"), "target", "ja"), "cfg", INDEX_SET(INDEX_SET(DICT(), "ai_enabled", TRUE), "ai_api_key", "sk-test")), "exchange", T5_exchange)));
+LET(T5_ew_translate_ja, T5_seen);
+LET(T5_ej_translate_ja, JSON_ENVELOPE(T5_e_translate_ja));
+
+// endpoint/translate_fr —— 未知码 ⇒ English（`lang_map.get(target_lang, "English")`）
+//   出处：content.py:794-795
+SET(T5_seen, "");
+SET(T5_reply, "HTTP/1.1 200 OK\r\nContent-Type: application/json\r\nContent-Length: 160\r\n\r\n{\"id\": \"chatcmpl-test\", \"object\": \"chat.completion\", \"choices\": [{\"index\": 0, \"message\": {\"role\": \"assistant\", \"content\": \" hello \"}, \"finish_reason\": \"stop\"}]}");
+LET(T5_e_translate_fr, TRANSLATE_ENDPOINT(INDEX_SET(INDEX_SET(INDEX_SET(INDEX_SET(DICT(), "text", "Hello"), "target", "fr"), "cfg", INDEX_SET(INDEX_SET(DICT(), "ai_enabled", TRUE), "ai_api_key", "sk-test")), "exchange", T5_exchange)));
+LET(T5_ew_translate_fr, T5_seen);
+LET(T5_ej_translate_fr, JSON_ENVELOPE(T5_e_translate_fr));
+
+// endpoint/unconfigured —— /translate 未配置 ⇒ 本模块用卡面 ① 的文案；Python 的文章层另有文案（见 divergences ②）
+//   出处：content.py:797-802（对比）+ actions.py:304（本模块采用）
+SET(T5_seen, "");
+SET(T5_reply, "HTTP/1.1 200 OK\r\nContent-Type: application/json\r\nContent-Length: 163\r\n\r\n{\"id\": \"chatcmpl-test\", \"object\": \"chat.completion\", \"choices\": [{\"index\": 0, \"message\": {\"role\": \"assistant\", \"content\": \"never used\"}, \"finish_reason\": \"stop\"}]}");
+LET(T5_e_unconfigured, TRANSLATE_ENDPOINT(INDEX_SET(INDEX_SET(INDEX_SET(DICT(), "text", "Hello"), "target", "en"), "cfg", INDEX_SET(DICT(), "ai_enabled", FALSE))));
+LET(T5_ew_unconfigured, T5_seen);
+LET(T5_ej_unconfigured, JSON_ENVELOPE(T5_e_unconfigured));
+
+// endpoint/backend_500 —— /translate 的后端错误同样必须是 JSON
+//   出处：actions.py:322-329
+SET(T5_seen, "");
+SET(T5_reply, "HTTP/1.1 500 Internal Server Error\r\nContent-Type: application/json\r\nContent-Length: 17\r\n\r\n{\"error\": \"boom\"}");
+LET(T5_e_backend_500, TRANSLATE_ENDPOINT(INDEX_SET(INDEX_SET(INDEX_SET(INDEX_SET(DICT(), "text", "Hello"), "target", "en"), "cfg", INDEX_SET(INDEX_SET(DICT(), "ai_enabled", TRUE), "ai_api_key", "sk-test")), "exchange", T5_exchange)));
+LET(T5_ew_backend_500, T5_seen);
+LET(T5_ej_backend_500, JSON_ENVELOPE(T5_e_backend_500));
+
+// ── ① /ai-assist ────────────────────────────────────────────────
+// ⚠ 期望值 = 真 ai_assist() 的 JSON；请求体 = 真 payload 按 STRINGIFY 口径重排
+
+TEST("assist/complete_ok/ok", FUN(() ,
+    (ASSERT_EQ(AT_K(T5_a_complete_ok, "ok", "?"), TRUE));
+    TRUE));
+TEST("assist/complete_ok/json", FUN(() ,
+    (ASSERT_EQ(IS_ERR(JSON_VALIDATE(T5_aj_complete_ok)), FALSE));
+    (ASSERT_EQ(TYPE(PARSE(T5_aj_complete_ok)), "DICT"));
+    TRUE));
+TEST("assist/complete_ok/body", FUN(() ,
+    // 逐字节对齐真 Python 的 {"result"|"error": …}（ensure_ascii=False 口径）
+    (ASSERT_EQ(T5_aj_complete_ok, "{\"result\": \"continued words.\"}"));
+    TRUE));
+TEST("assist/complete_ok/transport", FUN(() ,
+    (ASSERT(>(LEN(T5_aw_complete_ok), 0),
+            "complete_ok: exchange must be called"));
+    TRUE));
+TEST("assist/complete_ok/wire_body", FUN(() ,
+    // 请求体 = 报文里第一个 CRLFCRLF 之后的全部（STRINGIFY 口径）
+    (ASSERT_EQ(SUB(T5_aw_complete_ok, +(INDEX_OF(T5_aw_complete_ok, "\r\n\r\n"), 4)), "{\"messages\":[{\"content\":\"You are a helpful writing assistant. Continue the user's text naturally and coherently.\",\"role\":\"system\"},{\"content\":\"Continue this text:\\n\\nHello world\",\"role\":\"user\"}],\"model\":\"gpt-3.5-turbo\",\"temperature\":0.8}"));
+    TRUE));
+
+TEST("assist/polish_ok/ok", FUN(() ,
+    (ASSERT_EQ(AT_K(T5_a_polish_ok, "ok", "?"), TRUE));
+    TRUE));
+TEST("assist/polish_ok/json", FUN(() ,
+    (ASSERT_EQ(IS_ERR(JSON_VALIDATE(T5_aj_polish_ok)), FALSE));
+    (ASSERT_EQ(TYPE(PARSE(T5_aj_polish_ok)), "DICT"));
+    TRUE));
+TEST("assist/polish_ok/body", FUN(() ,
+    // 逐字节对齐真 Python 的 {"result"|"error": …}（ensure_ascii=False 口径）
+    (ASSERT_EQ(T5_aj_polish_ok, "{\"result\": \"Polished.\"}"));
+    TRUE));
+TEST("assist/polish_ok/transport", FUN(() ,
+    (ASSERT(>(LEN(T5_aw_polish_ok), 0),
+            "polish_ok: exchange must be called"));
+    TRUE));
+TEST("assist/polish_ok/wire_body", FUN(() ,
+    // 请求体 = 报文里第一个 CRLFCRLF 之后的全部（STRINGIFY 口径）
+    (ASSERT_EQ(SUB(T5_aw_polish_ok, +(INDEX_OF(T5_aw_polish_ok, "\r\n\r\n"), 4)), "{\"messages\":[{\"content\":\"You are a professional editor. Improve the text for clarity, flow, and style while keeping the original meaning. Only return the improved text, no explanations.\",\"role\":\"system\"},{\"content\":\"Polish this text:\\n\\nrough text\",\"role\":\"user\"}],\"model\":\"gpt-3.5-turbo\",\"temperature\":0.5}"));
+    TRUE));
+
+TEST("assist/polish_chinese/ok", FUN(() ,
+    (ASSERT_EQ(AT_K(T5_a_polish_chinese, "ok", "?"), TRUE));
+    TRUE));
+TEST("assist/polish_chinese/json", FUN(() ,
+    (ASSERT_EQ(IS_ERR(JSON_VALIDATE(T5_aj_polish_chinese)), FALSE));
+    (ASSERT_EQ(TYPE(PARSE(T5_aj_polish_chinese)), "DICT"));
+    TRUE));
+TEST("assist/polish_chinese/body", FUN(() ,
+    // 逐字节对齐真 Python 的 {"result"|"error": …}（ensure_ascii=False 口径）
+    (ASSERT_EQ(T5_aj_polish_chinese, "{\"result\": \"中文润色\"}"));
+    TRUE));
+TEST("assist/polish_chinese/transport", FUN(() ,
+    (ASSERT(>(LEN(T5_aw_polish_chinese), 0),
+            "polish_chinese: exchange must be called"));
+    TRUE));
+TEST("assist/polish_chinese/wire_body", FUN(() ,
+    // 请求体 = 报文里第一个 CRLFCRLF 之后的全部（STRINGIFY 口径）
+    (ASSERT_EQ(SUB(T5_aw_polish_chinese, +(INDEX_OF(T5_aw_polish_chinese, "\r\n\r\n"), 4)), "{\"messages\":[{\"content\":\"You are a professional editor. Improve the text for clarity, flow, and style while keeping the original meaning. Only return the improved text, no explanations.\",\"role\":\"system\"},{\"content\":\"Polish this text:\\n\\nChinese body\",\"role\":\"user\"}],\"model\":\"gpt-3.5-turbo\",\"temperature\":0.5}"));
+    TRUE));
+
+TEST("assist/translate_default/ok", FUN(() ,
+    (ASSERT_EQ(AT_K(T5_a_translate_default, "ok", "?"), TRUE));
+    TRUE));
+TEST("assist/translate_default/json", FUN(() ,
+    (ASSERT_EQ(IS_ERR(JSON_VALIDATE(T5_aj_translate_default)), FALSE));
+    (ASSERT_EQ(TYPE(PARSE(T5_aj_translate_default)), "DICT"));
+    TRUE));
+TEST("assist/translate_default/body", FUN(() ,
+    // 逐字节对齐真 Python 的 {"result"|"error": …}（ensure_ascii=False 口径）
+    (ASSERT_EQ(T5_aj_translate_default, "{\"result\": \"hello\"}"));
+    TRUE));
+TEST("assist/translate_default/transport", FUN(() ,
+    (ASSERT(>(LEN(T5_aw_translate_default), 0),
+            "translate_default: exchange must be called"));
+    TRUE));
+TEST("assist/translate_default/wire_body", FUN(() ,
+    // 请求体 = 报文里第一个 CRLFCRLF 之后的全部（STRINGIFY 口径）
+    (ASSERT_EQ(SUB(T5_aw_translate_default, +(INDEX_OF(T5_aw_translate_default, "\r\n\r\n"), 4)), "{\"messages\":[{\"content\":\"You are a professional translator. Translate the text to English accurately and naturally. Only return the translated text, no explanations.\",\"role\":\"system\"},{\"content\":\"Translate to English:\\n\\nHello\",\"role\":\"user\"}],\"model\":\"gpt-3.5-turbo\",\"temperature\":0.3}"));
+    TRUE));
+TEST("assist/translate_default/wire_lang", FUN(() ,
+    (ASSERT(CONTAINS_SUB(T5_aw_translate_default, "Translate to English"),
+            "translate_default: target language must reach the request"));
+    TRUE));
+
+TEST("assist/translate_en/ok", FUN(() ,
+    (ASSERT_EQ(AT_K(T5_a_translate_en, "ok", "?"), TRUE));
+    TRUE));
+TEST("assist/translate_en/json", FUN(() ,
+    (ASSERT_EQ(IS_ERR(JSON_VALIDATE(T5_aj_translate_en)), FALSE));
+    (ASSERT_EQ(TYPE(PARSE(T5_aj_translate_en)), "DICT"));
+    TRUE));
+TEST("assist/translate_en/body", FUN(() ,
+    // 逐字节对齐真 Python 的 {"result"|"error": …}（ensure_ascii=False 口径）
+    (ASSERT_EQ(T5_aj_translate_en, "{\"result\": \"hello\"}"));
+    TRUE));
+TEST("assist/translate_en/transport", FUN(() ,
+    (ASSERT(>(LEN(T5_aw_translate_en), 0),
+            "translate_en: exchange must be called"));
+    TRUE));
+TEST("assist/translate_en/wire_body", FUN(() ,
+    // 请求体 = 报文里第一个 CRLFCRLF 之后的全部（STRINGIFY 口径）
+    (ASSERT_EQ(SUB(T5_aw_translate_en, +(INDEX_OF(T5_aw_translate_en, "\r\n\r\n"), 4)), "{\"messages\":[{\"content\":\"You are a professional translator. Translate the text to English accurately and naturally. Only return the translated text, no explanations.\",\"role\":\"system\"},{\"content\":\"Translate to English:\\n\\nHello\",\"role\":\"user\"}],\"model\":\"gpt-3.5-turbo\",\"temperature\":0.3}"));
+    TRUE));
+TEST("assist/translate_en/wire_lang", FUN(() ,
+    (ASSERT(CONTAINS_SUB(T5_aw_translate_en, "Translate to English"),
+            "translate_en: target language must reach the request"));
+    TRUE));
+
+TEST("assist/translate_ja/ok", FUN(() ,
+    (ASSERT_EQ(AT_K(T5_a_translate_ja, "ok", "?"), TRUE));
+    TRUE));
+TEST("assist/translate_ja/json", FUN(() ,
+    (ASSERT_EQ(IS_ERR(JSON_VALIDATE(T5_aj_translate_ja)), FALSE));
+    (ASSERT_EQ(TYPE(PARSE(T5_aj_translate_ja)), "DICT"));
+    TRUE));
+TEST("assist/translate_ja/body", FUN(() ,
+    // 逐字节对齐真 Python 的 {"result"|"error": …}（ensure_ascii=False 口径）
+    (ASSERT_EQ(T5_aj_translate_ja, "{\"result\": \"こんにちは\"}"));
+    TRUE));
+TEST("assist/translate_ja/transport", FUN(() ,
+    (ASSERT(>(LEN(T5_aw_translate_ja), 0),
+            "translate_ja: exchange must be called"));
+    TRUE));
+TEST("assist/translate_ja/wire_body", FUN(() ,
+    // 请求体 = 报文里第一个 CRLFCRLF 之后的全部（STRINGIFY 口径）
+    (ASSERT_EQ(SUB(T5_aw_translate_ja, +(INDEX_OF(T5_aw_translate_ja, "\r\n\r\n"), 4)), "{\"messages\":[{\"content\":\"You are a professional translator. Translate the text to Japanese accurately and naturally. Only return the translated text, no explanations.\",\"role\":\"system\"},{\"content\":\"Translate to Japanese:\\n\\nHello\",\"role\":\"user\"}],\"model\":\"gpt-3.5-turbo\",\"temperature\":0.3}"));
+    TRUE));
+TEST("assist/translate_ja/wire_lang", FUN(() ,
+    (ASSERT(CONTAINS_SUB(T5_aw_translate_ja, "Translate to Japanese"),
+            "translate_ja: target language must reach the request"));
+    TRUE));
+
+TEST("assist/translate_fr/ok", FUN(() ,
+    (ASSERT_EQ(AT_K(T5_a_translate_fr, "ok", "?"), TRUE));
+    TRUE));
+TEST("assist/translate_fr/json", FUN(() ,
+    (ASSERT_EQ(IS_ERR(JSON_VALIDATE(T5_aj_translate_fr)), FALSE));
+    (ASSERT_EQ(TYPE(PARSE(T5_aj_translate_fr)), "DICT"));
+    TRUE));
+TEST("assist/translate_fr/body", FUN(() ,
+    // 逐字节对齐真 Python 的 {"result"|"error": …}（ensure_ascii=False 口径）
+    (ASSERT_EQ(T5_aj_translate_fr, "{\"result\": \"hello\"}"));
+    TRUE));
+TEST("assist/translate_fr/transport", FUN(() ,
+    (ASSERT(>(LEN(T5_aw_translate_fr), 0),
+            "translate_fr: exchange must be called"));
+    TRUE));
+TEST("assist/translate_fr/wire_body", FUN(() ,
+    // 请求体 = 报文里第一个 CRLFCRLF 之后的全部（STRINGIFY 口径）
+    (ASSERT_EQ(SUB(T5_aw_translate_fr, +(INDEX_OF(T5_aw_translate_fr, "\r\n\r\n"), 4)), "{\"messages\":[{\"content\":\"You are a professional translator. Translate the text to English accurately and naturally. Only return the translated text, no explanations.\",\"role\":\"system\"},{\"content\":\"Translate to English:\\n\\nHello\",\"role\":\"user\"}],\"model\":\"gpt-3.5-turbo\",\"temperature\":0.3}"));
+    TRUE));
+TEST("assist/translate_fr/wire_lang", FUN(() ,
+    (ASSERT(CONTAINS_SUB(T5_aw_translate_fr, "Translate to English"),
+            "translate_fr: target language must reach the request"));
+    TRUE));
+
+TEST("assist/summarize_long/ok", FUN(() ,
+    (ASSERT_EQ(AT_K(T5_a_summarize_long, "ok", "?"), TRUE));
+    TRUE));
+TEST("assist/summarize_long/json", FUN(() ,
+    (ASSERT_EQ(IS_ERR(JSON_VALIDATE(T5_aj_summarize_long)), FALSE));
+    (ASSERT_EQ(TYPE(PARSE(T5_aj_summarize_long)), "DICT"));
+    TRUE));
+TEST("assist/summarize_long/body", FUN(() ,
+    // 逐字节对齐真 Python 的 {"result"|"error": …}（ensure_ascii=False 口径）
+    (ASSERT_EQ(T5_aj_summarize_long, "{\"result\": \"word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word...\"}"));
+    TRUE));
+TEST("assist/summarize_long/transport", FUN(() ,
+    (ASSERT(>(LEN(T5_aw_summarize_long), 0),
+            "summarize_long: exchange must be called"));
+    TRUE));
+TEST("assist/summarize_long/wire_body", FUN(() ,
+    // 请求体 = 报文里第一个 CRLFCRLF 之后的全部（STRINGIFY 口径）
+    (ASSERT_EQ(SUB(T5_aw_summarize_long, +(INDEX_OF(T5_aw_summarize_long, "\r\n\r\n"), 4)), "{\"messages\":[{\"content\":\"You are a content summarizer. Create a concise summary in no more than 160 characters. The summary should capture the main points. Only return the summary, no labels.\",\"role\":\"system\"},{\"content\":\"Summarize this text:\\n\\nlong text\",\"role\":\"user\"}],\"model\":\"gpt-3.5-turbo\",\"temperature\":0.3}"));
+    TRUE));
+
+TEST("assist/summarize_short/ok", FUN(() ,
+    (ASSERT_EQ(AT_K(T5_a_summarize_short, "ok", "?"), TRUE));
+    TRUE));
+TEST("assist/summarize_short/json", FUN(() ,
+    (ASSERT_EQ(IS_ERR(JSON_VALIDATE(T5_aj_summarize_short)), FALSE));
+    (ASSERT_EQ(TYPE(PARSE(T5_aj_summarize_short)), "DICT"));
+    TRUE));
+TEST("assist/summarize_short/body", FUN(() ,
+    // 逐字节对齐真 Python 的 {"result"|"error": …}（ensure_ascii=False 口径）
+    (ASSERT_EQ(T5_aj_summarize_short, "{\"result\": \"Short.\"}"));
+    TRUE));
+TEST("assist/summarize_short/transport", FUN(() ,
+    (ASSERT(>(LEN(T5_aw_summarize_short), 0),
+            "summarize_short: exchange must be called"));
+    TRUE));
+TEST("assist/summarize_short/wire_body", FUN(() ,
+    // 请求体 = 报文里第一个 CRLFCRLF 之后的全部（STRINGIFY 口径）
+    (ASSERT_EQ(SUB(T5_aw_summarize_short, +(INDEX_OF(T5_aw_summarize_short, "\r\n\r\n"), 4)), "{\"messages\":[{\"content\":\"You are a content summarizer. Create a concise summary in no more than 160 characters. The summary should capture the main points. Only return the summary, no labels.\",\"role\":\"system\"},{\"content\":\"Summarize this text:\\n\\nlong text\",\"role\":\"user\"}],\"model\":\"gpt-3.5-turbo\",\"temperature\":0.3}"));
+    TRUE));
+
+TEST("assist/tags_json/ok", FUN(() ,
+    (ASSERT_EQ(AT_K(T5_a_tags_json, "ok", "?"), TRUE));
+    TRUE));
+TEST("assist/tags_json/json", FUN(() ,
+    (ASSERT_EQ(IS_ERR(JSON_VALIDATE(T5_aj_tags_json)), FALSE));
+    (ASSERT_EQ(TYPE(PARSE(T5_aj_tags_json)), "DICT"));
+    TRUE));
+TEST("assist/tags_json/body", FUN(() ,
+    // 逐字节对齐真 Python 的 {"result"|"error": …}（ensure_ascii=False 口径）
+    (ASSERT_EQ(T5_aj_tags_json, "{\"result\": [\"python\", \"web\"]}"));
+    TRUE));
+TEST("assist/tags_json/transport", FUN(() ,
+    (ASSERT(>(LEN(T5_aw_tags_json), 0),
+            "tags_json: exchange must be called"));
+    TRUE));
+TEST("assist/tags_json/wire_body", FUN(() ,
+    // 请求体 = 报文里第一个 CRLFCRLF 之后的全部（STRINGIFY 口径）
+    (ASSERT_EQ(SUB(T5_aw_tags_json, +(INDEX_OF(T5_aw_tags_json, "\r\n\r\n"), 4)), "{\"messages\":[{\"content\":\"You are a content analyst. Suggest exactly 5 relevant tags for this article. Tags should be short (1-3 words), lowercase, and relevant to the main topics. Return ONLY a JSON array of tag strings, like [\\\"python\\\", \\\"web\\\", \\\"tutorial\\\"]. No explanations.\",\"role\":\"system\"},{\"content\":\"Suggest tags for:\\n\\npython web\",\"role\":\"user\"}],\"model\":\"gpt-3.5-turbo\",\"temperature\":0.3}"));
+    TRUE));
+
+TEST("assist/tags_fallback/ok", FUN(() ,
+    (ASSERT_EQ(AT_K(T5_a_tags_fallback, "ok", "?"), TRUE));
+    TRUE));
+TEST("assist/tags_fallback/json", FUN(() ,
+    (ASSERT_EQ(IS_ERR(JSON_VALIDATE(T5_aj_tags_fallback)), FALSE));
+    (ASSERT_EQ(TYPE(PARSE(T5_aj_tags_fallback)), "DICT"));
+    TRUE));
+TEST("assist/tags_fallback/body", FUN(() ,
+    // 逐字节对齐真 Python 的 {"result"|"error": …}（ensure_ascii=False 口径）
+    (ASSERT_EQ(T5_aj_tags_fallback, "{\"result\": [\"python\", \"web\", \"tutorial\"]}"));
+    TRUE));
+TEST("assist/tags_fallback/transport", FUN(() ,
+    (ASSERT(>(LEN(T5_aw_tags_fallback), 0),
+            "tags_fallback: exchange must be called"));
+    TRUE));
+TEST("assist/tags_fallback/wire_body", FUN(() ,
+    // 请求体 = 报文里第一个 CRLFCRLF 之后的全部（STRINGIFY 口径）
+    (ASSERT_EQ(SUB(T5_aw_tags_fallback, +(INDEX_OF(T5_aw_tags_fallback, "\r\n\r\n"), 4)), "{\"messages\":[{\"content\":\"You are a content analyst. Suggest exactly 5 relevant tags for this article. Tags should be short (1-3 words), lowercase, and relevant to the main topics. Return ONLY a JSON array of tag strings, like [\\\"python\\\", \\\"web\\\", \\\"tutorial\\\"]. No explanations.\",\"role\":\"system\"},{\"content\":\"Suggest tags for:\\n\\npython web python tutorial web python\",\"role\":\"user\"}],\"model\":\"gpt-3.5-turbo\",\"temperature\":0.3}"));
+    TRUE));
+
+TEST("assist/complete_empty/ok", FUN(() ,
+    (ASSERT_EQ(AT_K(T5_a_complete_empty, "ok", "?"), TRUE));
+    TRUE));
+TEST("assist/complete_empty/json", FUN(() ,
+    (ASSERT_EQ(IS_ERR(JSON_VALIDATE(T5_aj_complete_empty)), FALSE));
+    (ASSERT_EQ(TYPE(PARSE(T5_aj_complete_empty)), "DICT"));
+    TRUE));
+TEST("assist/complete_empty/body", FUN(() ,
+    // 逐字节对齐真 Python 的 {"result"|"error": …}（ensure_ascii=False 口径）
+    (ASSERT_EQ(T5_aj_complete_empty, "{\"result\": \"\"}"));
+    TRUE));
+TEST("assist/complete_empty/transport", FUN(() ,
+    (ASSERT_EQ(T5_aw_complete_empty, ""));
+    TRUE));
+
+TEST("assist/unknown_action/ok", FUN(() ,
+    (ASSERT_EQ(AT_K(T5_a_unknown_action, "ok", "?"), FALSE));
+    TRUE));
+TEST("assist/unknown_action/json", FUN(() ,
+    (ASSERT_EQ(IS_ERR(JSON_VALIDATE(T5_aj_unknown_action)), FALSE));
+    (ASSERT_EQ(TYPE(PARSE(T5_aj_unknown_action)), "DICT"));
+    TRUE));
+TEST("assist/unknown_action/body", FUN(() ,
+    // 逐字节对齐真 Python 的 {"result"|"error": …}（ensure_ascii=False 口径）
+    (ASSERT_EQ(T5_aj_unknown_action, "{\"error\": \"未知操作: frobnicate\"}"));
+    TRUE));
+TEST("assist/unknown_action/transport", FUN(() ,
+    (ASSERT_EQ(T5_aw_unknown_action, ""));
+    TRUE));
+
+TEST("assist/unconfigured_disabled/ok", FUN(() ,
+    (ASSERT_EQ(AT_K(T5_a_unconfigured_disabled, "ok", "?"), FALSE));
+    TRUE));
+TEST("assist/unconfigured_disabled/json", FUN(() ,
+    (ASSERT_EQ(IS_ERR(JSON_VALIDATE(T5_aj_unconfigured_disabled)), FALSE));
+    (ASSERT_EQ(TYPE(PARSE(T5_aj_unconfigured_disabled)), "DICT"));
+    TRUE));
+TEST("assist/unconfigured_disabled/body", FUN(() ,
+    // 逐字节对齐真 Python 的 {"result"|"error": …}（ensure_ascii=False 口径）
+    (ASSERT_EQ(T5_aj_unconfigured_disabled, "{\"error\": \"AI 未启用或未配置 API Key\"}"));
+    TRUE));
+TEST("assist/unconfigured_disabled/transport", FUN(() ,
+    (ASSERT_EQ(T5_aw_unconfigured_disabled, ""));
+    TRUE));
+
+TEST("assist/unconfigured_no_key/ok", FUN(() ,
+    (ASSERT_EQ(AT_K(T5_a_unconfigured_no_key, "ok", "?"), FALSE));
+    TRUE));
+TEST("assist/unconfigured_no_key/json", FUN(() ,
+    (ASSERT_EQ(IS_ERR(JSON_VALIDATE(T5_aj_unconfigured_no_key)), FALSE));
+    (ASSERT_EQ(TYPE(PARSE(T5_aj_unconfigured_no_key)), "DICT"));
+    TRUE));
+TEST("assist/unconfigured_no_key/body", FUN(() ,
+    // 逐字节对齐真 Python 的 {"result"|"error": …}（ensure_ascii=False 口径）
+    (ASSERT_EQ(T5_aj_unconfigured_no_key, "{\"error\": \"AI 未启用或未配置 API Key\"}"));
+    TRUE));
+TEST("assist/unconfigured_no_key/transport", FUN(() ,
+    (ASSERT_EQ(T5_aw_unconfigured_no_key, ""));
+    TRUE));
+
+TEST("assist/unconfigured_unknown_action/ok", FUN(() ,
+    (ASSERT_EQ(AT_K(T5_a_unconfigured_unknown_action, "ok", "?"), FALSE));
+    TRUE));
+TEST("assist/unconfigured_unknown_action/json", FUN(() ,
+    (ASSERT_EQ(IS_ERR(JSON_VALIDATE(T5_aj_unconfigured_unknown_action)), FALSE));
+    (ASSERT_EQ(TYPE(PARSE(T5_aj_unconfigured_unknown_action)), "DICT"));
+    TRUE));
+TEST("assist/unconfigured_unknown_action/body", FUN(() ,
+    // 逐字节对齐真 Python 的 {"result"|"error": …}（ensure_ascii=False 口径）
+    (ASSERT_EQ(T5_aj_unconfigured_unknown_action, "{\"error\": \"AI 未启用或未配置 API Key\"}"));
+    TRUE));
+TEST("assist/unconfigured_unknown_action/transport", FUN(() ,
+    (ASSERT_EQ(T5_aw_unconfigured_unknown_action, ""));
+    TRUE));
+
+TEST("assist/backend_500/ok", FUN(() ,
+    (ASSERT_EQ(AT_K(T5_a_backend_500, "ok", "?"), FALSE));
+    TRUE));
+TEST("assist/backend_500/json", FUN(() ,
+    (ASSERT_EQ(IS_ERR(JSON_VALIDATE(T5_aj_backend_500)), FALSE));
+    (ASSERT_EQ(TYPE(PARSE(T5_aj_backend_500)), "DICT"));
+    TRUE));
+TEST("assist/backend_500/error_shape", FUN(() ,
+    // 刻意语义 ④：后端错误的**文案**与 Python 不同，形状必须相同
+    (ASSERT_EQ(AT_K(T5_a_backend_500, "ok", "?"), FALSE));
+    (ASSERT(>(LEN(AT_K(T5_a_backend_500, "error", "")), 0),
+            "backend_500: backend error must carry a message"));
+    TRUE));
+TEST("assist/backend_500/transport", FUN(() ,
+    (ASSERT(>(LEN(T5_aw_backend_500), 0),
+            "backend_500: exchange must be called"));
+    TRUE));
+TEST("assist/backend_500/wire_body", FUN(() ,
+    // 请求体 = 报文里第一个 CRLFCRLF 之后的全部（STRINGIFY 口径）
+    (ASSERT_EQ(SUB(T5_aw_backend_500, +(INDEX_OF(T5_aw_backend_500, "\r\n\r\n"), 4)), "{\"messages\":[{\"content\":\"You are a helpful writing assistant. Continue the user's text naturally and coherently.\",\"role\":\"system\"},{\"content\":\"Continue this text:\\n\\nHello\",\"role\":\"user\"}],\"model\":\"gpt-3.5-turbo\",\"temperature\":0.8}"));
+    TRUE));
+
+TEST("assist/backend_empty_choices/ok", FUN(() ,
+    (ASSERT_EQ(AT_K(T5_a_backend_empty_choices, "ok", "?"), FALSE));
+    TRUE));
+TEST("assist/backend_empty_choices/json", FUN(() ,
+    (ASSERT_EQ(IS_ERR(JSON_VALIDATE(T5_aj_backend_empty_choices)), FALSE));
+    (ASSERT_EQ(TYPE(PARSE(T5_aj_backend_empty_choices)), "DICT"));
+    TRUE));
+TEST("assist/backend_empty_choices/error_shape", FUN(() ,
+    // 刻意语义 ④：后端错误的**文案**与 Python 不同，形状必须相同
+    (ASSERT_EQ(AT_K(T5_a_backend_empty_choices, "ok", "?"), FALSE));
+    (ASSERT(>(LEN(AT_K(T5_a_backend_empty_choices, "error", "")), 0),
+            "backend_empty_choices: backend error must carry a message"));
+    TRUE));
+TEST("assist/backend_empty_choices/transport", FUN(() ,
+    (ASSERT(>(LEN(T5_aw_backend_empty_choices), 0),
+            "backend_empty_choices: exchange must be called"));
+    TRUE));
+TEST("assist/backend_empty_choices/wire_body", FUN(() ,
+    // 请求体 = 报文里第一个 CRLFCRLF 之后的全部（STRINGIFY 口径）
+    (ASSERT_EQ(SUB(T5_aw_backend_empty_choices, +(INDEX_OF(T5_aw_backend_empty_choices, "\r\n\r\n"), 4)), "{\"messages\":[{\"content\":\"You are a helpful writing assistant. Continue the user's text naturally and coherently.\",\"role\":\"system\"},{\"content\":\"Continue this text:\\n\\nHello\",\"role\":\"user\"}],\"model\":\"gpt-3.5-turbo\",\"temperature\":0.8}"));
+    TRUE));
+
+TEST("assist/backend_html/ok", FUN(() ,
+    (ASSERT_EQ(AT_K(T5_a_backend_html, "ok", "?"), FALSE));
+    TRUE));
+TEST("assist/backend_html/json", FUN(() ,
+    (ASSERT_EQ(IS_ERR(JSON_VALIDATE(T5_aj_backend_html)), FALSE));
+    (ASSERT_EQ(TYPE(PARSE(T5_aj_backend_html)), "DICT"));
+    TRUE));
+TEST("assist/backend_html/error_shape", FUN(() ,
+    // 刻意语义 ③：Python 在这条上直接 500（JSONDecodeError 不被捕获）
+    (ASSERT_EQ(AT_K(T5_a_backend_html, "ok", "?"), FALSE));
+    (ASSERT(CONTAINS_SUB(T5_aj_backend_html, "not valid JSON"),
+            "backend_html: malformed body must be reported as JSON"));
+    TRUE));
+TEST("assist/backend_html/transport", FUN(() ,
+    (ASSERT(>(LEN(T5_aw_backend_html), 0),
+            "backend_html: exchange must be called"));
+    TRUE));
+TEST("assist/backend_html/wire_body", FUN(() ,
+    // 请求体 = 报文里第一个 CRLFCRLF 之后的全部（STRINGIFY 口径）
+    (ASSERT_EQ(SUB(T5_aw_backend_html, +(INDEX_OF(T5_aw_backend_html, "\r\n\r\n"), 4)), "{\"messages\":[{\"content\":\"You are a helpful writing assistant. Continue the user's text naturally and coherently.\",\"role\":\"system\"},{\"content\":\"Continue this text:\\n\\nHello\",\"role\":\"user\"}],\"model\":\"gpt-3.5-turbo\",\"temperature\":0.8}"));
+    TRUE));
+
+// ── ② /translate（文本层）───────────────────────────────────────
+
+TEST("endpoint/translate_en_default/ok", FUN(() ,
+    (ASSERT_EQ(AT_K(T5_e_translate_en_default, "ok", "?"), TRUE));
+    TRUE));
+TEST("endpoint/translate_en_default/json", FUN(() ,
+    (ASSERT_EQ(IS_ERR(JSON_VALIDATE(T5_ej_translate_en_default)), FALSE));
+    (ASSERT_EQ(TYPE(PARSE(T5_ej_translate_en_default)), "DICT"));
+    TRUE));
+TEST("endpoint/translate_en_default/body", FUN(() ,
+    // 逐字节对齐真 Python 的 {"result"|"error": …}（ensure_ascii=False 口径）
+    (ASSERT_EQ(T5_ej_translate_en_default, "{\"result\": \"hello\"}"));
+    TRUE));
+TEST("endpoint/translate_en_default/transport", FUN(() ,
+    (ASSERT(>(LEN(T5_ew_translate_en_default), 0),
+            "translate_en_default: exchange must be called"));
+    TRUE));
+TEST("endpoint/translate_en_default/wire_body", FUN(() ,
+    // 请求体 = 报文里第一个 CRLFCRLF 之后的全部（STRINGIFY 口径）
+    (ASSERT_EQ(SUB(T5_ew_translate_en_default, +(INDEX_OF(T5_ew_translate_en_default, "\r\n\r\n"), 4)), "{\"messages\":[{\"content\":\"You are a professional translator. Translate the text to English accurately and naturally. Only return the translated text, no explanations.\",\"role\":\"system\"},{\"content\":\"Translate to English:\\n\\nHello\",\"role\":\"user\"}],\"model\":\"gpt-3.5-turbo\",\"temperature\":0.3}"));
+    TRUE));
+TEST("endpoint/translate_en_default/wire_lang", FUN(() ,
+    (ASSERT(CONTAINS_SUB(T5_ew_translate_en_default, "Translate to English"),
+            "translate_en_default: target language must reach the request"));
+    TRUE));
+
+TEST("endpoint/translate_ja/ok", FUN(() ,
+    (ASSERT_EQ(AT_K(T5_e_translate_ja, "ok", "?"), TRUE));
+    TRUE));
+TEST("endpoint/translate_ja/json", FUN(() ,
+    (ASSERT_EQ(IS_ERR(JSON_VALIDATE(T5_ej_translate_ja)), FALSE));
+    (ASSERT_EQ(TYPE(PARSE(T5_ej_translate_ja)), "DICT"));
+    TRUE));
+TEST("endpoint/translate_ja/body", FUN(() ,
+    // 逐字节对齐真 Python 的 {"result"|"error": …}（ensure_ascii=False 口径）
+    (ASSERT_EQ(T5_ej_translate_ja, "{\"result\": \"こんにちは\"}"));
+    TRUE));
+TEST("endpoint/translate_ja/transport", FUN(() ,
+    (ASSERT(>(LEN(T5_ew_translate_ja), 0),
+            "translate_ja: exchange must be called"));
+    TRUE));
+TEST("endpoint/translate_ja/wire_body", FUN(() ,
+    // 请求体 = 报文里第一个 CRLFCRLF 之后的全部（STRINGIFY 口径）
+    (ASSERT_EQ(SUB(T5_ew_translate_ja, +(INDEX_OF(T5_ew_translate_ja, "\r\n\r\n"), 4)), "{\"messages\":[{\"content\":\"You are a professional translator. Translate the text to Japanese accurately and naturally. Only return the translated text, no explanations.\",\"role\":\"system\"},{\"content\":\"Translate to Japanese:\\n\\nHello\",\"role\":\"user\"}],\"model\":\"gpt-3.5-turbo\",\"temperature\":0.3}"));
+    TRUE));
+TEST("endpoint/translate_ja/wire_lang", FUN(() ,
+    (ASSERT(CONTAINS_SUB(T5_ew_translate_ja, "Translate to Japanese"),
+            "translate_ja: target language must reach the request"));
+    TRUE));
+
+TEST("endpoint/translate_fr/ok", FUN(() ,
+    (ASSERT_EQ(AT_K(T5_e_translate_fr, "ok", "?"), TRUE));
+    TRUE));
+TEST("endpoint/translate_fr/json", FUN(() ,
+    (ASSERT_EQ(IS_ERR(JSON_VALIDATE(T5_ej_translate_fr)), FALSE));
+    (ASSERT_EQ(TYPE(PARSE(T5_ej_translate_fr)), "DICT"));
+    TRUE));
+TEST("endpoint/translate_fr/body", FUN(() ,
+    // 逐字节对齐真 Python 的 {"result"|"error": …}（ensure_ascii=False 口径）
+    (ASSERT_EQ(T5_ej_translate_fr, "{\"result\": \"hello\"}"));
+    TRUE));
+TEST("endpoint/translate_fr/transport", FUN(() ,
+    (ASSERT(>(LEN(T5_ew_translate_fr), 0),
+            "translate_fr: exchange must be called"));
+    TRUE));
+TEST("endpoint/translate_fr/wire_body", FUN(() ,
+    // 请求体 = 报文里第一个 CRLFCRLF 之后的全部（STRINGIFY 口径）
+    (ASSERT_EQ(SUB(T5_ew_translate_fr, +(INDEX_OF(T5_ew_translate_fr, "\r\n\r\n"), 4)), "{\"messages\":[{\"content\":\"You are a professional translator. Translate the text to English accurately and naturally. Only return the translated text, no explanations.\",\"role\":\"system\"},{\"content\":\"Translate to English:\\n\\nHello\",\"role\":\"user\"}],\"model\":\"gpt-3.5-turbo\",\"temperature\":0.3}"));
+    TRUE));
+TEST("endpoint/translate_fr/wire_lang", FUN(() ,
+    (ASSERT(CONTAINS_SUB(T5_ew_translate_fr, "Translate to English"),
+            "translate_fr: target language must reach the request"));
+    TRUE));
+
+TEST("endpoint/unconfigured/ok", FUN(() ,
+    (ASSERT_EQ(AT_K(T5_e_unconfigured, "ok", "?"), FALSE));
+    TRUE));
+TEST("endpoint/unconfigured/json", FUN(() ,
+    (ASSERT_EQ(IS_ERR(JSON_VALIDATE(T5_ej_unconfigured)), FALSE));
+    (ASSERT_EQ(TYPE(PARSE(T5_ej_unconfigured)), "DICT"));
+    TRUE));
+TEST("endpoint/unconfigured/body", FUN(() ,
+    // 逐字节对齐真 Python 的 {"result"|"error": …}（ensure_ascii=False 口径）
+    (ASSERT_EQ(T5_ej_unconfigured, "{\"error\": \"AI 未启用或未配置 API Key\"}"));
+    TRUE));
+TEST("endpoint/unconfigured/transport", FUN(() ,
+    (ASSERT_EQ(T5_ew_unconfigured, ""));
+    TRUE));
+
+TEST("endpoint/backend_500/ok", FUN(() ,
+    (ASSERT_EQ(AT_K(T5_e_backend_500, "ok", "?"), FALSE));
+    TRUE));
+TEST("endpoint/backend_500/json", FUN(() ,
+    (ASSERT_EQ(IS_ERR(JSON_VALIDATE(T5_ej_backend_500)), FALSE));
+    (ASSERT_EQ(TYPE(PARSE(T5_ej_backend_500)), "DICT"));
+    TRUE));
+TEST("endpoint/backend_500/error_shape", FUN(() ,
+    // 刻意语义 ④：后端错误的**文案**与 Python 不同，形状必须相同
+    (ASSERT_EQ(AT_K(T5_e_backend_500, "ok", "?"), FALSE));
+    (ASSERT(>(LEN(AT_K(T5_e_backend_500, "error", "")), 0),
+            "backend_500: backend error must carry a message"));
+    TRUE));
+TEST("endpoint/backend_500/transport", FUN(() ,
+    (ASSERT(>(LEN(T5_ew_backend_500), 0),
+            "backend_500: exchange must be called"));
+    TRUE));
+TEST("endpoint/backend_500/wire_body", FUN(() ,
+    // 请求体 = 报文里第一个 CRLFCRLF 之后的全部（STRINGIFY 口径）
+    (ASSERT_EQ(SUB(T5_ew_backend_500, +(INDEX_OF(T5_ew_backend_500, "\r\n\r\n"), 4)), "{\"messages\":[{\"content\":\"You are a professional translator. Translate the text to English accurately and naturally. Only return the translated text, no explanations.\",\"role\":\"system\"},{\"content\":\"Translate to English:\\n\\nHello\",\"role\":\"user\"}],\"model\":\"gpt-3.5-turbo\",\"temperature\":0.3}"));
+    TRUE));
+TEST("endpoint/backend_500/wire_lang", FUN(() ,
+    (ASSERT(CONTAINS_SUB(T5_ew_backend_500, "Translate to English"),
+            "backend_500: target language must reach the request"));
+    TRUE));
+
+// ── ③ 反向守卫 ──────────────────────────────────────────────────
+// 空 opts（连 cfg 都没有）⇒ 必须是同一句未配置文案，且**是 JSON**
+LET(T5_g_empty_assist, JSON_ENVELOPE(AI_ASSIST(DICT())));
+TEST("guard/empty_opts_unconfigured", FUN(() ,
+    (ASSERT_EQ(T5_g_empty_assist, "{\"error\": \"AI 未启用或未配置 API Key\"}"));
+    TRUE));
+LET(T5_g_empty_translate, JSON_ENVELOPE(TRANSLATE_ENDPOINT(DICT())));
+TEST("guard/empty_opts_translate", FUN(() ,
+    (ASSERT_EQ(T5_g_empty_translate, "{\"error\": \"AI 未启用或未配置 API Key\"}"));
+    TRUE));
+
+// 失败形状固定为 {ok, error}（调用方可以安全地 AT_K）
+TEST("shape/failure_keys", FUN(() ,
+    (ASSERT_EQ(JOIN(KEYS(AI_ASSIST(DICT())), "|"), "ok|error"));
+    TRUE));
+
+// ⚠ 已登记刻意语义 ⑤：ai_enabled 只认布尔 TRUE（Python 认任意真值）
+LET(T5_g_truthy, JSON_ENVELOPE(AI_ASSIST(INDEX_SET(INDEX_SET(INDEX_SET(DICT(), "action", "complete"), "text", "x"), "cfg", INDEX_SET(INDEX_SET(DICT(), "ai_enabled", 1), "ai_api_key", "sk-test")))));
+TEST("guard/truthy_int_is_unconfigured", FUN(() ,
+    (ASSERT_EQ(T5_g_truthy, "{\"error\": \"AI 未启用或未配置 API Key\"}"));
+    TRUE));
+
+// `AI_ASSIST_JSON` / `TRANSLATE_JSON` **就是** JSON_ENVELOPE(...) 的组合（接线公式）
+// ⚠ 在顶层求值：每次调用前重设 T5_reply，否则回放的是上一条用例的响应
+SET(T5_seen, "");
+SET(T5_reply, "HTTP/1.1 200 OK\r\nContent-Type: application/json\r\nContent-Length: 173\r\n\r\n{\"id\": \"chatcmpl-test\", \"object\": \"chat.completion\", \"choices\": [{\"index\": 0, \"message\": {\"role\": \"assistant\", \"content\": \"  continued words.  \"}, \"finish_reason\": \"stop\"}]}");
+LET(T5_g_assist_json, AI_ASSIST_JSON(INDEX_SET(INDEX_SET(INDEX_SET(INDEX_SET(DICT(), "action", "complete"), "text", "Hello world"), "cfg", INDEX_SET(INDEX_SET(DICT(), "ai_enabled", TRUE), "ai_api_key", "sk-test")), "exchange", T5_exchange)));
+SET(T5_seen, "");
+SET(T5_reply, "HTTP/1.1 200 OK\r\nContent-Type: application/json\r\nContent-Length: 170\r\n\r\n{\"id\": \"chatcmpl-test\", \"object\": \"chat.completion\", \"choices\": [{\"index\": 0, \"message\": {\"role\": \"assistant\", \"content\": \" こんにちは \"}, \"finish_reason\": \"stop\"}]}");
+LET(T5_g_translate_json, TRANSLATE_JSON(INDEX_SET(INDEX_SET(INDEX_SET(INDEX_SET(DICT(), "text", "Hello"), "target", "ja"), "cfg", INDEX_SET(INDEX_SET(DICT(), "ai_enabled", TRUE), "ai_api_key", "sk-test")), "exchange", T5_exchange)));
+TEST("guard/assist_json_is_envelope", FUN(() ,
+    (ASSERT_EQ(T5_g_assist_json, "{\"result\": \"continued words.\"}"));
+    TRUE));
+TEST("guard/translate_json_is_envelope", FUN(() ,
+    (ASSERT_EQ(T5_g_translate_json, "{\"result\": \"こんにちは\"}"));
+    TRUE));
+
+// 未知 action 的错误**不是**任何能力的成功结果（不落默认分支）
+TEST("guard/unknown_is_not_a_result", FUN(() ,
+    (ASSERT(CONTAINS_SUB(T5_aj_unknown_action, "未知操作: "),
+            "unknown action must be named in the error"));
+    (ASSERT(==(INDEX_OF(T5_aj_unknown_action, "\"result\""), -1),
+            "unknown action must not produce a result"));
+    TRUE));
+
+// ── 跑测试 + 自己把关退出码 ─────────────────────────────────────
+LET(records, RUN_TESTS());
+PRINT("test_admin_ai: ", LEN(records), " test(s) run");
+LET MUT(failed, 0);
+FOR(rec, records,
+    (IF(AT_K(rec, "passed", FALSE),
+        PRINT("  PASS ", AT_K(rec, "name", "?")),
+        (SET(failed, +(failed, 1));
+         PRINT("  FAIL ", AT_K(rec, "name", "?"), " :: ", AT_K(rec, "error", ""))))));
+PRINT("test_admin_ai: failed=", failed);
+IF(>(failed, 0), (PRINT_ERR("test_admin_ai: FAILED"); PANIC("admin_ai tests failed")), NULL);
+PRINT("test_admin_ai: OK");

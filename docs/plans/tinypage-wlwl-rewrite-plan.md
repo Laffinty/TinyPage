@@ -1400,8 +1400,25 @@ TinyPage/
     + `static_inject/highlight-theme.css`（明/暗两套 token 颜色，跟本站的 `.light` 切换方式对齐）
     + `static_inject/HIGHLIGHT.md`（版本/来源/许可/用法）。
 
-### S5 AI 助手（出站 HTTPS）
+#### 卡 S4-6：admin 视图层（✅ 已开卡，2026-11-02 补）
 
+> **为什么补这张卡**：S4-3 只交了「路由 + 状态码 + Cookie」，GET 页面是**占位 HTML**
+> —— 后台能登录但看不到仪表盘/编辑器。S6 的验收是「用 WLWL 版真正管起站点」，
+> 没有界面等于丢掉管理能力 ⇒ 必须在 S6 之前补。
+
+- **依赖**：S4-3、S4-4
+- **交付物**：`tp/lib/admin_views.wll`
+- **必须实现**（逐字对齐 `tinypage/admin/views.py` 307 行 + `admin_templates/*.html` 7 个模板）：
+  `DASHBOARD_VIEW` / `ARTICLE_FORM_VIEW` / `PAGE_FORM_VIEW` / `PAGES_DASHBOARD_VIEW` /
+  `THEME_SELECTOR_VIEW` / `LOGIN_VIEW` / `AI_PANEL`（`_build_ai_panel`）/ `NAV_HTML`（`build_nav_html`）
+- **验收命令**：`wlwl run tp/test/test_admin_views.wll`（**纯函数、脱网**）
+- **反向守卫**：
+  - 文章标题/正文里的 `<` `&` 必须被 escape（不得原样进 HTML）
+  - 模板 `$var` 占位符不得**二次替换**（正文里出现的字面 `$x` 要原样保留）
+  - 缺模板变量 ⇒ 必须**报错**（对齐 `string.Template.substitute` 的「缺键即 KeyError」）
+- **非目标**：不做前端交互逻辑（在 `static_inject/admin.js`）
+
+### S5 AI 助手（出站 HTTPS）
 #### 卡 S5-1：出站 HTTPS 客户端 ✅ 已完成
 
 - **依赖**：S4-3
@@ -1440,7 +1457,27 @@ TinyPage/
 - **反向守卫**：后端错误**必须**返回 JSON（Python 侧错误也返回 200 + `{"error":…}`，保持一致）
 - **非目标**：不引入 `openai`/`deepseek` Python 包（Python 侧声明了但从未使用，属声明冗余）
 
+#### 卡 S5-3：AI 端点接线（`/ai-assist`、`/translate`）（✅ 已开卡，2026-11-02 补）
+
+> **为什么补这张卡**：`ai.wll`（S5-2）已交付 163 个断言，但 `serve_admin.wll` 里
+> `/ai-assist` 与 `/translate` 仍是 **500**（`admin_actions.wll` 只导出 10 个 CRUD 动作）。
+> 缺的就是「HTTP 入参 → ai.wll → JSON 出参」这一层。
+
+- **依赖**：S5-2、S4-3
+- **交付物**：`tp/lib/admin_ai.wll`
+- **必须实现**（逐字对齐 `tinypage/admin/actions.py:296-330` 的 `ai_assist`）：
+  - `AI_ASSIST(opts)`：按 `action` 分派 → `ai.wll` 的 `COMPLETE` / `POLISH` / `TRANSLATE` / `SUMMARIZE` / `SUGGEST_TAGS`
+  - `TRANSLATE_ENDPOINT(opts)`：`/translate` 专用入口（目标语言沿用硬编码 `en`/`ja`）
+  - 出参统一走 `ai.wll` 的 `JSON_ENVELOPE`：成功 `{"result": …}`、失败 `{"error": …}`
+  - **未启用/未配 key ⇒ `{"error": "AI 未启用或未配置 API Key"}`**（逐字对齐源码）
+- **验收命令**：`wlwl run tp/test/test_admin_ai.wll`（**脱网**：经 `ai.wll` 的 `opts.exchange` 注入回放）
+- **反向守卫**：
+  - 后端错误**必须**返回 JSON（Python 侧也是 200 + `{"error":…}`）
+  - 未配置 ⇒ 必须明确 error，**不得**静默返回空 `result`
+  - 未知 `action` ⇒ 必须 error，不得走默认分支
+
 ### S6 部署与切换
+
 
 #### 卡 S6-1：Docker 改造
 

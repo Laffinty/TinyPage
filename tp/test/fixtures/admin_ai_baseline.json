@@ -1,0 +1,1156 @@
+{
+  "meta": {
+    "card": "S5-3 AI 端点接线",
+    "generated_by": "tp/test/gen_admin_ai_baseline.py",
+    "authority": [
+      "tinypage/admin/actions.py:296-329 (ai_assist)",
+      "tinypage/content.py:757-842 (translate_article)"
+    ],
+    "under_test": "tp/lib/admin_ai.wll",
+    "regen": "python tp/test/gen_admin_ai_baseline.py",
+    "no_randomness": "本夹具不含随机值/时间戳/CSRF ⇒ 重生成必须无漂移",
+    "divergences": [
+      "① /translate 的文章层（定位文件 / summarize(200) / 落盘，content.py:776-840）不在 admin_ai.wll：TRANSLATE_ENDPOINT 只做 AI 这一跳（收正文文本）",
+      "② /translate 未配置时 Python 的文案是 \"AI not configured. Set ai_api_key in config.\"（content.py:798-802，见 article_unconfigured）；本模块按卡面 ① 统一用 \"AI 未启用或未配置 API Key\"",
+      "③ 响应体不是 JSON 时 Python 抛 JSONDecodeError（不被 ai_assist 捕获 ⇒ WSGI 500）；我们返回 JSON 错误",
+      "④ 后端 5xx 的错误**文案**不同（Python \"API error: 500\"，传输层 \"HTTP 500 ...\"），形状相同（200 + {\"error\": …}）⇒ 只钉形状",
+      "⑤ ai_enabled 只认布尔 TRUE（Python 认任意真值）—— 继承 ai.wll 刻意语义 ⑥",
+      "⑥ 请求体按 std.json::STRINGIFY 口径（紧凑 + 键名字典序），与 Python json.dumps 字节不同（ai.wll 刻意语义 ⑤）；wire_body 就是按 STRINGIFY 口径复现的"
+    ],
+    "article_unconfigured": {
+      "success": false,
+      "error": "AI not configured. Set ai_api_key in config."
+    }
+  },
+  "assist": [
+    {
+      "name": "complete_ok",
+      "action": "complete",
+      "text": "Hello world",
+      "lang": null,
+      "cfg": {
+        "ai_enabled": true,
+        "ai_api_key": "sk-test"
+      },
+      "note": "complete：真消息构造 → 假 200 → content 取回后 strip ⇒ result \"continued words.\"",
+      "source": "admin/actions.py:307-308 + ai_assistance.py:100-113",
+      "raw": "HTTP/1.1 200 OK\r\nContent-Type: application/json\r\nContent-Length: 173\r\n\r\n{\"id\": \"chatcmpl-test\", \"object\": \"chat.completion\", \"choices\": [{\"index\": 0, \"message\": {\"role\": \"assistant\", \"content\": \"  continued words.  \"}, \"finish_reason\": \"stop\"}]}",
+      "python": {
+        "http_status": "200 OK",
+        "content_type": "application/json",
+        "body": {
+          "result": "continued words."
+        },
+        "envelope": "{\"result\": \"continued words.\"}",
+        "raises": null,
+        "transport_called": true,
+        "url": "https://api.openai.com/v1/chat/completions",
+        "timeout": 30,
+        "python_body": "{\"model\": \"gpt-3.5-turbo\", \"messages\": [{\"role\": \"system\", \"content\": \"You are a helpful writing assistant. Continue the user's text naturally and coherently.\"}, {\"role\": \"user\", \"content\": \"Continue this text:\\n\\nHello world\"}], \"temperature\": 0.8}",
+        "payload": {
+          "model": "gpt-3.5-turbo",
+          "messages": [
+            {
+              "role": "system",
+              "content": "You are a helpful writing assistant. Continue the user's text naturally and coherently."
+            },
+            {
+              "role": "user",
+              "content": "Continue this text:\n\nHello world"
+            }
+          ],
+          "temperature": 0.8
+        },
+        "wire_body": "{\"messages\":[{\"content\":\"You are a helpful writing assistant. Continue the user's text naturally and coherently.\",\"role\":\"system\"},{\"content\":\"Continue this text:\\n\\nHello world\",\"role\":\"user\"}],\"model\":\"gpt-3.5-turbo\",\"temperature\":0.8}"
+      },
+      "want": {
+        "ok": true,
+        "transport_called": true,
+        "envelope": "{\"result\": \"continued words.\"}",
+        "has_error": false,
+        "wire_body": "{\"messages\":[{\"content\":\"You are a helpful writing assistant. Continue the user's text naturally and coherently.\",\"role\":\"system\"},{\"content\":\"Continue this text:\\n\\nHello world\",\"role\":\"user\"}],\"model\":\"gpt-3.5-turbo\",\"temperature\":0.8}"
+      },
+      "error_contains": null,
+      "error_text_diverges": false,
+      "python_500": false
+    },
+    {
+      "name": "polish_ok",
+      "action": "polish",
+      "text": "rough text",
+      "lang": null,
+      "cfg": {
+        "ai_enabled": true,
+        "ai_api_key": "sk-test"
+      },
+      "note": "polish：result 也 strip",
+      "source": "admin/actions.py:309-310 + ai_assistance.py:138-139",
+      "raw": "HTTP/1.1 200 OK\r\nContent-Type: application/json\r\nContent-Length: 168\r\n\r\n{\"id\": \"chatcmpl-test\", \"object\": \"chat.completion\", \"choices\": [{\"index\": 0, \"message\": {\"role\": \"assistant\", \"content\": \"\\n\\nPolished.\\n\"}, \"finish_reason\": \"stop\"}]}",
+      "python": {
+        "http_status": "200 OK",
+        "content_type": "application/json",
+        "body": {
+          "result": "Polished."
+        },
+        "envelope": "{\"result\": \"Polished.\"}",
+        "raises": null,
+        "transport_called": true,
+        "url": "https://api.openai.com/v1/chat/completions",
+        "timeout": 30,
+        "python_body": "{\"model\": \"gpt-3.5-turbo\", \"messages\": [{\"role\": \"system\", \"content\": \"You are a professional editor. Improve the text for clarity, flow, and style while keeping the original meaning. Only return the improved text, no explanations.\"}, {\"role\": \"user\", \"content\": \"Polish this text:\\n\\nrough text\"}], \"temperature\": 0.5}",
+        "payload": {
+          "model": "gpt-3.5-turbo",
+          "messages": [
+            {
+              "role": "system",
+              "content": "You are a professional editor. Improve the text for clarity, flow, and style while keeping the original meaning. Only return the improved text, no explanations."
+            },
+            {
+              "role": "user",
+              "content": "Polish this text:\n\nrough text"
+            }
+          ],
+          "temperature": 0.5
+        },
+        "wire_body": "{\"messages\":[{\"content\":\"You are a professional editor. Improve the text for clarity, flow, and style while keeping the original meaning. Only return the improved text, no explanations.\",\"role\":\"system\"},{\"content\":\"Polish this text:\\n\\nrough text\",\"role\":\"user\"}],\"model\":\"gpt-3.5-turbo\",\"temperature\":0.5}"
+      },
+      "want": {
+        "ok": true,
+        "transport_called": true,
+        "envelope": "{\"result\": \"Polished.\"}",
+        "has_error": false,
+        "wire_body": "{\"messages\":[{\"content\":\"You are a professional editor. Improve the text for clarity, flow, and style while keeping the original meaning. Only return the improved text, no explanations.\",\"role\":\"system\"},{\"content\":\"Polish this text:\\n\\nrough text\",\"role\":\"user\"}],\"model\":\"gpt-3.5-turbo\",\"temperature\":0.5}"
+      },
+      "error_contains": null,
+      "error_text_diverges": false,
+      "python_500": false
+    },
+    {
+      "name": "polish_chinese",
+      "action": "polish",
+      "text": "Chinese body",
+      "lang": null,
+      "cfg": {
+        "ai_enabled": true,
+        "ai_api_key": "sk-test"
+      },
+      "note": "出参 JSON 保留原字符（ensure_ascii=False 口径）⇒ 中文字面出现，不写 \\\\uXXXX",
+      "source": "actions.py:325-329（json.dumps 的字节口径）+ ai.wll 刻意语义 ④",
+      "raw": "HTTP/1.1 200 OK\r\nContent-Type: application/json\r\nContent-Length: 169\r\n\r\n{\"id\": \"chatcmpl-test\", \"object\": \"chat.completion\", \"choices\": [{\"index\": 0, \"message\": {\"role\": \"assistant\", \"content\": \"  中文润色  \"}, \"finish_reason\": \"stop\"}]}",
+      "python": {
+        "http_status": "200 OK",
+        "content_type": "application/json",
+        "body": {
+          "result": "中文润色"
+        },
+        "envelope": "{\"result\": \"中文润色\"}",
+        "raises": null,
+        "transport_called": true,
+        "url": "https://api.openai.com/v1/chat/completions",
+        "timeout": 30,
+        "python_body": "{\"model\": \"gpt-3.5-turbo\", \"messages\": [{\"role\": \"system\", \"content\": \"You are a professional editor. Improve the text for clarity, flow, and style while keeping the original meaning. Only return the improved text, no explanations.\"}, {\"role\": \"user\", \"content\": \"Polish this text:\\n\\nChinese body\"}], \"temperature\": 0.5}",
+        "payload": {
+          "model": "gpt-3.5-turbo",
+          "messages": [
+            {
+              "role": "system",
+              "content": "You are a professional editor. Improve the text for clarity, flow, and style while keeping the original meaning. Only return the improved text, no explanations."
+            },
+            {
+              "role": "user",
+              "content": "Polish this text:\n\nChinese body"
+            }
+          ],
+          "temperature": 0.5
+        },
+        "wire_body": "{\"messages\":[{\"content\":\"You are a professional editor. Improve the text for clarity, flow, and style while keeping the original meaning. Only return the improved text, no explanations.\",\"role\":\"system\"},{\"content\":\"Polish this text:\\n\\nChinese body\",\"role\":\"user\"}],\"model\":\"gpt-3.5-turbo\",\"temperature\":0.5}"
+      },
+      "want": {
+        "ok": true,
+        "transport_called": true,
+        "envelope": "{\"result\": \"中文润色\"}",
+        "has_error": false,
+        "wire_body": "{\"messages\":[{\"content\":\"You are a professional editor. Improve the text for clarity, flow, and style while keeping the original meaning. Only return the improved text, no explanations.\",\"role\":\"system\"},{\"content\":\"Polish this text:\\n\\nChinese body\",\"role\":\"user\"}],\"model\":\"gpt-3.5-turbo\",\"temperature\":0.5}"
+      },
+      "error_contains": null,
+      "error_text_diverges": false,
+      "python_500": false
+    },
+    {
+      "name": "translate_default",
+      "action": "translate",
+      "text": "Hello",
+      "lang": null,
+      "cfg": {
+        "ai_enabled": true,
+        "ai_api_key": "sk-test"
+      },
+      "note": "不给 lang ⇒ Python 的缺省 \"English\" ⇒ lang_map 后仍是 English",
+      "source": "admin/actions.py:312-315",
+      "raw": "HTTP/1.1 200 OK\r\nContent-Type: application/json\r\nContent-Length: 162\r\n\r\n{\"id\": \"chatcmpl-test\", \"object\": \"chat.completion\", \"choices\": [{\"index\": 0, \"message\": {\"role\": \"assistant\", \"content\": \"  hello  \"}, \"finish_reason\": \"stop\"}]}",
+      "python": {
+        "http_status": "200 OK",
+        "content_type": "application/json",
+        "body": {
+          "result": "hello"
+        },
+        "envelope": "{\"result\": \"hello\"}",
+        "raises": null,
+        "transport_called": true,
+        "url": "https://api.openai.com/v1/chat/completions",
+        "timeout": 30,
+        "python_body": "{\"model\": \"gpt-3.5-turbo\", \"messages\": [{\"role\": \"system\", \"content\": \"You are a professional translator. Translate the text to English accurately and naturally. Only return the translated text, no explanations.\"}, {\"role\": \"user\", \"content\": \"Translate to English:\\n\\nHello\"}], \"temperature\": 0.3}",
+        "payload": {
+          "model": "gpt-3.5-turbo",
+          "messages": [
+            {
+              "role": "system",
+              "content": "You are a professional translator. Translate the text to English accurately and naturally. Only return the translated text, no explanations."
+            },
+            {
+              "role": "user",
+              "content": "Translate to English:\n\nHello"
+            }
+          ],
+          "temperature": 0.3
+        },
+        "wire_body": "{\"messages\":[{\"content\":\"You are a professional translator. Translate the text to English accurately and naturally. Only return the translated text, no explanations.\",\"role\":\"system\"},{\"content\":\"Translate to English:\\n\\nHello\",\"role\":\"user\"}],\"model\":\"gpt-3.5-turbo\",\"temperature\":0.3}",
+        "wire_contains": "Translate to English"
+      },
+      "want": {
+        "ok": true,
+        "transport_called": true,
+        "envelope": "{\"result\": \"hello\"}",
+        "has_error": false,
+        "wire_body": "{\"messages\":[{\"content\":\"You are a professional translator. Translate the text to English accurately and naturally. Only return the translated text, no explanations.\",\"role\":\"system\"},{\"content\":\"Translate to English:\\n\\nHello\",\"role\":\"user\"}],\"model\":\"gpt-3.5-turbo\",\"temperature\":0.3}",
+        "wire_contains": "Translate to English"
+      },
+      "error_contains": null,
+      "error_text_diverges": false,
+      "python_500": false
+    },
+    {
+      "name": "translate_en",
+      "action": "translate",
+      "text": "Hello",
+      "lang": "en",
+      "cfg": {
+        "ai_enabled": true,
+        "ai_api_key": "sk-test"
+      },
+      "note": "lang=en ⇒ English（硬编码映射）",
+      "source": "admin/actions.py:313-314 + ai_assistance.py:141-166",
+      "raw": "HTTP/1.1 200 OK\r\nContent-Type: application/json\r\nContent-Length: 160\r\n\r\n{\"id\": \"chatcmpl-test\", \"object\": \"chat.completion\", \"choices\": [{\"index\": 0, \"message\": {\"role\": \"assistant\", \"content\": \" hello \"}, \"finish_reason\": \"stop\"}]}",
+      "python": {
+        "http_status": "200 OK",
+        "content_type": "application/json",
+        "body": {
+          "result": "hello"
+        },
+        "envelope": "{\"result\": \"hello\"}",
+        "raises": null,
+        "transport_called": true,
+        "url": "https://api.openai.com/v1/chat/completions",
+        "timeout": 30,
+        "python_body": "{\"model\": \"gpt-3.5-turbo\", \"messages\": [{\"role\": \"system\", \"content\": \"You are a professional translator. Translate the text to English accurately and naturally. Only return the translated text, no explanations.\"}, {\"role\": \"user\", \"content\": \"Translate to English:\\n\\nHello\"}], \"temperature\": 0.3}",
+        "payload": {
+          "model": "gpt-3.5-turbo",
+          "messages": [
+            {
+              "role": "system",
+              "content": "You are a professional translator. Translate the text to English accurately and naturally. Only return the translated text, no explanations."
+            },
+            {
+              "role": "user",
+              "content": "Translate to English:\n\nHello"
+            }
+          ],
+          "temperature": 0.3
+        },
+        "wire_body": "{\"messages\":[{\"content\":\"You are a professional translator. Translate the text to English accurately and naturally. Only return the translated text, no explanations.\",\"role\":\"system\"},{\"content\":\"Translate to English:\\n\\nHello\",\"role\":\"user\"}],\"model\":\"gpt-3.5-turbo\",\"temperature\":0.3}",
+        "wire_contains": "Translate to English"
+      },
+      "want": {
+        "ok": true,
+        "transport_called": true,
+        "envelope": "{\"result\": \"hello\"}",
+        "has_error": false,
+        "wire_body": "{\"messages\":[{\"content\":\"You are a professional translator. Translate the text to English accurately and naturally. Only return the translated text, no explanations.\",\"role\":\"system\"},{\"content\":\"Translate to English:\\n\\nHello\",\"role\":\"user\"}],\"model\":\"gpt-3.5-turbo\",\"temperature\":0.3}",
+        "wire_contains": "Translate to English"
+      },
+      "error_contains": null,
+      "error_text_diverges": false,
+      "python_500": false
+    },
+    {
+      "name": "translate_ja",
+      "action": "translate",
+      "text": "Hello",
+      "lang": "ja",
+      "cfg": {
+        "ai_enabled": true,
+        "ai_api_key": "sk-test"
+      },
+      "note": "lang=ja ⇒ Japanese（**只有** ja 是日语，:314）",
+      "source": "admin/actions.py:313-314 + content.py:794-795",
+      "raw": "HTTP/1.1 200 OK\r\nContent-Type: application/json\r\nContent-Length: 170\r\n\r\n{\"id\": \"chatcmpl-test\", \"object\": \"chat.completion\", \"choices\": [{\"index\": 0, \"message\": {\"role\": \"assistant\", \"content\": \" こんにちは \"}, \"finish_reason\": \"stop\"}]}",
+      "python": {
+        "http_status": "200 OK",
+        "content_type": "application/json",
+        "body": {
+          "result": "こんにちは"
+        },
+        "envelope": "{\"result\": \"こんにちは\"}",
+        "raises": null,
+        "transport_called": true,
+        "url": "https://api.openai.com/v1/chat/completions",
+        "timeout": 30,
+        "python_body": "{\"model\": \"gpt-3.5-turbo\", \"messages\": [{\"role\": \"system\", \"content\": \"You are a professional translator. Translate the text to Japanese accurately and naturally. Only return the translated text, no explanations.\"}, {\"role\": \"user\", \"content\": \"Translate to Japanese:\\n\\nHello\"}], \"temperature\": 0.3}",
+        "payload": {
+          "model": "gpt-3.5-turbo",
+          "messages": [
+            {
+              "role": "system",
+              "content": "You are a professional translator. Translate the text to Japanese accurately and naturally. Only return the translated text, no explanations."
+            },
+            {
+              "role": "user",
+              "content": "Translate to Japanese:\n\nHello"
+            }
+          ],
+          "temperature": 0.3
+        },
+        "wire_body": "{\"messages\":[{\"content\":\"You are a professional translator. Translate the text to Japanese accurately and naturally. Only return the translated text, no explanations.\",\"role\":\"system\"},{\"content\":\"Translate to Japanese:\\n\\nHello\",\"role\":\"user\"}],\"model\":\"gpt-3.5-turbo\",\"temperature\":0.3}",
+        "wire_contains": "Translate to Japanese"
+      },
+      "want": {
+        "ok": true,
+        "transport_called": true,
+        "envelope": "{\"result\": \"こんにちは\"}",
+        "has_error": false,
+        "wire_body": "{\"messages\":[{\"content\":\"You are a professional translator. Translate the text to Japanese accurately and naturally. Only return the translated text, no explanations.\",\"role\":\"system\"},{\"content\":\"Translate to Japanese:\\n\\nHello\",\"role\":\"user\"}],\"model\":\"gpt-3.5-turbo\",\"temperature\":0.3}",
+        "wire_contains": "Translate to Japanese"
+      },
+      "error_contains": null,
+      "error_text_diverges": false,
+      "python_500": false
+    },
+    {
+      "name": "translate_fr",
+      "action": "translate",
+      "text": "Hello",
+      "lang": "fr",
+      "cfg": {
+        "ai_enabled": true,
+        "ai_api_key": "sk-test"
+      },
+      "note": "未知语言码 ⇒ `lang_map.get(\"fr\", \"English\")` ⇒ English（不是原样透传）",
+      "source": "admin/actions.py:314",
+      "raw": "HTTP/1.1 200 OK\r\nContent-Type: application/json\r\nContent-Length: 160\r\n\r\n{\"id\": \"chatcmpl-test\", \"object\": \"chat.completion\", \"choices\": [{\"index\": 0, \"message\": {\"role\": \"assistant\", \"content\": \" hello \"}, \"finish_reason\": \"stop\"}]}",
+      "python": {
+        "http_status": "200 OK",
+        "content_type": "application/json",
+        "body": {
+          "result": "hello"
+        },
+        "envelope": "{\"result\": \"hello\"}",
+        "raises": null,
+        "transport_called": true,
+        "url": "https://api.openai.com/v1/chat/completions",
+        "timeout": 30,
+        "python_body": "{\"model\": \"gpt-3.5-turbo\", \"messages\": [{\"role\": \"system\", \"content\": \"You are a professional translator. Translate the text to English accurately and naturally. Only return the translated text, no explanations.\"}, {\"role\": \"user\", \"content\": \"Translate to English:\\n\\nHello\"}], \"temperature\": 0.3}",
+        "payload": {
+          "model": "gpt-3.5-turbo",
+          "messages": [
+            {
+              "role": "system",
+              "content": "You are a professional translator. Translate the text to English accurately and naturally. Only return the translated text, no explanations."
+            },
+            {
+              "role": "user",
+              "content": "Translate to English:\n\nHello"
+            }
+          ],
+          "temperature": 0.3
+        },
+        "wire_body": "{\"messages\":[{\"content\":\"You are a professional translator. Translate the text to English accurately and naturally. Only return the translated text, no explanations.\",\"role\":\"system\"},{\"content\":\"Translate to English:\\n\\nHello\",\"role\":\"user\"}],\"model\":\"gpt-3.5-turbo\",\"temperature\":0.3}",
+        "wire_contains": "Translate to English"
+      },
+      "want": {
+        "ok": true,
+        "transport_called": true,
+        "envelope": "{\"result\": \"hello\"}",
+        "has_error": false,
+        "wire_body": "{\"messages\":[{\"content\":\"You are a professional translator. Translate the text to English accurately and naturally. Only return the translated text, no explanations.\",\"role\":\"system\"},{\"content\":\"Translate to English:\\n\\nHello\",\"role\":\"user\"}],\"model\":\"gpt-3.5-turbo\",\"temperature\":0.3}",
+        "wire_contains": "Translate to English"
+      },
+      "error_contains": null,
+      "error_text_diverges": false,
+      "python_500": false
+    },
+    {
+      "name": "summarize_long",
+      "action": "summarize",
+      "text": "long text",
+      "lang": null,
+      "cfg": {
+        "ai_enabled": true,
+        "ai_api_key": "sk-test"
+      },
+      "note": "summarize：缺省 max_length=160，超长在最后一个空格前截断 + \"...\"",
+      "source": "admin/actions.py:318-319 + ai_assistance.py:193-196",
+      "raw": "HTTP/1.1 200 OK\r\nContent-Type: application/json\r\nContent-Length: 353\r\n\r\n{\"id\": \"chatcmpl-test\", \"object\": \"chat.completion\", \"choices\": [{\"index\": 0, \"message\": {\"role\": \"assistant\", \"content\": \"word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word \"}, \"finish_reason\": \"stop\"}]}",
+      "python": {
+        "http_status": "200 OK",
+        "content_type": "application/json",
+        "body": {
+          "result": "word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word..."
+        },
+        "envelope": "{\"result\": \"word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word...\"}",
+        "raises": null,
+        "transport_called": true,
+        "url": "https://api.openai.com/v1/chat/completions",
+        "timeout": 30,
+        "python_body": "{\"model\": \"gpt-3.5-turbo\", \"messages\": [{\"role\": \"system\", \"content\": \"You are a content summarizer. Create a concise summary in no more than 160 characters. The summary should capture the main points. Only return the summary, no labels.\"}, {\"role\": \"user\", \"content\": \"Summarize this text:\\n\\nlong text\"}], \"temperature\": 0.3}",
+        "payload": {
+          "model": "gpt-3.5-turbo",
+          "messages": [
+            {
+              "role": "system",
+              "content": "You are a content summarizer. Create a concise summary in no more than 160 characters. The summary should capture the main points. Only return the summary, no labels."
+            },
+            {
+              "role": "user",
+              "content": "Summarize this text:\n\nlong text"
+            }
+          ],
+          "temperature": 0.3
+        },
+        "wire_body": "{\"messages\":[{\"content\":\"You are a content summarizer. Create a concise summary in no more than 160 characters. The summary should capture the main points. Only return the summary, no labels.\",\"role\":\"system\"},{\"content\":\"Summarize this text:\\n\\nlong text\",\"role\":\"user\"}],\"model\":\"gpt-3.5-turbo\",\"temperature\":0.3}"
+      },
+      "want": {
+        "ok": true,
+        "transport_called": true,
+        "envelope": "{\"result\": \"word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word...\"}",
+        "has_error": false,
+        "wire_body": "{\"messages\":[{\"content\":\"You are a content summarizer. Create a concise summary in no more than 160 characters. The summary should capture the main points. Only return the summary, no labels.\",\"role\":\"system\"},{\"content\":\"Summarize this text:\\n\\nlong text\",\"role\":\"user\"}],\"model\":\"gpt-3.5-turbo\",\"temperature\":0.3}"
+      },
+      "error_contains": null,
+      "error_text_diverges": false,
+      "python_500": false
+    },
+    {
+      "name": "summarize_short",
+      "action": "summarize",
+      "text": "long text",
+      "lang": null,
+      "cfg": {
+        "ai_enabled": true,
+        "ai_api_key": "sk-test"
+      },
+      "note": "不超上限 ⇒ strip 后原样",
+      "source": "ai_assistance.py:193-196",
+      "raw": "HTTP/1.1 200 OK\r\nContent-Type: application/json\r\nContent-Length: 163\r\n\r\n{\"id\": \"chatcmpl-test\", \"object\": \"chat.completion\", \"choices\": [{\"index\": 0, \"message\": {\"role\": \"assistant\", \"content\": \"  Short.  \"}, \"finish_reason\": \"stop\"}]}",
+      "python": {
+        "http_status": "200 OK",
+        "content_type": "application/json",
+        "body": {
+          "result": "Short."
+        },
+        "envelope": "{\"result\": \"Short.\"}",
+        "raises": null,
+        "transport_called": true,
+        "url": "https://api.openai.com/v1/chat/completions",
+        "timeout": 30,
+        "python_body": "{\"model\": \"gpt-3.5-turbo\", \"messages\": [{\"role\": \"system\", \"content\": \"You are a content summarizer. Create a concise summary in no more than 160 characters. The summary should capture the main points. Only return the summary, no labels.\"}, {\"role\": \"user\", \"content\": \"Summarize this text:\\n\\nlong text\"}], \"temperature\": 0.3}",
+        "payload": {
+          "model": "gpt-3.5-turbo",
+          "messages": [
+            {
+              "role": "system",
+              "content": "You are a content summarizer. Create a concise summary in no more than 160 characters. The summary should capture the main points. Only return the summary, no labels."
+            },
+            {
+              "role": "user",
+              "content": "Summarize this text:\n\nlong text"
+            }
+          ],
+          "temperature": 0.3
+        },
+        "wire_body": "{\"messages\":[{\"content\":\"You are a content summarizer. Create a concise summary in no more than 160 characters. The summary should capture the main points. Only return the summary, no labels.\",\"role\":\"system\"},{\"content\":\"Summarize this text:\\n\\nlong text\",\"role\":\"user\"}],\"model\":\"gpt-3.5-turbo\",\"temperature\":0.3}"
+      },
+      "want": {
+        "ok": true,
+        "transport_called": true,
+        "envelope": "{\"result\": \"Short.\"}",
+        "has_error": false,
+        "wire_body": "{\"messages\":[{\"content\":\"You are a content summarizer. Create a concise summary in no more than 160 characters. The summary should capture the main points. Only return the summary, no labels.\",\"role\":\"system\"},{\"content\":\"Summarize this text:\\n\\nlong text\",\"role\":\"user\"}],\"model\":\"gpt-3.5-turbo\",\"temperature\":0.3}"
+      },
+      "error_contains": null,
+      "error_text_diverges": false,
+      "python_500": false
+    },
+    {
+      "name": "tags_json",
+      "action": "suggest_tags",
+      "text": "python web",
+      "lang": null,
+      "cfg": {
+        "ai_enabled": true,
+        "ai_api_key": "sk-test"
+      },
+      "note": "suggest_tags：JSON 数组 ⇒ result 是数组（出参里是 [\"python\", \"web\"]）",
+      "source": "admin/actions.py:316-317 + ai_assistance.py:226-235",
+      "raw": "HTTP/1.1 200 OK\r\nContent-Type: application/json\r\nContent-Length: 174\r\n\r\n{\"id\": \"chatcmpl-test\", \"object\": \"chat.completion\", \"choices\": [{\"index\": 0, \"message\": {\"role\": \"assistant\", \"content\": \"[\\\"python\\\", \\\"web\\\"]\"}, \"finish_reason\": \"stop\"}]}",
+      "python": {
+        "http_status": "200 OK",
+        "content_type": "application/json",
+        "body": {
+          "result": [
+            "python",
+            "web"
+          ]
+        },
+        "envelope": "{\"result\": [\"python\", \"web\"]}",
+        "raises": null,
+        "transport_called": true,
+        "url": "https://api.openai.com/v1/chat/completions",
+        "timeout": 30,
+        "python_body": "{\"model\": \"gpt-3.5-turbo\", \"messages\": [{\"role\": \"system\", \"content\": \"You are a content analyst. Suggest exactly 5 relevant tags for this article. Tags should be short (1-3 words), lowercase, and relevant to the main topics. Return ONLY a JSON array of tag strings, like [\\\"python\\\", \\\"web\\\", \\\"tutorial\\\"]. No explanations.\"}, {\"role\": \"user\", \"content\": \"Suggest tags for:\\n\\npython web\"}], \"temperature\": 0.3}",
+        "payload": {
+          "model": "gpt-3.5-turbo",
+          "messages": [
+            {
+              "role": "system",
+              "content": "You are a content analyst. Suggest exactly 5 relevant tags for this article. Tags should be short (1-3 words), lowercase, and relevant to the main topics. Return ONLY a JSON array of tag strings, like [\"python\", \"web\", \"tutorial\"]. No explanations."
+            },
+            {
+              "role": "user",
+              "content": "Suggest tags for:\n\npython web"
+            }
+          ],
+          "temperature": 0.3
+        },
+        "wire_body": "{\"messages\":[{\"content\":\"You are a content analyst. Suggest exactly 5 relevant tags for this article. Tags should be short (1-3 words), lowercase, and relevant to the main topics. Return ONLY a JSON array of tag strings, like [\\\"python\\\", \\\"web\\\", \\\"tutorial\\\"]. No explanations.\",\"role\":\"system\"},{\"content\":\"Suggest tags for:\\n\\npython web\",\"role\":\"user\"}],\"model\":\"gpt-3.5-turbo\",\"temperature\":0.3}"
+      },
+      "want": {
+        "ok": true,
+        "transport_called": true,
+        "envelope": "{\"result\": [\"python\", \"web\"]}",
+        "has_error": false,
+        "wire_body": "{\"messages\":[{\"content\":\"You are a content analyst. Suggest exactly 5 relevant tags for this article. Tags should be short (1-3 words), lowercase, and relevant to the main topics. Return ONLY a JSON array of tag strings, like [\\\"python\\\", \\\"web\\\", \\\"tutorial\\\"]. No explanations.\",\"role\":\"system\"},{\"content\":\"Suggest tags for:\\n\\npython web\",\"role\":\"user\"}],\"model\":\"gpt-3.5-turbo\",\"temperature\":0.3}"
+      },
+      "error_contains": null,
+      "error_text_diverges": false,
+      "python_500": false
+    },
+    {
+      "name": "tags_fallback",
+      "action": "suggest_tags",
+      "text": "python web python tutorial web python",
+      "lang": null,
+      "cfg": {
+        "ai_enabled": true,
+        "ai_api_key": "sk-test"
+      },
+      "note": "内容不是 JSON ⇒ **词频降级**（不是报错）：python 3 / web 2 / tutorial 1",
+      "source": "ai_assistance.py:236-261",
+      "raw": "HTTP/1.1 200 OK\r\nContent-Type: application/json\r\nContent-Length: 176\r\n\r\n{\"id\": \"chatcmpl-test\", \"object\": \"chat.completion\", \"choices\": [{\"index\": 0, \"message\": {\"role\": \"assistant\", \"content\": \"Sure! tags: python, web\"}, \"finish_reason\": \"stop\"}]}",
+      "python": {
+        "http_status": "200 OK",
+        "content_type": "application/json",
+        "body": {
+          "result": [
+            "python",
+            "web",
+            "tutorial"
+          ]
+        },
+        "envelope": "{\"result\": [\"python\", \"web\", \"tutorial\"]}",
+        "raises": null,
+        "transport_called": true,
+        "url": "https://api.openai.com/v1/chat/completions",
+        "timeout": 30,
+        "python_body": "{\"model\": \"gpt-3.5-turbo\", \"messages\": [{\"role\": \"system\", \"content\": \"You are a content analyst. Suggest exactly 5 relevant tags for this article. Tags should be short (1-3 words), lowercase, and relevant to the main topics. Return ONLY a JSON array of tag strings, like [\\\"python\\\", \\\"web\\\", \\\"tutorial\\\"]. No explanations.\"}, {\"role\": \"user\", \"content\": \"Suggest tags for:\\n\\npython web python tutorial web python\"}], \"temperature\": 0.3}",
+        "payload": {
+          "model": "gpt-3.5-turbo",
+          "messages": [
+            {
+              "role": "system",
+              "content": "You are a content analyst. Suggest exactly 5 relevant tags for this article. Tags should be short (1-3 words), lowercase, and relevant to the main topics. Return ONLY a JSON array of tag strings, like [\"python\", \"web\", \"tutorial\"]. No explanations."
+            },
+            {
+              "role": "user",
+              "content": "Suggest tags for:\n\npython web python tutorial web python"
+            }
+          ],
+          "temperature": 0.3
+        },
+        "wire_body": "{\"messages\":[{\"content\":\"You are a content analyst. Suggest exactly 5 relevant tags for this article. Tags should be short (1-3 words), lowercase, and relevant to the main topics. Return ONLY a JSON array of tag strings, like [\\\"python\\\", \\\"web\\\", \\\"tutorial\\\"]. No explanations.\",\"role\":\"system\"},{\"content\":\"Suggest tags for:\\n\\npython web python tutorial web python\",\"role\":\"user\"}],\"model\":\"gpt-3.5-turbo\",\"temperature\":0.3}"
+      },
+      "want": {
+        "ok": true,
+        "transport_called": true,
+        "envelope": "{\"result\": [\"python\", \"web\", \"tutorial\"]}",
+        "has_error": false,
+        "wire_body": "{\"messages\":[{\"content\":\"You are a content analyst. Suggest exactly 5 relevant tags for this article. Tags should be short (1-3 words), lowercase, and relevant to the main topics. Return ONLY a JSON array of tag strings, like [\\\"python\\\", \\\"web\\\", \\\"tutorial\\\"]. No explanations.\",\"role\":\"system\"},{\"content\":\"Suggest tags for:\\n\\npython web python tutorial web python\",\"role\":\"user\"}],\"model\":\"gpt-3.5-turbo\",\"temperature\":0.3}"
+      },
+      "error_contains": null,
+      "error_text_diverges": false,
+      "python_500": false
+    },
+    {
+      "name": "complete_empty",
+      "action": "complete",
+      "text": "",
+      "lang": null,
+      "cfg": {
+        "ai_enabled": true,
+        "ai_api_key": "sk-test"
+      },
+      "note": "空文本 ⇒ Python 直接返回 \"\"，**不发请求**（:100-101）",
+      "source": "ai_assistance.py:100-101",
+      "raw": "HTTP/1.1 200 OK\r\nContent-Type: application/json\r\nContent-Length: 163\r\n\r\n{\"id\": \"chatcmpl-test\", \"object\": \"chat.completion\", \"choices\": [{\"index\": 0, \"message\": {\"role\": \"assistant\", \"content\": \"never used\"}, \"finish_reason\": \"stop\"}]}",
+      "python": {
+        "http_status": "200 OK",
+        "content_type": "application/json",
+        "body": {
+          "result": ""
+        },
+        "envelope": "{\"result\": \"\"}",
+        "raises": null,
+        "transport_called": false,
+        "url": null,
+        "timeout": null
+      },
+      "want": {
+        "ok": true,
+        "transport_called": false,
+        "envelope": "{\"result\": \"\"}",
+        "has_error": false
+      },
+      "error_contains": null,
+      "error_text_diverges": false,
+      "python_500": false
+    },
+    {
+      "name": "unknown_action",
+      "action": "frobnicate",
+      "text": "x",
+      "lang": null,
+      "cfg": {
+        "ai_enabled": true,
+        "ai_api_key": "sk-test"
+      },
+      "note": "未知 action ⇒ `{\"error\": \"未知操作: frobnicate\"}`，**不落默认分支**，也不发请求",
+      "source": "admin/actions.py:320-321",
+      "raw": "HTTP/1.1 200 OK\r\nContent-Type: application/json\r\nContent-Length: 163\r\n\r\n{\"id\": \"chatcmpl-test\", \"object\": \"chat.completion\", \"choices\": [{\"index\": 0, \"message\": {\"role\": \"assistant\", \"content\": \"never used\"}, \"finish_reason\": \"stop\"}]}",
+      "python": {
+        "http_status": "200 OK",
+        "content_type": "application/json",
+        "body": {
+          "error": "未知操作: frobnicate"
+        },
+        "envelope": "{\"error\": \"未知操作: frobnicate\"}",
+        "raises": null,
+        "transport_called": false,
+        "url": null,
+        "timeout": null
+      },
+      "want": {
+        "ok": false,
+        "transport_called": false,
+        "envelope": "{\"error\": \"未知操作: frobnicate\"}",
+        "has_error": true
+      },
+      "error_contains": null,
+      "error_text_diverges": false,
+      "python_500": false
+    },
+    {
+      "name": "unconfigured_disabled",
+      "action": "complete",
+      "text": "Hello",
+      "lang": null,
+      "cfg": {
+        "ai_enabled": false
+      },
+      "note": "ai_enabled 为假 ⇒ 卡面第 ① 条的逐字文案",
+      "source": "admin/actions.py:302-304 + ai_assistance.py:273-274",
+      "raw": "HTTP/1.1 200 OK\r\nContent-Type: application/json\r\nContent-Length: 163\r\n\r\n{\"id\": \"chatcmpl-test\", \"object\": \"chat.completion\", \"choices\": [{\"index\": 0, \"message\": {\"role\": \"assistant\", \"content\": \"never used\"}, \"finish_reason\": \"stop\"}]}",
+      "python": {
+        "http_status": "200 OK",
+        "content_type": "application/json",
+        "body": {
+          "error": "AI 未启用或未配置 API Key"
+        },
+        "envelope": "{\"error\": \"AI 未启用或未配置 API Key\"}",
+        "raises": null,
+        "transport_called": false,
+        "url": null,
+        "timeout": null
+      },
+      "want": {
+        "ok": false,
+        "transport_called": false,
+        "envelope": "{\"error\": \"AI 未启用或未配置 API Key\"}",
+        "has_error": true
+      },
+      "error_contains": null,
+      "error_text_diverges": false,
+      "python_500": false
+    },
+    {
+      "name": "unconfigured_no_key",
+      "action": "polish",
+      "text": "Hello",
+      "lang": null,
+      "cfg": {
+        "ai_enabled": true,
+        "ai_api_key": ""
+      },
+      "note": "启用但没 key ⇒ 同一句文案（:275-276 的第二个前置条件）",
+      "source": "admin/actions.py:302-304 + ai_assistance.py:275-276",
+      "raw": "HTTP/1.1 200 OK\r\nContent-Type: application/json\r\nContent-Length: 163\r\n\r\n{\"id\": \"chatcmpl-test\", \"object\": \"chat.completion\", \"choices\": [{\"index\": 0, \"message\": {\"role\": \"assistant\", \"content\": \"never used\"}, \"finish_reason\": \"stop\"}]}",
+      "python": {
+        "http_status": "200 OK",
+        "content_type": "application/json",
+        "body": {
+          "error": "AI 未启用或未配置 API Key"
+        },
+        "envelope": "{\"error\": \"AI 未启用或未配置 API Key\"}",
+        "raises": null,
+        "transport_called": false,
+        "url": null,
+        "timeout": null
+      },
+      "want": {
+        "ok": false,
+        "transport_called": false,
+        "envelope": "{\"error\": \"AI 未启用或未配置 API Key\"}",
+        "has_error": true
+      },
+      "error_contains": null,
+      "error_text_diverges": false,
+      "python_500": false
+    },
+    {
+      "name": "unconfigured_unknown_action",
+      "action": "frobnicate",
+      "text": "x",
+      "lang": null,
+      "cfg": {
+        "ai_enabled": false
+      },
+      "note": "⚠ 顺序守卫：未配置**先于**分派 ⇒ 报「未启用」，不是「未知操作」",
+      "source": "admin/actions.py:302-304（判空在前）vs :320-321（分派在后）",
+      "raw": "HTTP/1.1 200 OK\r\nContent-Type: application/json\r\nContent-Length: 163\r\n\r\n{\"id\": \"chatcmpl-test\", \"object\": \"chat.completion\", \"choices\": [{\"index\": 0, \"message\": {\"role\": \"assistant\", \"content\": \"never used\"}, \"finish_reason\": \"stop\"}]}",
+      "python": {
+        "http_status": "200 OK",
+        "content_type": "application/json",
+        "body": {
+          "error": "AI 未启用或未配置 API Key"
+        },
+        "envelope": "{\"error\": \"AI 未启用或未配置 API Key\"}",
+        "raises": null,
+        "transport_called": false,
+        "url": null,
+        "timeout": null
+      },
+      "want": {
+        "ok": false,
+        "transport_called": false,
+        "envelope": "{\"error\": \"AI 未启用或未配置 API Key\"}",
+        "has_error": true
+      },
+      "error_contains": null,
+      "error_text_diverges": false,
+      "python_500": false
+    },
+    {
+      "name": "backend_500",
+      "action": "complete",
+      "text": "Hello",
+      "lang": null,
+      "cfg": {
+        "ai_enabled": true,
+        "ai_api_key": "sk-test"
+      },
+      "note": "后端 5xx ⇒ Python 抛 AIAssistanceError(\"API error: 500\") ⇒ 200 + JSON 错误",
+      "source": "ai_assistance.py:82-85 + actions.py:322-329",
+      "raw": "HTTP/1.1 500 Internal Server Error\r\nContent-Type: application/json\r\nContent-Length: 17\r\n\r\n{\"error\": \"boom\"}",
+      "python": {
+        "http_status": "200 OK",
+        "content_type": "application/json",
+        "body": {
+          "error": "API error: 500"
+        },
+        "envelope": "{\"error\": \"API error: 500\"}",
+        "raises": null,
+        "transport_called": true,
+        "url": "https://api.openai.com/v1/chat/completions",
+        "timeout": 30,
+        "python_body": "{\"model\": \"gpt-3.5-turbo\", \"messages\": [{\"role\": \"system\", \"content\": \"You are a helpful writing assistant. Continue the user's text naturally and coherently.\"}, {\"role\": \"user\", \"content\": \"Continue this text:\\n\\nHello\"}], \"temperature\": 0.8}",
+        "payload": {
+          "model": "gpt-3.5-turbo",
+          "messages": [
+            {
+              "role": "system",
+              "content": "You are a helpful writing assistant. Continue the user's text naturally and coherently."
+            },
+            {
+              "role": "user",
+              "content": "Continue this text:\n\nHello"
+            }
+          ],
+          "temperature": 0.8
+        },
+        "wire_body": "{\"messages\":[{\"content\":\"You are a helpful writing assistant. Continue the user's text naturally and coherently.\",\"role\":\"system\"},{\"content\":\"Continue this text:\\n\\nHello\",\"role\":\"user\"}],\"model\":\"gpt-3.5-turbo\",\"temperature\":0.8}"
+      },
+      "want": {
+        "ok": false,
+        "transport_called": true,
+        "envelope": "{\"error\": \"API error: 500\"}",
+        "has_error": true,
+        "wire_body": "{\"messages\":[{\"content\":\"You are a helpful writing assistant. Continue the user's text naturally and coherently.\",\"role\":\"system\"},{\"content\":\"Continue this text:\\n\\nHello\",\"role\":\"user\"}],\"model\":\"gpt-3.5-turbo\",\"temperature\":0.8}"
+      },
+      "error_contains": null,
+      "error_text_diverges": true,
+      "python_500": false
+    },
+    {
+      "name": "backend_empty_choices",
+      "action": "complete",
+      "text": "Hello",
+      "lang": null,
+      "cfg": {
+        "ai_enabled": true,
+        "ai_api_key": "sk-test"
+      },
+      "note": "choices 为空 ⇒ AIAssistanceError(\"No response from AI\") ⇒ JSON 错误",
+      "source": "ai_assistance.py:78-80",
+      "raw": "HTTP/1.1 200 OK\r\nContent-Type: application/json\r\nContent-Length: 26\r\n\r\n{\"id\": \"x\", \"choices\": []}",
+      "python": {
+        "http_status": "200 OK",
+        "content_type": "application/json",
+        "body": {
+          "error": "No response from AI"
+        },
+        "envelope": "{\"error\": \"No response from AI\"}",
+        "raises": null,
+        "transport_called": true,
+        "url": "https://api.openai.com/v1/chat/completions",
+        "timeout": 30,
+        "python_body": "{\"model\": \"gpt-3.5-turbo\", \"messages\": [{\"role\": \"system\", \"content\": \"You are a helpful writing assistant. Continue the user's text naturally and coherently.\"}, {\"role\": \"user\", \"content\": \"Continue this text:\\n\\nHello\"}], \"temperature\": 0.8}",
+        "payload": {
+          "model": "gpt-3.5-turbo",
+          "messages": [
+            {
+              "role": "system",
+              "content": "You are a helpful writing assistant. Continue the user's text naturally and coherently."
+            },
+            {
+              "role": "user",
+              "content": "Continue this text:\n\nHello"
+            }
+          ],
+          "temperature": 0.8
+        },
+        "wire_body": "{\"messages\":[{\"content\":\"You are a helpful writing assistant. Continue the user's text naturally and coherently.\",\"role\":\"system\"},{\"content\":\"Continue this text:\\n\\nHello\",\"role\":\"user\"}],\"model\":\"gpt-3.5-turbo\",\"temperature\":0.8}"
+      },
+      "want": {
+        "ok": false,
+        "transport_called": true,
+        "envelope": "{\"error\": \"No response from AI\"}",
+        "has_error": true,
+        "wire_body": "{\"messages\":[{\"content\":\"You are a helpful writing assistant. Continue the user's text naturally and coherently.\",\"role\":\"system\"},{\"content\":\"Continue this text:\\n\\nHello\",\"role\":\"user\"}],\"model\":\"gpt-3.5-turbo\",\"temperature\":0.8}"
+      },
+      "error_contains": null,
+      "error_text_diverges": true,
+      "python_500": false
+    },
+    {
+      "name": "backend_html",
+      "action": "complete",
+      "text": "Hello",
+      "lang": null,
+      "cfg": {
+        "ai_enabled": true,
+        "ai_api_key": "sk-test"
+      },
+      "note": "⚠ 非 JSON 响应体：Python 的 JSONDecodeError **不被** ai_assist 捕获 ⇒ WSGI 500；我们返回 JSON 错误（卡面第 ② 条，登记为刻意语义 ③）",
+      "source": "ai_assistance.py:77（json.loads）+ actions.py:322（只捕 AIAssistanceError）",
+      "raw": "HTTP/1.1 200 OK\r\nContent-Type: application/json\r\nContent-Length: 24\r\n\r\n<html>bad gateway</html>",
+      "python": {
+        "http_status": null,
+        "content_type": null,
+        "body": null,
+        "envelope": null,
+        "raises": "JSONDecodeError: Expecting value: line 1 column 1 (char 0)",
+        "transport_called": true,
+        "url": "https://api.openai.com/v1/chat/completions",
+        "timeout": 30,
+        "python_body": "{\"model\": \"gpt-3.5-turbo\", \"messages\": [{\"role\": \"system\", \"content\": \"You are a helpful writing assistant. Continue the user's text naturally and coherently.\"}, {\"role\": \"user\", \"content\": \"Continue this text:\\n\\nHello\"}], \"temperature\": 0.8}",
+        "payload": {
+          "model": "gpt-3.5-turbo",
+          "messages": [
+            {
+              "role": "system",
+              "content": "You are a helpful writing assistant. Continue the user's text naturally and coherently."
+            },
+            {
+              "role": "user",
+              "content": "Continue this text:\n\nHello"
+            }
+          ],
+          "temperature": 0.8
+        },
+        "wire_body": "{\"messages\":[{\"content\":\"You are a helpful writing assistant. Continue the user's text naturally and coherently.\",\"role\":\"system\"},{\"content\":\"Continue this text:\\n\\nHello\",\"role\":\"user\"}],\"model\":\"gpt-3.5-turbo\",\"temperature\":0.8}"
+      },
+      "want": {
+        "ok": false,
+        "transport_called": true,
+        "wire_body": "{\"messages\":[{\"content\":\"You are a helpful writing assistant. Continue the user's text naturally and coherently.\",\"role\":\"system\"},{\"content\":\"Continue this text:\\n\\nHello\",\"role\":\"user\"}],\"model\":\"gpt-3.5-turbo\",\"temperature\":0.8}"
+      },
+      "error_contains": "not valid JSON",
+      "error_text_diverges": false,
+      "python_500": true
+    }
+  ],
+  "endpoint": [
+    {
+      "name": "translate_en_default",
+      "text": "Hello",
+      "lang": null,
+      "cfg": {
+        "ai_enabled": true,
+        "ai_api_key": "sk-test"
+      },
+      "note": "/translate 不给 lang ⇒ content.py 的缺省 \"en\" ⇒ English",
+      "source": "content.py:794-795 + actions.py:334",
+      "raw": "HTTP/1.1 200 OK\r\nContent-Type: application/json\r\nContent-Length: 160\r\n\r\n{\"id\": \"chatcmpl-test\", \"object\": \"chat.completion\", \"choices\": [{\"index\": 0, \"message\": {\"role\": \"assistant\", \"content\": \" hello \"}, \"finish_reason\": \"stop\"}]}",
+      "python": {
+        "http_status": "200 OK",
+        "content_type": "application/json",
+        "body": {
+          "result": "hello"
+        },
+        "envelope": "{\"result\": \"hello\"}",
+        "raises": null,
+        "transport_called": true,
+        "url": "https://api.openai.com/v1/chat/completions",
+        "timeout": 30,
+        "python_body": "{\"model\": \"gpt-3.5-turbo\", \"messages\": [{\"role\": \"system\", \"content\": \"You are a professional translator. Translate the text to English accurately and naturally. Only return the translated text, no explanations.\"}, {\"role\": \"user\", \"content\": \"Translate to English:\\n\\nHello\"}], \"temperature\": 0.3}",
+        "payload": {
+          "model": "gpt-3.5-turbo",
+          "messages": [
+            {
+              "role": "system",
+              "content": "You are a professional translator. Translate the text to English accurately and naturally. Only return the translated text, no explanations."
+            },
+            {
+              "role": "user",
+              "content": "Translate to English:\n\nHello"
+            }
+          ],
+          "temperature": 0.3
+        },
+        "wire_body": "{\"messages\":[{\"content\":\"You are a professional translator. Translate the text to English accurately and naturally. Only return the translated text, no explanations.\",\"role\":\"system\"},{\"content\":\"Translate to English:\\n\\nHello\",\"role\":\"user\"}],\"model\":\"gpt-3.5-turbo\",\"temperature\":0.3}",
+        "wire_contains": "Translate to English"
+      },
+      "want": {
+        "ok": true,
+        "transport_called": true,
+        "envelope": "{\"result\": \"hello\"}",
+        "has_error": false,
+        "wire_body": "{\"messages\":[{\"content\":\"You are a professional translator. Translate the text to English accurately and naturally. Only return the translated text, no explanations.\",\"role\":\"system\"},{\"content\":\"Translate to English:\\n\\nHello\",\"role\":\"user\"}],\"model\":\"gpt-3.5-turbo\",\"temperature\":0.3}",
+        "wire_contains": "Translate to English"
+      },
+      "error_text_diverges": false
+    },
+    {
+      "name": "translate_ja",
+      "text": "Hello",
+      "lang": "ja",
+      "cfg": {
+        "ai_enabled": true,
+        "ai_api_key": "sk-test"
+      },
+      "note": "/translate lang=ja ⇒ Japanese",
+      "source": "content.py:794-795,805",
+      "raw": "HTTP/1.1 200 OK\r\nContent-Type: application/json\r\nContent-Length: 170\r\n\r\n{\"id\": \"chatcmpl-test\", \"object\": \"chat.completion\", \"choices\": [{\"index\": 0, \"message\": {\"role\": \"assistant\", \"content\": \" こんにちは \"}, \"finish_reason\": \"stop\"}]}",
+      "python": {
+        "http_status": "200 OK",
+        "content_type": "application/json",
+        "body": {
+          "result": "こんにちは"
+        },
+        "envelope": "{\"result\": \"こんにちは\"}",
+        "raises": null,
+        "transport_called": true,
+        "url": "https://api.openai.com/v1/chat/completions",
+        "timeout": 30,
+        "python_body": "{\"model\": \"gpt-3.5-turbo\", \"messages\": [{\"role\": \"system\", \"content\": \"You are a professional translator. Translate the text to Japanese accurately and naturally. Only return the translated text, no explanations.\"}, {\"role\": \"user\", \"content\": \"Translate to Japanese:\\n\\nHello\"}], \"temperature\": 0.3}",
+        "payload": {
+          "model": "gpt-3.5-turbo",
+          "messages": [
+            {
+              "role": "system",
+              "content": "You are a professional translator. Translate the text to Japanese accurately and naturally. Only return the translated text, no explanations."
+            },
+            {
+              "role": "user",
+              "content": "Translate to Japanese:\n\nHello"
+            }
+          ],
+          "temperature": 0.3
+        },
+        "wire_body": "{\"messages\":[{\"content\":\"You are a professional translator. Translate the text to Japanese accurately and naturally. Only return the translated text, no explanations.\",\"role\":\"system\"},{\"content\":\"Translate to Japanese:\\n\\nHello\",\"role\":\"user\"}],\"model\":\"gpt-3.5-turbo\",\"temperature\":0.3}",
+        "wire_contains": "Translate to Japanese"
+      },
+      "want": {
+        "ok": true,
+        "transport_called": true,
+        "envelope": "{\"result\": \"こんにちは\"}",
+        "has_error": false,
+        "wire_body": "{\"messages\":[{\"content\":\"You are a professional translator. Translate the text to Japanese accurately and naturally. Only return the translated text, no explanations.\",\"role\":\"system\"},{\"content\":\"Translate to Japanese:\\n\\nHello\",\"role\":\"user\"}],\"model\":\"gpt-3.5-turbo\",\"temperature\":0.3}",
+        "wire_contains": "Translate to Japanese"
+      },
+      "error_text_diverges": false
+    },
+    {
+      "name": "translate_fr",
+      "text": "Hello",
+      "lang": "fr",
+      "cfg": {
+        "ai_enabled": true,
+        "ai_api_key": "sk-test"
+      },
+      "note": "未知码 ⇒ English（`lang_map.get(target_lang, \"English\")`）",
+      "source": "content.py:794-795",
+      "raw": "HTTP/1.1 200 OK\r\nContent-Type: application/json\r\nContent-Length: 160\r\n\r\n{\"id\": \"chatcmpl-test\", \"object\": \"chat.completion\", \"choices\": [{\"index\": 0, \"message\": {\"role\": \"assistant\", \"content\": \" hello \"}, \"finish_reason\": \"stop\"}]}",
+      "python": {
+        "http_status": "200 OK",
+        "content_type": "application/json",
+        "body": {
+          "result": "hello"
+        },
+        "envelope": "{\"result\": \"hello\"}",
+        "raises": null,
+        "transport_called": true,
+        "url": "https://api.openai.com/v1/chat/completions",
+        "timeout": 30,
+        "python_body": "{\"model\": \"gpt-3.5-turbo\", \"messages\": [{\"role\": \"system\", \"content\": \"You are a professional translator. Translate the text to English accurately and naturally. Only return the translated text, no explanations.\"}, {\"role\": \"user\", \"content\": \"Translate to English:\\n\\nHello\"}], \"temperature\": 0.3}",
+        "payload": {
+          "model": "gpt-3.5-turbo",
+          "messages": [
+            {
+              "role": "system",
+              "content": "You are a professional translator. Translate the text to English accurately and naturally. Only return the translated text, no explanations."
+            },
+            {
+              "role": "user",
+              "content": "Translate to English:\n\nHello"
+            }
+          ],
+          "temperature": 0.3
+        },
+        "wire_body": "{\"messages\":[{\"content\":\"You are a professional translator. Translate the text to English accurately and naturally. Only return the translated text, no explanations.\",\"role\":\"system\"},{\"content\":\"Translate to English:\\n\\nHello\",\"role\":\"user\"}],\"model\":\"gpt-3.5-turbo\",\"temperature\":0.3}",
+        "wire_contains": "Translate to English"
+      },
+      "want": {
+        "ok": true,
+        "transport_called": true,
+        "envelope": "{\"result\": \"hello\"}",
+        "has_error": false,
+        "wire_body": "{\"messages\":[{\"content\":\"You are a professional translator. Translate the text to English accurately and naturally. Only return the translated text, no explanations.\",\"role\":\"system\"},{\"content\":\"Translate to English:\\n\\nHello\",\"role\":\"user\"}],\"model\":\"gpt-3.5-turbo\",\"temperature\":0.3}",
+        "wire_contains": "Translate to English"
+      },
+      "error_text_diverges": false
+    },
+    {
+      "name": "unconfigured",
+      "text": "Hello",
+      "lang": "en",
+      "cfg": {
+        "ai_enabled": false
+      },
+      "note": "/translate 未配置 ⇒ 本模块用卡面 ① 的文案；Python 的文章层另有文案（见 divergences ②）",
+      "source": "content.py:797-802（对比）+ actions.py:304（本模块采用）",
+      "raw": "HTTP/1.1 200 OK\r\nContent-Type: application/json\r\nContent-Length: 163\r\n\r\n{\"id\": \"chatcmpl-test\", \"object\": \"chat.completion\", \"choices\": [{\"index\": 0, \"message\": {\"role\": \"assistant\", \"content\": \"never used\"}, \"finish_reason\": \"stop\"}]}",
+      "python": {
+        "http_status": "200 OK",
+        "content_type": "application/json",
+        "body": {
+          "error": "AI 未启用或未配置 API Key"
+        },
+        "envelope": "{\"error\": \"AI 未启用或未配置 API Key\"}",
+        "raises": null,
+        "transport_called": false,
+        "url": null,
+        "timeout": null
+      },
+      "want": {
+        "ok": false,
+        "transport_called": false,
+        "envelope": "{\"error\": \"AI 未启用或未配置 API Key\"}",
+        "has_error": true
+      },
+      "error_text_diverges": false
+    },
+    {
+      "name": "backend_500",
+      "text": "Hello",
+      "lang": "en",
+      "cfg": {
+        "ai_enabled": true,
+        "ai_api_key": "sk-test"
+      },
+      "note": "/translate 的后端错误同样必须是 JSON",
+      "source": "actions.py:322-329",
+      "raw": "HTTP/1.1 500 Internal Server Error\r\nContent-Type: application/json\r\nContent-Length: 17\r\n\r\n{\"error\": \"boom\"}",
+      "python": {
+        "http_status": "200 OK",
+        "content_type": "application/json",
+        "body": {
+          "error": "API error: 500"
+        },
+        "envelope": "{\"error\": \"API error: 500\"}",
+        "raises": null,
+        "transport_called": true,
+        "url": "https://api.openai.com/v1/chat/completions",
+        "timeout": 30,
+        "python_body": "{\"model\": \"gpt-3.5-turbo\", \"messages\": [{\"role\": \"system\", \"content\": \"You are a professional translator. Translate the text to English accurately and naturally. Only return the translated text, no explanations.\"}, {\"role\": \"user\", \"content\": \"Translate to English:\\n\\nHello\"}], \"temperature\": 0.3}",
+        "payload": {
+          "model": "gpt-3.5-turbo",
+          "messages": [
+            {
+              "role": "system",
+              "content": "You are a professional translator. Translate the text to English accurately and naturally. Only return the translated text, no explanations."
+            },
+            {
+              "role": "user",
+              "content": "Translate to English:\n\nHello"
+            }
+          ],
+          "temperature": 0.3
+        },
+        "wire_body": "{\"messages\":[{\"content\":\"You are a professional translator. Translate the text to English accurately and naturally. Only return the translated text, no explanations.\",\"role\":\"system\"},{\"content\":\"Translate to English:\\n\\nHello\",\"role\":\"user\"}],\"model\":\"gpt-3.5-turbo\",\"temperature\":0.3}",
+        "wire_contains": "Translate to English"
+      },
+      "want": {
+        "ok": false,
+        "transport_called": true,
+        "envelope": "{\"error\": \"API error: 500\"}",
+        "has_error": true,
+        "wire_body": "{\"messages\":[{\"content\":\"You are a professional translator. Translate the text to English accurately and naturally. Only return the translated text, no explanations.\",\"role\":\"system\"},{\"content\":\"Translate to English:\\n\\nHello\",\"role\":\"user\"}],\"model\":\"gpt-3.5-turbo\",\"temperature\":0.3}",
+        "wire_contains": "Translate to English"
+      },
+      "error_text_diverges": true
+    }
+  ],
+  "guards": {
+    "unconfigured_message": "AI 未启用或未配置 API Key",
+    "unknown_prefix": "未知操作: "
+  }
+}
