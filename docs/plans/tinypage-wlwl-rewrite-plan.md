@@ -33,7 +33,7 @@
 | S1-2 行内解析器 | ✅ 完成 | `tp/lib/md_inline.wll`（生成器产出）；**21/21 测试通过**，含 3 个反向守卫 |
 | S1-3 块级解析器 | ✅ 完成 | `tp/lib/md.wll`（生成器产出）；**28/28 对照 mistune 3.2.1 逐字节通过**（25 基准 + 3 守卫）；链接去掉自加的 `rel` 属性以逐字节对齐 |
 | S1-4 front-matter/TOC/脚注/wikilink | ✅ 完成 | `frontmatter.wll` / `toc.wll` / `footnotes.wll` / `wikilink.wll` + 共享 `esc.wll`（全部生成器产出）；**38/38 + 41/41 + 23/23 + 28/28 + esc 19/19 全绿**；本地 CI 5 步全过（21 生成器 / 21 产物无 drift） |
-| S2 内容模型与生成器 | ✅ **完成（含编排层）** | S2-1 **277/277**／S2-2 **39/39**／S2-3 **162+68**／S2-4 **42+33+21+30+29=155**／S2-5 **37/37**／**编排层 `bin/build.wll` 63/63，端到端 40/40 产物 sha256 全等**；合计 20 个模块 + 1 个入口，**973 个断言** |
+| S2 内容模型与生成器 | ✅ **完成（含编排层）** | S2-1 **277/277**／S2-2 **39/39**／S2-3 **162+68**／S2-4 **42+33+21+30+29=155**／S2-5 **37/37**／**编排层 `bin/build.wll` 63/63，端到端 40/40 产物 sha256 全等**；合计 20 个模块 + 1 个入口，**801 个断言** |
 | S3 前台静态服务（TLS） | ✅ **完成** | `static_serve.wll`（纯函数内核）+ `bin/serve_public.wll`（明文）+ `bin/serve_tls.wll`（TLS）；`test_static_serve.wll` **365/365**；5 个安全头与 `get_security_headers()` 逐字同序相等；curl 实测 200/404/405 与长缓存；坏连接后循环存活；缺 cert 拒绝启动 |
 | S4 Admin 后台 | ⬜ 未开始 | `serve_admin.wll` + 会话/CSRF/限流/CRUD |
 | S5 AI 助手（出站 HTTPS） | ⬜ 未开始 | `ai.wll`（`tls.CONNECT` + 手写 HTTP/1.1） |
@@ -650,7 +650,7 @@ TinyPage/
   实际改为**由 `tp/test/gen_md_inline.py` 生成**（原因见 §0.2 第 1 条）。
   实现逻辑未变，只是排版与括号由生成器保证。
 
-#### 卡 S1-3：Markdown 块级解析器
+#### 卡 S1-3：Markdown 块级解析器 ✅ 已完成
 
 - **依赖**：S1-2
 - **交付物**：`tp/lib/md.wll`，导出 `RENDER_MD(text) -> STRING`
@@ -675,7 +675,7 @@ TinyPage/
   - 块级状态机遇到未闭合围栏 ⇒ 必须闭合而非吞掉剩余全文
 - **非目标**：不做 CommonMark 全覆盖；不做表格/嵌套列表（本版明确放弃，§1.2）
 
-#### 卡 S1-4：front-matter / TOC / 脚注 / wikilink
+#### 卡 S1-4：front-matter / TOC / 脚注 / wikilink ✅ 已完成
 
 - **依赖**：S1-3
 - **交付物**：`frontmatter.wll`、`toc.wll`、`footnotes.wll`、`wikilink.wll`
@@ -734,7 +734,7 @@ TinyPage/
 
 ### S2 内容模型与生成器
 
-#### 卡 S2-1：文章存储与原子写
+#### 卡 S2-1：文章存储与原子写 ✅ 已完成
 
 - **依赖**：S1-4
 - **交付物**：`tp/lib/article_store.wll`
@@ -831,7 +831,7 @@ TinyPage/
   | 实现要点（实测） | `RE_TEST` 整串锚定 ⇒ 用 `$` 处先剥结尾单个 `\n`；正则 `\xNN`/`\.` 是**字面**字符 ⇒ 用字符类 `[.]`；无 `ORD`/`CHR` ⇒ 控制字符靠 `UTF8_DECODE` 造字符逐个比；`LET(r,<ERR>)` 不算消费 ERR（E0103 报在绑定行）⇒ ERR 就地进 `IS_ERR(...)`；`PATH_JOIN` 对绝对路径只拼接 |
   | 本地 CI | 5 步全过（21 生成器无 drift / 19 个 `.wll` check 过 / 反向守卫 / 10 个测试文件全绿） |
 
-#### 卡 S2-2：手写排序（替代 `SORT`）
+#### 卡 S2-2：手写排序（替代 `SORT`） ✅ 已完成
 
 - **依赖**：S2-1
 - **交付物**：`tp/lib/sort_util.wll`，导出 `SORT_BY_DATE(items)` / `SORT_STRINGS(items)`
@@ -906,7 +906,7 @@ TinyPage/
   ⇒ 另有「键可能为 None」的形态（`title or file`），须有确定的回落规则。
 - **非目标**：不做通用排序框架，只做项目需要的两种
 
-#### 卡 S2-3：模板与主题
+#### 卡 S2-3：模板与主题 ✅ 已完成
 
 - **依赖**：S2-1
 - **交付物**：`tp/lib/template.wll`、`tp/lib/theme.wll`
@@ -989,7 +989,7 @@ TinyPage/
   | 反向守卫 | 缺占位符 ⇒ 前台 `SUBSTITUTE` 返 ERR（不静默留 `$var`）；主题名 `../etc` 形态必须被拒；`_` 读出的 CSS **不含 CR**；`LIST_THEMES` 逆序建目录后仍按名升序 |
   | 变异测试 | 去掉 `site_title` 的 escape ⇒ 变红 + PANIC + exit 1；标识符首字符放宽到数字 ⇒ 3 条精确变红；把换行归一退化成「只替 CRLF」⇒ `c05` 变红 ⇒ 证明断言不是空转 |
 
-#### 卡 S2-4：站点产物生成
+#### 卡 S2-4：站点产物生成 ✅ 已完成
 
 - **✅ 实测状态（2026-11-02 完成；交付物由计划的 3 个模块拆成 5 个，理由见下）**：
   | 模块 | 导出 | 测试 | 基准 |
@@ -1163,7 +1163,7 @@ TinyPage/
 
 ### S3 前台静态服务（TLS）
 
-#### 卡 S3-1：静态文件服务内核
+#### 卡 S3-1：静态文件服务内核 ✅ 已完成
 
 - **依赖**：S2-4（需要产物存在）
 - **交付物**：`tp/lib/static_serve.wll` + `tp/bin/serve_public.wll`
@@ -1218,7 +1218,7 @@ TinyPage/
   - `security.py:342` `get_csp_header()` 是 **admin 专用**的 CSP（`default-src 'self'` 等），
     **公开站不发**（nginx 公开站段没有 CSP）⇒ 别给公开站多加 CSP。
 
-#### 卡 S3-2：TLS 终止
+#### 卡 S3-2：TLS 终止 ✅ 已完成
 
 - **依赖**：S3-1
 - **交付物**：`tp/bin/serve_tls.wll`（原写 `serve_public_tls.wll`，2026-11-02 实现时改短名）
