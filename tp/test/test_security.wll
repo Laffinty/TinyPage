@@ -1,0 +1,976 @@
+// tp/test/test_security.wll —— 卡 S4-1（会话与 CSRF）+ S4-2（限流与审计）
+//
+// ⚠ 本文件由 tp/test/gen_test_security.py 生成 —— 请勿手改。
+//
+// 被测：tp/lib/security.wll
+// 基准：tp/test/fixtures/security_baseline.json
+//   · 期望值由真 Python（tinypage/security.py）产出
+//   · 唯一替换：HMAC 的 key/data 以 hex 文本参与（D-S4-1）
+//
+// ⚠ RUN_TESTS() 的失败不影响退出码（规范明载）⇒ 本文件自己把关。
+IMPORT("wlwl:std.test", ["TEST", "ASSERT", "ASSERT_EQ", "RUN_TESTS"]);
+IMPORT("wlwl:std.str", ["CAT", "JOIN"]);
+IMPORT("wlwl:std.regex", ["RE", "RE_TEST"]);
+IMPORT("./../lib/security.wll", ["NEW_CSRF_TOKEN", "VALIDATE_CSRF_TOKEN", "CSRF_COOKIE_HEADER", "NEW_SESSION_TOKEN", "SESSION_COOKIE_HEADER", "SESSION_CLEAR_COOKIE_HEADER", "SESSION_CREATE", "SESSION_VALIDATE", "SESSION_DESTROY", "SESSION_RESET", "SESSION_COUNT", "SESSION_FROM_COOKIE", "SESSION_CONFIG", "RATE_LIMIT", "RATE_LIMIT_RESET", "AUDIT_EVENT", "HASH_PASSWORD", "VERIFY_PASSWORD"]);
+
+// ── CSRF token：注入 secret/random/now_ms ⇒ 与 Python 逐字节一致 ──────
+LET(tok, NEW_CSRF_TOKEN(INDEX_SET(INDEX_SET(INDEX_SET(DICT(), "secret", "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"), "random_hex", "000102030405060708090a0b0c0d0e0f"), "now_ms", 1700000000000)));
+TEST("csrf/token_exact", FUN(() ,
+    (ASSERT_EQ(tok, "AAECAwQFBgcICQoLDA0OD2VT8QADsOV5qW0XQQ2jO5X_wSocFyL4QUc3Vwia16wd6b0WaQ=="));
+    (ASSERT_EQ(LEN(tok), 72));
+    TRUE));
+TEST("csrf/token_shape", FUN(() ,
+    (ASSERT_EQ(LEN(tok), 72));
+    (ASSERT(ENDS_WITH(tok, "==")));
+    (ASSERT(RE_TEST(RE("^[A-Za-z0-9_-]+==$"), tok)));
+    TRUE));
+LET(rt1, NEW_CSRF_TOKEN(DICT()));
+LET(rt2, NEW_CSRF_TOKEN(DICT()));
+TEST("csrf/random_distinct", FUN(() ,
+    (ASSERT(!=(rt1, rt2)));
+    (ASSERT_EQ(LEN(rt1), 72));
+    (ASSERT_EQ(LEN(rt2), 72));
+    TRUE));
+LET(rt_ok, VALIDATE_CSRF_TOKEN(INDEX_SET(INDEX_SET(DICT(), "token", rt1), "cookie", CAT("csrf_token=", rt1))));
+TEST("csrf/random_token_validates", FUN(() ,
+    (ASSERT_EQ(rt_ok, TRUE));
+    TRUE));
+
+// ── CSRF 校验：34 例逐条对拍（顺序 = 源码的格式→HMAC→时限→cookie→Origin）──
+// ok_ip —— 正常：token + cookie + 127.0.0.1 Origin
+LET(csrf_0, VALIDATE_CSRF_TOKEN(INDEX_SET(INDEX_SET(INDEX_SET(INDEX_SET(INDEX_SET(INDEX_SET(INDEX_SET(INDEX_SET(DICT(), "secret", "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"), "now_ms", 1700000000000), "token", "AAECAwQFBgcICQoLDA0OD2VT8QADsOV5qW0XQQ2jO5X_wSocFyL4QUc3Vwia16wd6b0WaQ=="), "cookie", "csrf_token=AAECAwQFBgcICQoLDA0OD2VT8QADsOV5qW0XQQ2jO5X_wSocFyL4QUc3Vwia16wd6b0WaQ=="), "origin", "http://127.0.0.1:8081"), "referer", ""), "admin_port", 8081), "bind_domain", "")));
+TEST("csrf/ok_ip", FUN(() ,
+    (ASSERT_EQ(csrf_0, TRUE));
+    TRUE));
+// ok_localhost —— localhost Origin 也在白名单
+LET(csrf_1, VALIDATE_CSRF_TOKEN(INDEX_SET(INDEX_SET(INDEX_SET(INDEX_SET(INDEX_SET(INDEX_SET(INDEX_SET(INDEX_SET(DICT(), "secret", "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"), "now_ms", 1700000000000), "token", "AAECAwQFBgcICQoLDA0OD2VT8QADsOV5qW0XQQ2jO5X_wSocFyL4QUc3Vwia16wd6b0WaQ=="), "cookie", "csrf_token=AAECAwQFBgcICQoLDA0OD2VT8QADsOV5qW0XQQ2jO5X_wSocFyL4QUc3Vwia16wd6b0WaQ=="), "origin", "http://localhost:8081"), "referer", ""), "admin_port", 8081), "bind_domain", "")));
+TEST("csrf/ok_localhost", FUN(() ,
+    (ASSERT_EQ(csrf_1, TRUE));
+    TRUE));
+// ok_no_origin_referer —— Origin/Referer 都缺 ⇒ 跳过域名检查
+LET(csrf_2, VALIDATE_CSRF_TOKEN(INDEX_SET(INDEX_SET(INDEX_SET(INDEX_SET(INDEX_SET(INDEX_SET(INDEX_SET(INDEX_SET(DICT(), "secret", "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"), "now_ms", 1700000000000), "token", "AAECAwQFBgcICQoLDA0OD2VT8QADsOV5qW0XQQ2jO5X_wSocFyL4QUc3Vwia16wd6b0WaQ=="), "cookie", "csrf_token=AAECAwQFBgcICQoLDA0OD2VT8QADsOV5qW0XQQ2jO5X_wSocFyL4QUc3Vwia16wd6b0WaQ=="), "origin", ""), "referer", ""), "admin_port", 8081), "bind_domain", "")));
+TEST("csrf/ok_no_origin_referer", FUN(() ,
+    (ASSERT_EQ(csrf_2, TRUE));
+    TRUE));
+// ok_null_origin —— Origin: null ⇒ 跳过（大小写不敏感）
+LET(csrf_3, VALIDATE_CSRF_TOKEN(INDEX_SET(INDEX_SET(INDEX_SET(INDEX_SET(INDEX_SET(INDEX_SET(INDEX_SET(INDEX_SET(DICT(), "secret", "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"), "now_ms", 1700000000000), "token", "AAECAwQFBgcICQoLDA0OD2VT8QADsOV5qW0XQQ2jO5X_wSocFyL4QUc3Vwia16wd6b0WaQ=="), "cookie", "csrf_token=AAECAwQFBgcICQoLDA0OD2VT8QADsOV5qW0XQQ2jO5X_wSocFyL4QUc3Vwia16wd6b0WaQ=="), "origin", "null"), "referer", ""), "admin_port", 8081), "bind_domain", "")));
+TEST("csrf/ok_null_origin", FUN(() ,
+    (ASSERT_EQ(csrf_3, TRUE));
+    TRUE));
+// ok_null_origin_upper —— Origin: NULL ⇒ 跳过
+LET(csrf_4, VALIDATE_CSRF_TOKEN(INDEX_SET(INDEX_SET(INDEX_SET(INDEX_SET(INDEX_SET(INDEX_SET(INDEX_SET(INDEX_SET(DICT(), "secret", "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"), "now_ms", 1700000000000), "token", "AAECAwQFBgcICQoLDA0OD2VT8QADsOV5qW0XQQ2jO5X_wSocFyL4QUc3Vwia16wd6b0WaQ=="), "cookie", "csrf_token=AAECAwQFBgcICQoLDA0OD2VT8QADsOV5qW0XQQ2jO5X_wSocFyL4QUc3Vwia16wd6b0WaQ=="), "origin", "NULL"), "referer", ""), "admin_port", 8081), "bind_domain", "")));
+TEST("csrf/ok_null_origin_upper", FUN(() ,
+    (ASSERT_EQ(csrf_4, TRUE));
+    TRUE));
+// ok_extra_cookie —— Cookie 里还有别的键
+LET(csrf_5, VALIDATE_CSRF_TOKEN(INDEX_SET(INDEX_SET(INDEX_SET(INDEX_SET(INDEX_SET(INDEX_SET(INDEX_SET(INDEX_SET(DICT(), "secret", "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"), "now_ms", 1700000000000), "token", "AAECAwQFBgcICQoLDA0OD2VT8QADsOV5qW0XQQ2jO5X_wSocFyL4QUc3Vwia16wd6b0WaQ=="), "cookie", "a=1; csrf_token=AAECAwQFBgcICQoLDA0OD2VT8QADsOV5qW0XQQ2jO5X_wSocFyL4QUc3Vwia16wd6b0WaQ==; b=2"), "origin", ""), "referer", ""), "admin_port", 8081), "bind_domain", "")));
+TEST("csrf/ok_extra_cookie", FUN(() ,
+    (ASSERT_EQ(csrf_5, TRUE));
+    TRUE));
+// ok_cookie_spaces —— Cookie 段两侧空白被 strip
+LET(csrf_6, VALIDATE_CSRF_TOKEN(INDEX_SET(INDEX_SET(INDEX_SET(INDEX_SET(INDEX_SET(INDEX_SET(INDEX_SET(INDEX_SET(DICT(), "secret", "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"), "now_ms", 1700000000000), "token", "AAECAwQFBgcICQoLDA0OD2VT8QADsOV5qW0XQQ2jO5X_wSocFyL4QUc3Vwia16wd6b0WaQ=="), "cookie", "   csrf_token=AAECAwQFBgcICQoLDA0OD2VT8QADsOV5qW0XQQ2jO5X_wSocFyL4QUc3Vwia16wd6b0WaQ==   "), "origin", ""), "referer", ""), "admin_port", 8081), "bind_domain", "")));
+TEST("csrf/ok_cookie_spaces", FUN(() ,
+    (ASSERT_EQ(csrf_6, TRUE));
+    TRUE));
+// ok_referer —— Referer 命中白名单
+LET(csrf_7, VALIDATE_CSRF_TOKEN(INDEX_SET(INDEX_SET(INDEX_SET(INDEX_SET(INDEX_SET(INDEX_SET(INDEX_SET(INDEX_SET(DICT(), "secret", "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"), "now_ms", 1700000000000), "token", "AAECAwQFBgcICQoLDA0OD2VT8QADsOV5qW0XQQ2jO5X_wSocFyL4QUc3Vwia16wd6b0WaQ=="), "cookie", "csrf_token=AAECAwQFBgcICQoLDA0OD2VT8QADsOV5qW0XQQ2jO5X_wSocFyL4QUc3Vwia16wd6b0WaQ=="), "origin", ""), "referer", "http://127.0.0.1:8081/index.html"), "admin_port", 8081), "bind_domain", "")));
+TEST("csrf/ok_referer", FUN(() ,
+    (ASSERT_EQ(csrf_7, TRUE));
+    TRUE));
+// ok_admin_port_9090 —— admin_port 参与白名单构造
+LET(csrf_8, VALIDATE_CSRF_TOKEN(INDEX_SET(INDEX_SET(INDEX_SET(INDEX_SET(INDEX_SET(INDEX_SET(INDEX_SET(INDEX_SET(DICT(), "secret", "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"), "now_ms", 1700000000000), "token", "AAECAwQFBgcICQoLDA0OD2VT8QADsOV5qW0XQQ2jO5X_wSocFyL4QUc3Vwia16wd6b0WaQ=="), "cookie", "csrf_token=AAECAwQFBgcICQoLDA0OD2VT8QADsOV5qW0XQQ2jO5X_wSocFyL4QUc3Vwia16wd6b0WaQ=="), "origin", "http://127.0.0.1:9090"), "referer", ""), "admin_port", 9090), "bind_domain", "")));
+TEST("csrf/ok_admin_port_9090", FUN(() ,
+    (ASSERT_EQ(csrf_8, TRUE));
+    TRUE));
+// ok_bind_domain_https —— bind_domain 追加 https 前缀
+LET(csrf_9, VALIDATE_CSRF_TOKEN(INDEX_SET(INDEX_SET(INDEX_SET(INDEX_SET(INDEX_SET(INDEX_SET(INDEX_SET(INDEX_SET(DICT(), "secret", "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"), "now_ms", 1700000000000), "token", "AAECAwQFBgcICQoLDA0OD2VT8QADsOV5qW0XQQ2jO5X_wSocFyL4QUc3Vwia16wd6b0WaQ=="), "cookie", "csrf_token=AAECAwQFBgcICQoLDA0OD2VT8QADsOV5qW0XQQ2jO5X_wSocFyL4QUc3Vwia16wd6b0WaQ=="), "origin", "https://blog.example.com"), "referer", ""), "admin_port", 8081), "bind_domain", "blog.example.com")));
+TEST("csrf/ok_bind_domain_https", FUN(() ,
+    (ASSERT_EQ(csrf_9, TRUE));
+    TRUE));
+// ok_bind_domain_http —— bind_domain 追加 http 前缀
+LET(csrf_10, VALIDATE_CSRF_TOKEN(INDEX_SET(INDEX_SET(INDEX_SET(INDEX_SET(INDEX_SET(INDEX_SET(INDEX_SET(INDEX_SET(DICT(), "secret", "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"), "now_ms", 1700000000000), "token", "AAECAwQFBgcICQoLDA0OD2VT8QADsOV5qW0XQQ2jO5X_wSocFyL4QUc3Vwia16wd6b0WaQ=="), "cookie", "csrf_token=AAECAwQFBgcICQoLDA0OD2VT8QADsOV5qW0XQQ2jO5X_wSocFyL4QUc3Vwia16wd6b0WaQ=="), "origin", "http://blog.example.com"), "referer", ""), "admin_port", 8081), "bind_domain", "blog.example.com")));
+TEST("csrf/ok_bind_domain_http", FUN(() ,
+    (ASSERT_EQ(csrf_10, TRUE));
+    TRUE));
+// ok_boundary_3600 —— 恰好 3600 秒：不判过期（> 才过期）
+LET(csrf_11, VALIDATE_CSRF_TOKEN(INDEX_SET(INDEX_SET(INDEX_SET(INDEX_SET(INDEX_SET(INDEX_SET(INDEX_SET(INDEX_SET(DICT(), "secret", "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"), "now_ms", 1700003600000), "token", "AAECAwQFBgcICQoLDA0OD2VT8QADsOV5qW0XQQ2jO5X_wSocFyL4QUc3Vwia16wd6b0WaQ=="), "cookie", "csrf_token=AAECAwQFBgcICQoLDA0OD2VT8QADsOV5qW0XQQ2jO5X_wSocFyL4QUc3Vwia16wd6b0WaQ=="), "origin", ""), "referer", ""), "admin_port", 8081), "bind_domain", "")));
+TEST("csrf/ok_boundary_3600", FUN(() ,
+    (ASSERT_EQ(csrf_11, TRUE));
+    TRUE));
+// ok_future_boundary_60 —— 时间戳比 now 大 60 秒：不判未来
+LET(csrf_12, VALIDATE_CSRF_TOKEN(INDEX_SET(INDEX_SET(INDEX_SET(INDEX_SET(INDEX_SET(INDEX_SET(INDEX_SET(INDEX_SET(DICT(), "secret", "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"), "now_ms", 1699999940000), "token", "AAECAwQFBgcICQoLDA0OD2VT8QADsOV5qW0XQQ2jO5X_wSocFyL4QUc3Vwia16wd6b0WaQ=="), "cookie", "csrf_token=AAECAwQFBgcICQoLDA0OD2VT8QADsOV5qW0XQQ2jO5X_wSocFyL4QUc3Vwia16wd6b0WaQ=="), "origin", ""), "referer", ""), "admin_port", 8081), "bind_domain", "")));
+TEST("csrf/ok_future_boundary_60", FUN(() ,
+    (ASSERT_EQ(csrf_12, TRUE));
+    TRUE));
+// ok_junk_char —— Python b64decode 忽略字母表外字符 ⇒ 仍可解
+LET(csrf_13, VALIDATE_CSRF_TOKEN(INDEX_SET(INDEX_SET(INDEX_SET(INDEX_SET(INDEX_SET(INDEX_SET(INDEX_SET(INDEX_SET(DICT(), "secret", "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"), "now_ms", 1700000000000), "token", "AAECAwQFBgcICQoLDA0OD2VT8QADsOV5qW0XQQ2jO5X_wSocFyL4QUc3Vwia16wd6b0WaQ==!"), "cookie", "csrf_token=AAECAwQFBgcICQoLDA0OD2VT8QADsOV5qW0XQQ2jO5X_wSocFyL4QUc3Vwia16wd6b0WaQ==!"), "origin", ""), "referer", ""), "admin_port", 8081), "bind_domain", "")));
+TEST("csrf/ok_junk_char", FUN(() ,
+    (ASSERT_EQ(csrf_13, TRUE));
+    TRUE));
+// fail_empty —— 空 token
+LET(csrf_14, VALIDATE_CSRF_TOKEN(INDEX_SET(INDEX_SET(INDEX_SET(INDEX_SET(INDEX_SET(INDEX_SET(INDEX_SET(INDEX_SET(DICT(), "secret", "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"), "now_ms", 1700000000000), "token", ""), "cookie", "csrf_token=AAECAwQFBgcICQoLDA0OD2VT8QADsOV5qW0XQQ2jO5X_wSocFyL4QUc3Vwia16wd6b0WaQ=="), "origin", ""), "referer", ""), "admin_port", 8081), "bind_domain", "")));
+TEST("csrf/fail_empty", FUN(() ,
+    (ASSERT_EQ(csrf_14, FALSE));
+    TRUE));
+// fail_short —— 长度 < 32
+LET(csrf_15, VALIDATE_CSRF_TOKEN(INDEX_SET(INDEX_SET(INDEX_SET(INDEX_SET(INDEX_SET(INDEX_SET(INDEX_SET(INDEX_SET(DICT(), "secret", "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"), "now_ms", 1700000000000), "token", "abc"), "cookie", "csrf_token=abc"), "origin", ""), "referer", ""), "admin_port", 8081), "bind_domain", "")));
+TEST("csrf/fail_short", FUN(() ,
+    (ASSERT_EQ(csrf_15, FALSE));
+    TRUE));
+// fail_non_ascii —— 非 ASCII ⇒ Python 编码异常
+LET(csrf_16, VALIDATE_CSRF_TOKEN(INDEX_SET(INDEX_SET(INDEX_SET(INDEX_SET(INDEX_SET(INDEX_SET(INDEX_SET(INDEX_SET(DICT(), "secret", "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"), "now_ms", 1700000000000), "token", "中中中中中中中中中中中中中中中中中中中中中中中中中中中中中中中中中中中中中中中中"), "cookie", "csrf_token=中中中中中中中中中中中中中中中中中中中中中中中中中中中中中中中中中中中中中中中中"), "origin", ""), "referer", ""), "admin_port", 8081), "bind_domain", "")));
+TEST("csrf/fail_non_ascii", FUN(() ,
+    (ASSERT_EQ(csrf_16, FALSE));
+    TRUE));
+// fail_onepad —— 少一个 = ⇒ 总长 71，非 4 倍数
+LET(csrf_17, VALIDATE_CSRF_TOKEN(INDEX_SET(INDEX_SET(INDEX_SET(INDEX_SET(INDEX_SET(INDEX_SET(INDEX_SET(INDEX_SET(DICT(), "secret", "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"), "now_ms", 1700000000000), "token", "AAECAwQFBgcICQoLDA0OD2VT8QADsOV5qW0XQQ2jO5X_wSocFyL4QUc3Vwia16wd6b0WaQ="), "cookie", "csrf_token=AAECAwQFBgcICQoLDA0OD2VT8QADsOV5qW0XQQ2jO5X_wSocFyL4QUc3Vwia16wd6b0WaQ="), "origin", ""), "referer", ""), "admin_port", 8081), "bind_domain", "")));
+TEST("csrf/fail_onepad", FUN(() ,
+    (ASSERT_EQ(csrf_17, FALSE));
+    TRUE));
+// fail_unpadded —— 去掉 == 后 70 字符 ⇒ Python 报 padding 错
+LET(csrf_18, VALIDATE_CSRF_TOKEN(INDEX_SET(INDEX_SET(INDEX_SET(INDEX_SET(INDEX_SET(INDEX_SET(INDEX_SET(INDEX_SET(DICT(), "secret", "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"), "now_ms", 1700000000000), "token", "AAECAwQFBgcICQoLDA0OD2VT8QADsOV5qW0XQQ2jO5X_wSocFyL4QUc3Vwia16wd6b0WaQ"), "cookie", "csrf_token=AAECAwQFBgcICQoLDA0OD2VT8QADsOV5qW0XQQ2jO5X_wSocFyL4QUc3Vwia16wd6b0WaQ"), "origin", ""), "referer", ""), "admin_port", 8081), "bind_domain", "")));
+TEST("csrf/fail_unpadded", FUN(() ,
+    (ASSERT_EQ(csrf_18, FALSE));
+    TRUE));
+// fail_tamper_sig —— 篡改签名区 1 字节
+LET(csrf_19, VALIDATE_CSRF_TOKEN(INDEX_SET(INDEX_SET(INDEX_SET(INDEX_SET(INDEX_SET(INDEX_SET(INDEX_SET(INDEX_SET(DICT(), "secret", "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"), "now_ms", 1700000000000), "token", "AAECAwQFBgcICQoLDA0OD2VT8QADsOV5qW0XQQ2jO5X_wSocFyM4QUc3Vwia16wd6b0WaQ=="), "cookie", "csrf_token=AAECAwQFBgcICQoLDA0OD2VT8QADsOV5qW0XQQ2jO5X_wSocFyM4QUc3Vwia16wd6b0WaQ=="), "origin", ""), "referer", ""), "admin_port", 8081), "bind_domain", "")));
+TEST("csrf/fail_tamper_sig", FUN(() ,
+    (ASSERT_EQ(csrf_19, FALSE));
+    TRUE));
+// fail_tamper_random —— 篡改随机区 1 字节
+LET(csrf_20, VALIDATE_CSRF_TOKEN(INDEX_SET(INDEX_SET(INDEX_SET(INDEX_SET(INDEX_SET(INDEX_SET(INDEX_SET(INDEX_SET(DICT(), "secret", "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"), "now_ms", 1700000000000), "token", "AAEDAwQFBgcICQoLDA0OD2VT8QADsOV5qW0XQQ2jO5X_wSocFyL4QUc3Vwia16wd6b0WaQ=="), "cookie", "csrf_token=AAEDAwQFBgcICQoLDA0OD2VT8QADsOV5qW0XQQ2jO5X_wSocFyL4QUc3Vwia16wd6b0WaQ=="), "origin", ""), "referer", ""), "admin_port", 8081), "bind_domain", "")));
+TEST("csrf/fail_tamper_random", FUN(() ,
+    (ASSERT_EQ(csrf_20, FALSE));
+    TRUE));
+// fail_other_secret —— 别的密钥签出的 token
+LET(csrf_21, VALIDATE_CSRF_TOKEN(INDEX_SET(INDEX_SET(INDEX_SET(INDEX_SET(INDEX_SET(INDEX_SET(INDEX_SET(INDEX_SET(DICT(), "secret", "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"), "now_ms", 1700000000000), "token", "AAECAwQFBgcICQoLDA0OD2VT8QCOLrlb9CAgYJM86Iy0VNASzi_PyhDrdOMFDwI6BZBZow=="), "cookie", "csrf_token=AAECAwQFBgcICQoLDA0OD2VT8QCOLrlb9CAgYJM86Iy0VNASzi_PyhDrdOMFDwI6BZBZow=="), "origin", ""), "referer", ""), "admin_port", 8081), "bind_domain", "")));
+TEST("csrf/fail_other_secret", FUN(() ,
+    (ASSERT_EQ(csrf_21, FALSE));
+    TRUE));
+// fail_expired_3601 —— 超过 1 小时 1 秒
+LET(csrf_22, VALIDATE_CSRF_TOKEN(INDEX_SET(INDEX_SET(INDEX_SET(INDEX_SET(INDEX_SET(INDEX_SET(INDEX_SET(INDEX_SET(DICT(), "secret", "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"), "now_ms", 1700003601000), "token", "AAECAwQFBgcICQoLDA0OD2VT8QADsOV5qW0XQQ2jO5X_wSocFyL4QUc3Vwia16wd6b0WaQ=="), "cookie", "csrf_token=AAECAwQFBgcICQoLDA0OD2VT8QADsOV5qW0XQQ2jO5X_wSocFyL4QUc3Vwia16wd6b0WaQ=="), "origin", ""), "referer", ""), "admin_port", 8081), "bind_domain", "")));
+TEST("csrf/fail_expired_3601", FUN(() ,
+    (ASSERT_EQ(csrf_22, FALSE));
+    TRUE));
+// fail_future_61 —— 时间戳比 now 大 61 秒
+LET(csrf_23, VALIDATE_CSRF_TOKEN(INDEX_SET(INDEX_SET(INDEX_SET(INDEX_SET(INDEX_SET(INDEX_SET(INDEX_SET(INDEX_SET(DICT(), "secret", "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"), "now_ms", 1699999939000), "token", "AAECAwQFBgcICQoLDA0OD2VT8QADsOV5qW0XQQ2jO5X_wSocFyL4QUc3Vwia16wd6b0WaQ=="), "cookie", "csrf_token=AAECAwQFBgcICQoLDA0OD2VT8QADsOV5qW0XQQ2jO5X_wSocFyL4QUc3Vwia16wd6b0WaQ=="), "origin", ""), "referer", ""), "admin_port", 8081), "bind_domain", "")));
+TEST("csrf/fail_future_61", FUN(() ,
+    (ASSERT_EQ(csrf_23, FALSE));
+    TRUE));
+// fail_no_cookie —— 没有 cookie（双提交缺失）
+LET(csrf_24, VALIDATE_CSRF_TOKEN(INDEX_SET(INDEX_SET(INDEX_SET(INDEX_SET(INDEX_SET(INDEX_SET(INDEX_SET(INDEX_SET(DICT(), "secret", "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"), "now_ms", 1700000000000), "token", "AAECAwQFBgcICQoLDA0OD2VT8QADsOV5qW0XQQ2jO5X_wSocFyL4QUc3Vwia16wd6b0WaQ=="), "cookie", ""), "origin", ""), "referer", ""), "admin_port", 8081), "bind_domain", "")));
+TEST("csrf/fail_no_cookie", FUN(() ,
+    (ASSERT_EQ(csrf_24, FALSE));
+    TRUE));
+// fail_cookie_mismatch —— cookie 里是另一个 token
+LET(csrf_25, VALIDATE_CSRF_TOKEN(INDEX_SET(INDEX_SET(INDEX_SET(INDEX_SET(INDEX_SET(INDEX_SET(INDEX_SET(INDEX_SET(DICT(), "secret", "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"), "now_ms", 1700000000000), "token", "AAECAwQFBgcICQoLDA0OD2VT8QADsOV5qW0XQQ2jO5X_wSocFyL4QUc3Vwia16wd6b0WaQ=="), "cookie", "csrf_token=EBAQEBAQEBAQEBAQEBAQEGVT8QBvdbaC3eabP9mVob4lBUiop8-MS8GGfB4uA5FDbdhaHA=="), "origin", ""), "referer", ""), "admin_port", 8081), "bind_domain", "")));
+TEST("csrf/fail_cookie_mismatch", FUN(() ,
+    (ASSERT_EQ(csrf_25, FALSE));
+    TRUE));
+// fail_cookie_first_wins —— 同名 cookie 取第一个（即便是坏的）
+LET(csrf_26, VALIDATE_CSRF_TOKEN(INDEX_SET(INDEX_SET(INDEX_SET(INDEX_SET(INDEX_SET(INDEX_SET(INDEX_SET(INDEX_SET(DICT(), "secret", "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"), "now_ms", 1700000000000), "token", "AAECAwQFBgcICQoLDA0OD2VT8QADsOV5qW0XQQ2jO5X_wSocFyL4QUc3Vwia16wd6b0WaQ=="), "cookie", "csrf_token=bad; csrf_token=AAECAwQFBgcICQoLDA0OD2VT8QADsOV5qW0XQQ2jO5X_wSocFyL4QUc3Vwia16wd6b0WaQ=="), "origin", ""), "referer", ""), "admin_port", 8081), "bind_domain", "")));
+TEST("csrf/fail_cookie_first_wins", FUN(() ,
+    (ASSERT_EQ(csrf_26, FALSE));
+    TRUE));
+// fail_origin_evil —— Origin 不在白名单
+LET(csrf_27, VALIDATE_CSRF_TOKEN(INDEX_SET(INDEX_SET(INDEX_SET(INDEX_SET(INDEX_SET(INDEX_SET(INDEX_SET(INDEX_SET(DICT(), "secret", "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"), "now_ms", 1700000000000), "token", "AAECAwQFBgcICQoLDA0OD2VT8QADsOV5qW0XQQ2jO5X_wSocFyL4QUc3Vwia16wd6b0WaQ=="), "cookie", "csrf_token=AAECAwQFBgcICQoLDA0OD2VT8QADsOV5qW0XQQ2jO5X_wSocFyL4QUc3Vwia16wd6b0WaQ=="), "origin", "http://evil.example.com"), "referer", ""), "admin_port", 8081), "bind_domain", "")));
+TEST("csrf/fail_origin_evil", FUN(() ,
+    (ASSERT_EQ(csrf_27, FALSE));
+    TRUE));
+// fail_origin_wrong_port —— Origin 端口不对
+LET(csrf_28, VALIDATE_CSRF_TOKEN(INDEX_SET(INDEX_SET(INDEX_SET(INDEX_SET(INDEX_SET(INDEX_SET(INDEX_SET(INDEX_SET(DICT(), "secret", "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"), "now_ms", 1700000000000), "token", "AAECAwQFBgcICQoLDA0OD2VT8QADsOV5qW0XQQ2jO5X_wSocFyL4QUc3Vwia16wd6b0WaQ=="), "cookie", "csrf_token=AAECAwQFBgcICQoLDA0OD2VT8QADsOV5qW0XQQ2jO5X_wSocFyL4QUc3Vwia16wd6b0WaQ=="), "origin", "http://127.0.0.1:9099"), "referer", ""), "admin_port", 8081), "bind_domain", "")));
+TEST("csrf/fail_origin_wrong_port", FUN(() ,
+    (ASSERT_EQ(csrf_28, FALSE));
+    TRUE));
+// fail_origin_https_localhost —— https 不在 http 白名单里
+LET(csrf_29, VALIDATE_CSRF_TOKEN(INDEX_SET(INDEX_SET(INDEX_SET(INDEX_SET(INDEX_SET(INDEX_SET(INDEX_SET(INDEX_SET(DICT(), "secret", "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"), "now_ms", 1700000000000), "token", "AAECAwQFBgcICQoLDA0OD2VT8QADsOV5qW0XQQ2jO5X_wSocFyL4QUc3Vwia16wd6b0WaQ=="), "cookie", "csrf_token=AAECAwQFBgcICQoLDA0OD2VT8QADsOV5qW0XQQ2jO5X_wSocFyL4QUc3Vwia16wd6b0WaQ=="), "origin", "https://localhost:8081"), "referer", ""), "admin_port", 8081), "bind_domain", "")));
+TEST("csrf/fail_origin_https_localhost", FUN(() ,
+    (ASSERT_EQ(csrf_29, FALSE));
+    TRUE));
+// fail_origin_case —— startswith 区分大小写
+LET(csrf_30, VALIDATE_CSRF_TOKEN(INDEX_SET(INDEX_SET(INDEX_SET(INDEX_SET(INDEX_SET(INDEX_SET(INDEX_SET(INDEX_SET(DICT(), "secret", "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"), "now_ms", 1700000000000), "token", "AAECAwQFBgcICQoLDA0OD2VT8QADsOV5qW0XQQ2jO5X_wSocFyL4QUc3Vwia16wd6b0WaQ=="), "cookie", "csrf_token=AAECAwQFBgcICQoLDA0OD2VT8QADsOV5qW0XQQ2jO5X_wSocFyL4QUc3Vwia16wd6b0WaQ=="), "origin", "http://LOCALHOST:8081"), "referer", ""), "admin_port", 8081), "bind_domain", "")));
+TEST("csrf/fail_origin_case", FUN(() ,
+    (ASSERT_EQ(csrf_30, FALSE));
+    TRUE));
+// ok_origin_prefix_spoof —— 源码是**前缀**匹配 ⇒ 8081.evil.com 会通过（照抄，不加固）
+LET(csrf_31, VALIDATE_CSRF_TOKEN(INDEX_SET(INDEX_SET(INDEX_SET(INDEX_SET(INDEX_SET(INDEX_SET(INDEX_SET(INDEX_SET(DICT(), "secret", "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"), "now_ms", 1700000000000), "token", "AAECAwQFBgcICQoLDA0OD2VT8QADsOV5qW0XQQ2jO5X_wSocFyL4QUc3Vwia16wd6b0WaQ=="), "cookie", "csrf_token=AAECAwQFBgcICQoLDA0OD2VT8QADsOV5qW0XQQ2jO5X_wSocFyL4QUc3Vwia16wd6b0WaQ=="), "origin", "http://127.0.0.1:8081.evil.com"), "referer", ""), "admin_port", 8081), "bind_domain", "")));
+TEST("csrf/ok_origin_prefix_spoof", FUN(() ,
+    (ASSERT_EQ(csrf_31, TRUE));
+    TRUE));
+// fail_referer_evil —— Referer 不在白名单
+LET(csrf_32, VALIDATE_CSRF_TOKEN(INDEX_SET(INDEX_SET(INDEX_SET(INDEX_SET(INDEX_SET(INDEX_SET(INDEX_SET(INDEX_SET(DICT(), "secret", "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"), "now_ms", 1700000000000), "token", "AAECAwQFBgcICQoLDA0OD2VT8QADsOV5qW0XQQ2jO5X_wSocFyL4QUc3Vwia16wd6b0WaQ=="), "cookie", "csrf_token=AAECAwQFBgcICQoLDA0OD2VT8QADsOV5qW0XQQ2jO5X_wSocFyL4QUc3Vwia16wd6b0WaQ=="), "origin", ""), "referer", "http://evil.example.com/x"), "admin_port", 8081), "bind_domain", "")));
+TEST("csrf/fail_referer_evil", FUN(() ,
+    (ASSERT_EQ(csrf_32, FALSE));
+    TRUE));
+// fail_bind_domain_other —— bind_domain 之外的域名被拒
+LET(csrf_33, VALIDATE_CSRF_TOKEN(INDEX_SET(INDEX_SET(INDEX_SET(INDEX_SET(INDEX_SET(INDEX_SET(INDEX_SET(INDEX_SET(DICT(), "secret", "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"), "now_ms", 1700000000000), "token", "AAECAwQFBgcICQoLDA0OD2VT8QADsOV5qW0XQQ2jO5X_wSocFyL4QUc3Vwia16wd6b0WaQ=="), "cookie", "csrf_token=AAECAwQFBgcICQoLDA0OD2VT8QADsOV5qW0XQQ2jO5X_wSocFyL4QUc3Vwia16wd6b0WaQ=="), "origin", "https://other.example.com"), "referer", ""), "admin_port", 8081), "bind_domain", "blog.example.com")));
+TEST("csrf/fail_bind_domain_other", FUN(() ,
+    (ASSERT_EQ(csrf_33, FALSE));
+    TRUE));
+
+// ── 反向守卫（卡片点名的四条，单独再钉一次）──────────────────────
+TEST("guard/tampered_token_must_reject", FUN(() ,
+    (ASSERT_EQ(csrf_19, FALSE));
+    TRUE));
+TEST("guard/expired_token_must_reject", FUN(() ,
+    (ASSERT_EQ(csrf_22, FALSE));
+    TRUE));
+TEST("guard/cookie_mismatch_must_reject", FUN(() ,
+    (ASSERT_EQ(csrf_25, FALSE));
+    TRUE));
+TEST("guard/origin_not_whitelisted_must_reject", FUN(() ,
+    (ASSERT_EQ(csrf_27, FALSE));
+    TRUE));
+// 照抄源码的前缀匹配：这条**故意**通过（不是漏洞修复漏项，是行为对齐）
+TEST("guard/origin_prefix_spoof_matches_source", FUN(() ,
+    (ASSERT_EQ(csrf_31, TRUE));
+    TRUE));
+
+// ── Cookie 头：逐字对齐（含 Secure / Max-Age 的出现与顺序）────────
+LET(ck_csrf_plain, CSRF_COOKIE_HEADER(INDEX_SET(INDEX_SET(DICT(), "token", "AAECAwQFBgcICQoLDA0OD2VT8QADsOV5qW0XQQ2jO5X_wSocFyL4QUc3Vwia16wd6b0WaQ=="), "secure", FALSE)));
+TEST("cookie/csrf_plain", FUN(() ,
+    (ASSERT_EQ(LEN(ck_csrf_plain), 2));
+    (ASSERT_EQ(AT(ck_csrf_plain, 0, ""), "Set-Cookie"));
+    (ASSERT_EQ(AT(ck_csrf_plain, 1, ""), "csrf_token=AAECAwQFBgcICQoLDA0OD2VT8QADsOV5qW0XQQ2jO5X_wSocFyL4QUc3Vwia16wd6b0WaQ==; Path=/; HttpOnly; SameSite=Strict"));
+    TRUE));
+LET(ck_csrf_secure, CSRF_COOKIE_HEADER(INDEX_SET(INDEX_SET(DICT(), "token", "AAECAwQFBgcICQoLDA0OD2VT8QADsOV5qW0XQQ2jO5X_wSocFyL4QUc3Vwia16wd6b0WaQ=="), "secure", TRUE)));
+TEST("cookie/csrf_secure", FUN(() ,
+    (ASSERT_EQ(LEN(ck_csrf_secure), 2));
+    (ASSERT_EQ(AT(ck_csrf_secure, 0, ""), "Set-Cookie"));
+    (ASSERT_EQ(AT(ck_csrf_secure, 1, ""), "csrf_token=AAECAwQFBgcICQoLDA0OD2VT8QADsOV5qW0XQQ2jO5X_wSocFyL4QUc3Vwia16wd6b0WaQ==; Path=/; HttpOnly; SameSite=Strict; Secure"));
+    TRUE));
+LET(ck_session_plain, SESSION_COOKIE_HEADER(INDEX_SET(INDEX_SET(DICT(), "token", "AAECAwQFBgcICQoLDA0ODxAREhMUFRYXGBkaGxwdHh8"), "secure", FALSE)));
+TEST("cookie/session_plain", FUN(() ,
+    (ASSERT_EQ(LEN(ck_session_plain), 2));
+    (ASSERT_EQ(AT(ck_session_plain, 0, ""), "Set-Cookie"));
+    (ASSERT_EQ(AT(ck_session_plain, 1, ""), "session_id=AAECAwQFBgcICQoLDA0ODxAREhMUFRYXGBkaGxwdHh8; Path=/; HttpOnly; SameSite=Strict; Max-Age=86400"));
+    TRUE));
+LET(ck_session_secure_maxage60, SESSION_COOKIE_HEADER(INDEX_SET(INDEX_SET(INDEX_SET(DICT(), "token", "AAECAwQFBgcICQoLDA0ODxAREhMUFRYXGBkaGxwdHh8"), "secure", TRUE), "max_age", 60)));
+TEST("cookie/session_secure_maxage60", FUN(() ,
+    (ASSERT_EQ(LEN(ck_session_secure_maxage60), 2));
+    (ASSERT_EQ(AT(ck_session_secure_maxage60, 0, ""), "Set-Cookie"));
+    (ASSERT_EQ(AT(ck_session_secure_maxage60, 1, ""), "session_id=AAECAwQFBgcICQoLDA0ODxAREhMUFRYXGBkaGxwdHh8; Path=/; HttpOnly; SameSite=Strict; Max-Age=60; Secure"));
+    TRUE));
+LET(ck_session_clear, SESSION_CLEAR_COOKIE_HEADER(INDEX_SET(DICT(), "secure", FALSE)));
+TEST("cookie/session_clear", FUN(() ,
+    (ASSERT_EQ(LEN(ck_session_clear), 2));
+    (ASSERT_EQ(AT(ck_session_clear, 0, ""), "Set-Cookie"));
+    (ASSERT_EQ(AT(ck_session_clear, 1, ""), "session_id=; Path=/; HttpOnly; SameSite=Strict; Max-Age=0"));
+    TRUE));
+LET(ck_session_clear_secure, SESSION_CLEAR_COOKIE_HEADER(INDEX_SET(DICT(), "secure", TRUE)));
+TEST("cookie/session_clear_secure", FUN(() ,
+    (ASSERT_EQ(LEN(ck_session_clear_secure), 2));
+    (ASSERT_EQ(AT(ck_session_clear_secure, 0, ""), "Set-Cookie"));
+    (ASSERT_EQ(AT(ck_session_clear_secure, 1, ""), "session_id=; Path=/; HttpOnly; SameSite=Strict; Max-Age=0; Secure"));
+    TRUE));
+
+// ── 会话 token：32B → urlsafe base64 **去 padding**（43 字符）────────
+LET(sess_tok, NEW_SESSION_TOKEN(INDEX_SET(DICT(), "random_hex", "000102030405060708090a0b0c0d0e0f101112131415161718191a1b1c1d1e1f")));
+TEST("session/token_exact", FUN(() ,
+    (ASSERT_EQ(sess_tok, "AAECAwQFBgcICQoLDA0ODxAREhMUFRYXGBkaGxwdHh8"));
+    (ASSERT_EQ(LEN(sess_tok), 43));
+    (ASSERT(RE_TEST(RE("^[A-Za-z0-9_-]+$"), sess_tok)));
+    TRUE));
+
+// ── 会话常量（源码类属性：24h / 5000 / 300s）────────────────────
+LET(scfg, SESSION_CONFIG(DICT()));
+TEST("session/config", FUN(() ,
+    (ASSERT_EQ(AT_K(scfg, "max_age", -1), 86400));
+    (ASSERT_EQ(AT_K(scfg, "max_tracked", -1), 5000));
+    (ASSERT_EQ(AT_K(scfg, "cleanup_interval", -1), 300));
+    (ASSERT_EQ(AT_K(scfg, "max_failures", -1), 5));
+    (ASSERT_EQ(AT_K(scfg, "lockout_seconds", -1), 300));
+    TRUE));
+
+// ── 会话场景：main ────────────────────────────────────────
+// create 的结果是 {created, len}（随机值不比）；destroy 记录 null
+SESSION_RESET(DICT());
+LET(tok_main_s1, SESSION_CREATE(INDEX_SET(INDEX_SET(DICT(), "client_ip", "198.51.100.1"), "now_ms", 1700000000000)));
+TEST("session/main/create/s1", FUN(() ,
+    (ASSERT_EQ(LEN(tok_main_s1), 43));
+    (ASSERT(RE_TEST(RE("^[A-Za-z0-9_-]+$"), tok_main_s1)));
+    TRUE));
+LET(sv_main_1, SESSION_VALIDATE(INDEX_SET(INDEX_SET(DICT(), "token", tok_main_s1), "now_ms", 1700000000000)));
+TEST("session/main/validate/1", FUN(() ,
+    (ASSERT_EQ(sv_main_1, TRUE));
+    TRUE));
+LET(sv_main_2, SESSION_VALIDATE(INDEX_SET(INDEX_SET(DICT(), "token", ""), "now_ms", 1700000000000)));
+TEST("session/main/validate/2", FUN(() ,
+    (ASSERT_EQ(sv_main_2, FALSE));
+    TRUE));
+LET(tok_main_s2, SESSION_CREATE(INDEX_SET(INDEX_SET(DICT(), "client_ip", "198.51.100.2"), "now_ms", 1700000001000)));
+TEST("session/main/create/s2", FUN(() ,
+    (ASSERT_EQ(LEN(tok_main_s2), 43));
+    (ASSERT(RE_TEST(RE("^[A-Za-z0-9_-]+$"), tok_main_s2)));
+    TRUE));
+LET(sv_main_4, SESSION_VALIDATE(INDEX_SET(INDEX_SET(DICT(), "token", tok_main_s1), "now_ms", 1700086400000)));
+TEST("session/main/validate/4", FUN(() ,
+    (ASSERT_EQ(sv_main_4, TRUE));
+    TRUE));
+LET(sv_main_5, SESSION_VALIDATE(INDEX_SET(INDEX_SET(DICT(), "token", tok_main_s1), "now_ms", 1700086400001)));
+TEST("session/main/validate/5", FUN(() ,
+    (ASSERT_EQ(sv_main_5, FALSE));
+    TRUE));
+LET(sv_main_6, SESSION_VALIDATE(INDEX_SET(INDEX_SET(DICT(), "token", tok_main_s2), "now_ms", 1700086400001)));
+TEST("session/main/validate/6", FUN(() ,
+    (ASSERT_EQ(sv_main_6, TRUE));
+    TRUE));
+LET(sd_main_7, SESSION_DESTROY(INDEX_SET(DICT(), "token", tok_main_s2)));
+TEST("session/main/destroy/7", FUN(() ,
+    (ASSERT_EQ(sd_main_7, TRUE));
+    TRUE));
+LET(sv_main_8, SESSION_VALIDATE(INDEX_SET(INDEX_SET(DICT(), "token", tok_main_s2), "now_ms", 1700086400002)));
+TEST("session/main/validate/8", FUN(() ,
+    (ASSERT_EQ(sv_main_8, FALSE));
+    TRUE));
+LET(sd_main_9, SESSION_DESTROY(INDEX_SET(DICT(), "token", "")));
+TEST("session/main/destroy/9", FUN(() ,
+    (ASSERT_EQ(sd_main_9, FALSE));
+    TRUE));
+LET(sf_main_10, SESSION_FROM_COOKIE(INDEX_SET(DICT(), "cookie", "x=1; session_id=abc")));
+TEST("session/main/from_cookie/10", FUN(() ,
+    (ASSERT_EQ(sf_main_10, "abc"));
+    TRUE));
+LET(sf_main_11, SESSION_FROM_COOKIE(INDEX_SET(DICT(), "cookie", "x=1")));
+TEST("session/main/from_cookie/11", FUN(() ,
+    (ASSERT_EQ(sf_main_11, ""));
+    TRUE));
+LET(cnt_main, SESSION_COUNT(DICT()));
+TEST("session/main/count", FUN(() ,
+    (ASSERT_EQ(cnt_main, 0));
+    TRUE));
+
+// ── 会话场景：evict ────────────────────────────────────────
+// 源码是「最老创建」淘汰（卡片写 LRU，实现照源码）
+SESSION_RESET(DICT());
+LET(tok_evict_e1, SESSION_CREATE(INDEX_SET(INDEX_SET(INDEX_SET(DICT(), "client_ip", ""), "now_ms", 1700000000000), "max_sessions", 3)));
+TEST("session/evict/create/e1", FUN(() ,
+    (ASSERT_EQ(LEN(tok_evict_e1), 43));
+    (ASSERT(RE_TEST(RE("^[A-Za-z0-9_-]+$"), tok_evict_e1)));
+    TRUE));
+LET(tok_evict_e2, SESSION_CREATE(INDEX_SET(INDEX_SET(INDEX_SET(DICT(), "client_ip", ""), "now_ms", 1700000000100), "max_sessions", 3)));
+TEST("session/evict/create/e2", FUN(() ,
+    (ASSERT_EQ(LEN(tok_evict_e2), 43));
+    (ASSERT(RE_TEST(RE("^[A-Za-z0-9_-]+$"), tok_evict_e2)));
+    TRUE));
+LET(tok_evict_e3, SESSION_CREATE(INDEX_SET(INDEX_SET(INDEX_SET(DICT(), "client_ip", ""), "now_ms", 1700000000200), "max_sessions", 3)));
+TEST("session/evict/create/e3", FUN(() ,
+    (ASSERT_EQ(LEN(tok_evict_e3), 43));
+    (ASSERT(RE_TEST(RE("^[A-Za-z0-9_-]+$"), tok_evict_e3)));
+    TRUE));
+LET(tok_evict_e4, SESSION_CREATE(INDEX_SET(INDEX_SET(INDEX_SET(DICT(), "client_ip", ""), "now_ms", 1700000000300), "max_sessions", 3)));
+TEST("session/evict/create/e4", FUN(() ,
+    (ASSERT_EQ(LEN(tok_evict_e4), 43));
+    (ASSERT(RE_TEST(RE("^[A-Za-z0-9_-]+$"), tok_evict_e4)));
+    TRUE));
+LET(sv_evict_4, SESSION_VALIDATE(INDEX_SET(INDEX_SET(DICT(), "token", tok_evict_e1), "now_ms", 1700000000300)));
+TEST("session/evict/validate/4", FUN(() ,
+    (ASSERT_EQ(sv_evict_4, FALSE));
+    TRUE));
+LET(sv_evict_5, SESSION_VALIDATE(INDEX_SET(INDEX_SET(DICT(), "token", tok_evict_e2), "now_ms", 1700000000300)));
+TEST("session/evict/validate/5", FUN(() ,
+    (ASSERT_EQ(sv_evict_5, TRUE));
+    TRUE));
+LET(tok_evict_e5, SESSION_CREATE(INDEX_SET(INDEX_SET(INDEX_SET(DICT(), "client_ip", ""), "now_ms", 1700000000400), "max_sessions", 3)));
+TEST("session/evict/create/e5", FUN(() ,
+    (ASSERT_EQ(LEN(tok_evict_e5), 43));
+    (ASSERT(RE_TEST(RE("^[A-Za-z0-9_-]+$"), tok_evict_e5)));
+    TRUE));
+LET(sv_evict_7, SESSION_VALIDATE(INDEX_SET(INDEX_SET(DICT(), "token", tok_evict_e2), "now_ms", 1700000000400)));
+TEST("session/evict/validate/7", FUN(() ,
+    (ASSERT_EQ(sv_evict_7, FALSE));
+    TRUE));
+LET(sv_evict_8, SESSION_VALIDATE(INDEX_SET(INDEX_SET(DICT(), "token", tok_evict_e5), "now_ms", 1700000000400)));
+TEST("session/evict/validate/8", FUN(() ,
+    (ASSERT_EQ(sv_evict_8, TRUE));
+    TRUE));
+LET(cnt_evict, SESSION_COUNT(DICT()));
+TEST("session/evict/count", FUN(() ,
+    (ASSERT_EQ(cnt_evict, 3));
+    TRUE));
+
+// ── 反向守卫：清空注册表（进程重启替身）后旧 token 全失效──────────
+SESSION_RESET(DICT());
+LET(rst_0, SESSION_VALIDATE(INDEX_SET(INDEX_SET(DICT(), "token", tok_main_s2), "now_ms", 1700000000000)));
+TEST("guard/restart_invalidates_s2", FUN(() ,
+    (ASSERT_EQ(rst_0, FALSE));
+    TRUE));
+LET(rst_1, SESSION_VALIDATE(INDEX_SET(INDEX_SET(DICT(), "token", tok_evict_e3), "now_ms", 1700000000000)));
+TEST("guard/restart_invalidates_e3", FUN(() ,
+    (ASSERT_EQ(rst_1, FALSE));
+    TRUE));
+
+// ── 限流 + 登录锁定：每步 6 个字段逐值对拍 ───────────────────────
+
+// 场景 window（9 步）
+RATE_LIMIT_RESET(DICT());
+LET(rl_window_0, RATE_LIMIT(INDEX_SET(INDEX_SET(INDEX_SET(INDEX_SET(INDEX_SET(INDEX_SET(INDEX_SET(DICT(), "client_ip", "10.1.0.1"), "now_ms", 1700000000000), "event", "request"), "max_requests", 5), "window_seconds", 60), "max_failures", 5), "lockout_seconds", 300)));
+TEST("rate/window/0/allowed", FUN(() ,
+    (ASSERT_EQ(AT_K(rl_window_0, "allowed", "missing"), TRUE));
+    TRUE));
+TEST("rate/window/0/retry_after", FUN(() ,
+    (ASSERT_EQ(AT_K(rl_window_0, "retry_after", "missing"), 61));
+    TRUE));
+TEST("rate/window/0/locked", FUN(() ,
+    (ASSERT_EQ(AT_K(rl_window_0, "locked", "missing"), FALSE));
+    TRUE));
+TEST("rate/window/0/lockout_remaining", FUN(() ,
+    (ASSERT_EQ(AT_K(rl_window_0, "lockout_remaining", "missing"), 0));
+    TRUE));
+TEST("rate/window/0/failures", FUN(() ,
+    (ASSERT_EQ(AT_K(rl_window_0, "failures", "missing"), 0));
+    TRUE));
+TEST("rate/window/0/tracked_ips", FUN(() ,
+    (ASSERT_EQ(AT_K(rl_window_0, "tracked_ips", "missing"), 1));
+    TRUE));
+LET(rl_window_1, RATE_LIMIT(INDEX_SET(INDEX_SET(INDEX_SET(INDEX_SET(INDEX_SET(INDEX_SET(INDEX_SET(DICT(), "client_ip", "10.1.0.1"), "now_ms", 1700000001000), "event", "request"), "max_requests", 5), "window_seconds", 60), "max_failures", 5), "lockout_seconds", 300)));
+TEST("rate/window/1/allowed", FUN(() ,
+    (ASSERT_EQ(AT_K(rl_window_1, "allowed", "missing"), TRUE));
+    TRUE));
+TEST("rate/window/1/retry_after", FUN(() ,
+    (ASSERT_EQ(AT_K(rl_window_1, "retry_after", "missing"), 60));
+    TRUE));
+TEST("rate/window/1/locked", FUN(() ,
+    (ASSERT_EQ(AT_K(rl_window_1, "locked", "missing"), FALSE));
+    TRUE));
+TEST("rate/window/1/lockout_remaining", FUN(() ,
+    (ASSERT_EQ(AT_K(rl_window_1, "lockout_remaining", "missing"), 0));
+    TRUE));
+TEST("rate/window/1/failures", FUN(() ,
+    (ASSERT_EQ(AT_K(rl_window_1, "failures", "missing"), 0));
+    TRUE));
+TEST("rate/window/1/tracked_ips", FUN(() ,
+    (ASSERT_EQ(AT_K(rl_window_1, "tracked_ips", "missing"), 1));
+    TRUE));
+LET(rl_window_2, RATE_LIMIT(INDEX_SET(INDEX_SET(INDEX_SET(INDEX_SET(INDEX_SET(INDEX_SET(INDEX_SET(DICT(), "client_ip", "10.1.0.1"), "now_ms", 1700000002000), "event", "request"), "max_requests", 5), "window_seconds", 60), "max_failures", 5), "lockout_seconds", 300)));
+TEST("rate/window/2/allowed", FUN(() ,
+    (ASSERT_EQ(AT_K(rl_window_2, "allowed", "missing"), TRUE));
+    TRUE));
+TEST("rate/window/2/retry_after", FUN(() ,
+    (ASSERT_EQ(AT_K(rl_window_2, "retry_after", "missing"), 59));
+    TRUE));
+TEST("rate/window/2/locked", FUN(() ,
+    (ASSERT_EQ(AT_K(rl_window_2, "locked", "missing"), FALSE));
+    TRUE));
+TEST("rate/window/2/lockout_remaining", FUN(() ,
+    (ASSERT_EQ(AT_K(rl_window_2, "lockout_remaining", "missing"), 0));
+    TRUE));
+TEST("rate/window/2/failures", FUN(() ,
+    (ASSERT_EQ(AT_K(rl_window_2, "failures", "missing"), 0));
+    TRUE));
+TEST("rate/window/2/tracked_ips", FUN(() ,
+    (ASSERT_EQ(AT_K(rl_window_2, "tracked_ips", "missing"), 1));
+    TRUE));
+LET(rl_window_3, RATE_LIMIT(INDEX_SET(INDEX_SET(INDEX_SET(INDEX_SET(INDEX_SET(INDEX_SET(INDEX_SET(DICT(), "client_ip", "10.1.0.1"), "now_ms", 1700000003000), "event", "request"), "max_requests", 5), "window_seconds", 60), "max_failures", 5), "lockout_seconds", 300)));
+TEST("rate/window/3/allowed", FUN(() ,
+    (ASSERT_EQ(AT_K(rl_window_3, "allowed", "missing"), TRUE));
+    TRUE));
+TEST("rate/window/3/retry_after", FUN(() ,
+    (ASSERT_EQ(AT_K(rl_window_3, "retry_after", "missing"), 58));
+    TRUE));
+TEST("rate/window/3/locked", FUN(() ,
+    (ASSERT_EQ(AT_K(rl_window_3, "locked", "missing"), FALSE));
+    TRUE));
+TEST("rate/window/3/lockout_remaining", FUN(() ,
+    (ASSERT_EQ(AT_K(rl_window_3, "lockout_remaining", "missing"), 0));
+    TRUE));
+TEST("rate/window/3/failures", FUN(() ,
+    (ASSERT_EQ(AT_K(rl_window_3, "failures", "missing"), 0));
+    TRUE));
+TEST("rate/window/3/tracked_ips", FUN(() ,
+    (ASSERT_EQ(AT_K(rl_window_3, "tracked_ips", "missing"), 1));
+    TRUE));
+LET(rl_window_4, RATE_LIMIT(INDEX_SET(INDEX_SET(INDEX_SET(INDEX_SET(INDEX_SET(INDEX_SET(INDEX_SET(DICT(), "client_ip", "10.1.0.1"), "now_ms", 1700000004000), "event", "request"), "max_requests", 5), "window_seconds", 60), "max_failures", 5), "lockout_seconds", 300)));
+TEST("rate/window/4/allowed", FUN(() ,
+    (ASSERT_EQ(AT_K(rl_window_4, "allowed", "missing"), TRUE));
+    TRUE));
+TEST("rate/window/4/retry_after", FUN(() ,
+    (ASSERT_EQ(AT_K(rl_window_4, "retry_after", "missing"), 57));
+    TRUE));
+TEST("rate/window/4/locked", FUN(() ,
+    (ASSERT_EQ(AT_K(rl_window_4, "locked", "missing"), FALSE));
+    TRUE));
+TEST("rate/window/4/lockout_remaining", FUN(() ,
+    (ASSERT_EQ(AT_K(rl_window_4, "lockout_remaining", "missing"), 0));
+    TRUE));
+TEST("rate/window/4/failures", FUN(() ,
+    (ASSERT_EQ(AT_K(rl_window_4, "failures", "missing"), 0));
+    TRUE));
+TEST("rate/window/4/tracked_ips", FUN(() ,
+    (ASSERT_EQ(AT_K(rl_window_4, "tracked_ips", "missing"), 1));
+    TRUE));
+LET(rl_window_5, RATE_LIMIT(INDEX_SET(INDEX_SET(INDEX_SET(INDEX_SET(INDEX_SET(INDEX_SET(INDEX_SET(DICT(), "client_ip", "10.1.0.1"), "now_ms", 1700000005000), "event", "request"), "max_requests", 5), "window_seconds", 60), "max_failures", 5), "lockout_seconds", 300)));
+TEST("rate/window/5/allowed", FUN(() ,
+    (ASSERT_EQ(AT_K(rl_window_5, "allowed", "missing"), FALSE));
+    TRUE));
+TEST("rate/window/5/retry_after", FUN(() ,
+    (ASSERT_EQ(AT_K(rl_window_5, "retry_after", "missing"), 56));
+    TRUE));
+TEST("rate/window/5/locked", FUN(() ,
+    (ASSERT_EQ(AT_K(rl_window_5, "locked", "missing"), FALSE));
+    TRUE));
+TEST("rate/window/5/lockout_remaining", FUN(() ,
+    (ASSERT_EQ(AT_K(rl_window_5, "lockout_remaining", "missing"), 0));
+    TRUE));
+TEST("rate/window/5/failures", FUN(() ,
+    (ASSERT_EQ(AT_K(rl_window_5, "failures", "missing"), 0));
+    TRUE));
+TEST("rate/window/5/tracked_ips", FUN(() ,
+    (ASSERT_EQ(AT_K(rl_window_5, "tracked_ips", "missing"), 1));
+    TRUE));
+LET(rl_window_6, RATE_LIMIT(INDEX_SET(INDEX_SET(INDEX_SET(INDEX_SET(INDEX_SET(INDEX_SET(INDEX_SET(DICT(), "client_ip", "10.1.0.2"), "now_ms", 1700000005000), "event", "request"), "max_requests", 5), "window_seconds", 60), "max_failures", 5), "lockout_seconds", 300)));
+TEST("rate/window/6/allowed", FUN(() ,
+    (ASSERT_EQ(AT_K(rl_window_6, "allowed", "missing"), TRUE));
+    TRUE));
+TEST("rate/window/6/retry_after", FUN(() ,
+    (ASSERT_EQ(AT_K(rl_window_6, "retry_after", "missing"), 61));
+    TRUE));
+TEST("rate/window/6/locked", FUN(() ,
+    (ASSERT_EQ(AT_K(rl_window_6, "locked", "missing"), FALSE));
+    TRUE));
+TEST("rate/window/6/lockout_remaining", FUN(() ,
+    (ASSERT_EQ(AT_K(rl_window_6, "lockout_remaining", "missing"), 0));
+    TRUE));
+TEST("rate/window/6/failures", FUN(() ,
+    (ASSERT_EQ(AT_K(rl_window_6, "failures", "missing"), 0));
+    TRUE));
+TEST("rate/window/6/tracked_ips", FUN(() ,
+    (ASSERT_EQ(AT_K(rl_window_6, "tracked_ips", "missing"), 2));
+    TRUE));
+LET(rl_window_7, RATE_LIMIT(INDEX_SET(INDEX_SET(INDEX_SET(INDEX_SET(INDEX_SET(INDEX_SET(INDEX_SET(DICT(), "client_ip", "10.1.0.1"), "now_ms", 1700000060000), "event", "request"), "max_requests", 5), "window_seconds", 60), "max_failures", 5), "lockout_seconds", 300)));
+TEST("rate/window/7/allowed", FUN(() ,
+    (ASSERT_EQ(AT_K(rl_window_7, "allowed", "missing"), TRUE));
+    TRUE));
+TEST("rate/window/7/retry_after", FUN(() ,
+    (ASSERT_EQ(AT_K(rl_window_7, "retry_after", "missing"), 2));
+    TRUE));
+TEST("rate/window/7/locked", FUN(() ,
+    (ASSERT_EQ(AT_K(rl_window_7, "locked", "missing"), FALSE));
+    TRUE));
+TEST("rate/window/7/lockout_remaining", FUN(() ,
+    (ASSERT_EQ(AT_K(rl_window_7, "lockout_remaining", "missing"), 0));
+    TRUE));
+TEST("rate/window/7/failures", FUN(() ,
+    (ASSERT_EQ(AT_K(rl_window_7, "failures", "missing"), 0));
+    TRUE));
+TEST("rate/window/7/tracked_ips", FUN(() ,
+    (ASSERT_EQ(AT_K(rl_window_7, "tracked_ips", "missing"), 2));
+    TRUE));
+LET(rl_window_8, RATE_LIMIT(INDEX_SET(INDEX_SET(INDEX_SET(INDEX_SET(INDEX_SET(INDEX_SET(INDEX_SET(DICT(), "client_ip", "10.1.0.1"), "now_ms", 1700000061000), "event", "request"), "max_requests", 5), "window_seconds", 60), "max_failures", 5), "lockout_seconds", 300)));
+TEST("rate/window/8/allowed", FUN(() ,
+    (ASSERT_EQ(AT_K(rl_window_8, "allowed", "missing"), TRUE));
+    TRUE));
+TEST("rate/window/8/retry_after", FUN(() ,
+    (ASSERT_EQ(AT_K(rl_window_8, "retry_after", "missing"), 2));
+    TRUE));
+TEST("rate/window/8/locked", FUN(() ,
+    (ASSERT_EQ(AT_K(rl_window_8, "locked", "missing"), FALSE));
+    TRUE));
+TEST("rate/window/8/lockout_remaining", FUN(() ,
+    (ASSERT_EQ(AT_K(rl_window_8, "lockout_remaining", "missing"), 0));
+    TRUE));
+TEST("rate/window/8/failures", FUN(() ,
+    (ASSERT_EQ(AT_K(rl_window_8, "failures", "missing"), 0));
+    TRUE));
+TEST("rate/window/8/tracked_ips", FUN(() ,
+    (ASSERT_EQ(AT_K(rl_window_8, "tracked_ips", "missing"), 2));
+    TRUE));
+
+// 场景 auth（11 步）
+RATE_LIMIT_RESET(DICT());
+LET(rl_auth_0, RATE_LIMIT(INDEX_SET(INDEX_SET(INDEX_SET(INDEX_SET(INDEX_SET(INDEX_SET(INDEX_SET(DICT(), "client_ip", "10.2.0.1"), "now_ms", 1700000000000), "event", "auth_check"), "max_requests", 60), "window_seconds", 60), "max_failures", 5), "lockout_seconds", 300)));
+TEST("rate/auth/0/allowed", FUN(() ,
+    (ASSERT_EQ(AT_K(rl_auth_0, "allowed", "missing"), TRUE));
+    TRUE));
+TEST("rate/auth/0/retry_after", FUN(() ,
+    (ASSERT_EQ(AT_K(rl_auth_0, "retry_after", "missing"), 0));
+    TRUE));
+TEST("rate/auth/0/locked", FUN(() ,
+    (ASSERT_EQ(AT_K(rl_auth_0, "locked", "missing"), FALSE));
+    TRUE));
+TEST("rate/auth/0/lockout_remaining", FUN(() ,
+    (ASSERT_EQ(AT_K(rl_auth_0, "lockout_remaining", "missing"), 0));
+    TRUE));
+TEST("rate/auth/0/failures", FUN(() ,
+    (ASSERT_EQ(AT_K(rl_auth_0, "failures", "missing"), 0));
+    TRUE));
+TEST("rate/auth/0/tracked_ips", FUN(() ,
+    (ASSERT_EQ(AT_K(rl_auth_0, "tracked_ips", "missing"), 0));
+    TRUE));
+LET(rl_auth_1, RATE_LIMIT(INDEX_SET(INDEX_SET(INDEX_SET(INDEX_SET(INDEX_SET(INDEX_SET(INDEX_SET(DICT(), "client_ip", "10.2.0.1"), "now_ms", 1700000000000), "event", "auth_failure"), "max_requests", 60), "window_seconds", 60), "max_failures", 5), "lockout_seconds", 300)));
+TEST("rate/auth/1/allowed", FUN(() ,
+    (ASSERT_EQ(AT_K(rl_auth_1, "allowed", "missing"), TRUE));
+    TRUE));
+TEST("rate/auth/1/retry_after", FUN(() ,
+    (ASSERT_EQ(AT_K(rl_auth_1, "retry_after", "missing"), 0));
+    TRUE));
+TEST("rate/auth/1/locked", FUN(() ,
+    (ASSERT_EQ(AT_K(rl_auth_1, "locked", "missing"), FALSE));
+    TRUE));
+TEST("rate/auth/1/lockout_remaining", FUN(() ,
+    (ASSERT_EQ(AT_K(rl_auth_1, "lockout_remaining", "missing"), 0));
+    TRUE));
+TEST("rate/auth/1/failures", FUN(() ,
+    (ASSERT_EQ(AT_K(rl_auth_1, "failures", "missing"), 1));
+    TRUE));
+TEST("rate/auth/1/tracked_ips", FUN(() ,
+    (ASSERT_EQ(AT_K(rl_auth_1, "tracked_ips", "missing"), 0));
+    TRUE));
+LET(rl_auth_2, RATE_LIMIT(INDEX_SET(INDEX_SET(INDEX_SET(INDEX_SET(INDEX_SET(INDEX_SET(INDEX_SET(DICT(), "client_ip", "10.2.0.1"), "now_ms", 1700000001000), "event", "auth_failure"), "max_requests", 60), "window_seconds", 60), "max_failures", 5), "lockout_seconds", 300)));
+TEST("rate/auth/2/allowed", FUN(() ,
+    (ASSERT_EQ(AT_K(rl_auth_2, "allowed", "missing"), TRUE));
+    TRUE));
+TEST("rate/auth/2/retry_after", FUN(() ,
+    (ASSERT_EQ(AT_K(rl_auth_2, "retry_after", "missing"), 0));
+    TRUE));
+TEST("rate/auth/2/locked", FUN(() ,
+    (ASSERT_EQ(AT_K(rl_auth_2, "locked", "missing"), FALSE));
+    TRUE));
+TEST("rate/auth/2/lockout_remaining", FUN(() ,
+    (ASSERT_EQ(AT_K(rl_auth_2, "lockout_remaining", "missing"), 0));
+    TRUE));
+TEST("rate/auth/2/failures", FUN(() ,
+    (ASSERT_EQ(AT_K(rl_auth_2, "failures", "missing"), 2));
+    TRUE));
+TEST("rate/auth/2/tracked_ips", FUN(() ,
+    (ASSERT_EQ(AT_K(rl_auth_2, "tracked_ips", "missing"), 0));
+    TRUE));
+LET(rl_auth_3, RATE_LIMIT(INDEX_SET(INDEX_SET(INDEX_SET(INDEX_SET(INDEX_SET(INDEX_SET(INDEX_SET(DICT(), "client_ip", "10.2.0.1"), "now_ms", 1700000002000), "event", "auth_failure"), "max_requests", 60), "window_seconds", 60), "max_failures", 5), "lockout_seconds", 300)));
+TEST("rate/auth/3/allowed", FUN(() ,
+    (ASSERT_EQ(AT_K(rl_auth_3, "allowed", "missing"), TRUE));
+    TRUE));
+TEST("rate/auth/3/retry_after", FUN(() ,
+    (ASSERT_EQ(AT_K(rl_auth_3, "retry_after", "missing"), 0));
+    TRUE));
+TEST("rate/auth/3/locked", FUN(() ,
+    (ASSERT_EQ(AT_K(rl_auth_3, "locked", "missing"), FALSE));
+    TRUE));
+TEST("rate/auth/3/lockout_remaining", FUN(() ,
+    (ASSERT_EQ(AT_K(rl_auth_3, "lockout_remaining", "missing"), 0));
+    TRUE));
+TEST("rate/auth/3/failures", FUN(() ,
+    (ASSERT_EQ(AT_K(rl_auth_3, "failures", "missing"), 3));
+    TRUE));
+TEST("rate/auth/3/tracked_ips", FUN(() ,
+    (ASSERT_EQ(AT_K(rl_auth_3, "tracked_ips", "missing"), 0));
+    TRUE));
+LET(rl_auth_4, RATE_LIMIT(INDEX_SET(INDEX_SET(INDEX_SET(INDEX_SET(INDEX_SET(INDEX_SET(INDEX_SET(DICT(), "client_ip", "10.2.0.1"), "now_ms", 1700000003000), "event", "auth_failure"), "max_requests", 60), "window_seconds", 60), "max_failures", 5), "lockout_seconds", 300)));
+TEST("rate/auth/4/allowed", FUN(() ,
+    (ASSERT_EQ(AT_K(rl_auth_4, "allowed", "missing"), TRUE));
+    TRUE));
+TEST("rate/auth/4/retry_after", FUN(() ,
+    (ASSERT_EQ(AT_K(rl_auth_4, "retry_after", "missing"), 0));
+    TRUE));
+TEST("rate/auth/4/locked", FUN(() ,
+    (ASSERT_EQ(AT_K(rl_auth_4, "locked", "missing"), FALSE));
+    TRUE));
+TEST("rate/auth/4/lockout_remaining", FUN(() ,
+    (ASSERT_EQ(AT_K(rl_auth_4, "lockout_remaining", "missing"), 0));
+    TRUE));
+TEST("rate/auth/4/failures", FUN(() ,
+    (ASSERT_EQ(AT_K(rl_auth_4, "failures", "missing"), 4));
+    TRUE));
+TEST("rate/auth/4/tracked_ips", FUN(() ,
+    (ASSERT_EQ(AT_K(rl_auth_4, "tracked_ips", "missing"), 0));
+    TRUE));
+LET(rl_auth_5, RATE_LIMIT(INDEX_SET(INDEX_SET(INDEX_SET(INDEX_SET(INDEX_SET(INDEX_SET(INDEX_SET(DICT(), "client_ip", "10.2.0.1"), "now_ms", 1700000004000), "event", "auth_failure"), "max_requests", 60), "window_seconds", 60), "max_failures", 5), "lockout_seconds", 300)));
+TEST("rate/auth/5/allowed", FUN(() ,
+    (ASSERT_EQ(AT_K(rl_auth_5, "allowed", "missing"), FALSE));
+    TRUE));
+TEST("rate/auth/5/retry_after", FUN(() ,
+    (ASSERT_EQ(AT_K(rl_auth_5, "retry_after", "missing"), 297));
+    TRUE));
+TEST("rate/auth/5/locked", FUN(() ,
+    (ASSERT_EQ(AT_K(rl_auth_5, "locked", "missing"), TRUE));
+    TRUE));
+TEST("rate/auth/5/lockout_remaining", FUN(() ,
+    (ASSERT_EQ(AT_K(rl_auth_5, "lockout_remaining", "missing"), 297));
+    TRUE));
+TEST("rate/auth/5/failures", FUN(() ,
+    (ASSERT_EQ(AT_K(rl_auth_5, "failures", "missing"), 5));
+    TRUE));
+TEST("rate/auth/5/tracked_ips", FUN(() ,
+    (ASSERT_EQ(AT_K(rl_auth_5, "tracked_ips", "missing"), 0));
+    TRUE));
+LET(rl_auth_6, RATE_LIMIT(INDEX_SET(INDEX_SET(INDEX_SET(INDEX_SET(INDEX_SET(INDEX_SET(INDEX_SET(DICT(), "client_ip", "10.2.0.1"), "now_ms", 1700000005000), "event", "auth_check"), "max_requests", 60), "window_seconds", 60), "max_failures", 5), "lockout_seconds", 300)));
+TEST("rate/auth/6/allowed", FUN(() ,
+    (ASSERT_EQ(AT_K(rl_auth_6, "allowed", "missing"), FALSE));
+    TRUE));
+TEST("rate/auth/6/retry_after", FUN(() ,
+    (ASSERT_EQ(AT_K(rl_auth_6, "retry_after", "missing"), 296));
+    TRUE));
+TEST("rate/auth/6/locked", FUN(() ,
+    (ASSERT_EQ(AT_K(rl_auth_6, "locked", "missing"), TRUE));
+    TRUE));
+TEST("rate/auth/6/lockout_remaining", FUN(() ,
+    (ASSERT_EQ(AT_K(rl_auth_6, "lockout_remaining", "missing"), 296));
+    TRUE));
+TEST("rate/auth/6/failures", FUN(() ,
+    (ASSERT_EQ(AT_K(rl_auth_6, "failures", "missing"), 5));
+    TRUE));
+TEST("rate/auth/6/tracked_ips", FUN(() ,
+    (ASSERT_EQ(AT_K(rl_auth_6, "tracked_ips", "missing"), 0));
+    TRUE));
+LET(rl_auth_7, RATE_LIMIT(INDEX_SET(INDEX_SET(INDEX_SET(INDEX_SET(INDEX_SET(INDEX_SET(INDEX_SET(DICT(), "client_ip", "10.2.0.1"), "now_ms", 1700000299000), "event", "auth_check"), "max_requests", 60), "window_seconds", 60), "max_failures", 5), "lockout_seconds", 300)));
+TEST("rate/auth/7/allowed", FUN(() ,
+    (ASSERT_EQ(AT_K(rl_auth_7, "allowed", "missing"), FALSE));
+    TRUE));
+TEST("rate/auth/7/retry_after", FUN(() ,
+    (ASSERT_EQ(AT_K(rl_auth_7, "retry_after", "missing"), 2));
+    TRUE));
+TEST("rate/auth/7/locked", FUN(() ,
+    (ASSERT_EQ(AT_K(rl_auth_7, "locked", "missing"), TRUE));
+    TRUE));
+TEST("rate/auth/7/lockout_remaining", FUN(() ,
+    (ASSERT_EQ(AT_K(rl_auth_7, "lockout_remaining", "missing"), 2));
+    TRUE));
+TEST("rate/auth/7/failures", FUN(() ,
+    (ASSERT_EQ(AT_K(rl_auth_7, "failures", "missing"), 5));
+    TRUE));
+TEST("rate/auth/7/tracked_ips", FUN(() ,
+    (ASSERT_EQ(AT_K(rl_auth_7, "tracked_ips", "missing"), 0));
+    TRUE));
+LET(rl_auth_8, RATE_LIMIT(INDEX_SET(INDEX_SET(INDEX_SET(INDEX_SET(INDEX_SET(INDEX_SET(INDEX_SET(DICT(), "client_ip", "10.2.0.1"), "now_ms", 1700000300000), "event", "auth_check"), "max_requests", 60), "window_seconds", 60), "max_failures", 5), "lockout_seconds", 300)));
+TEST("rate/auth/8/allowed", FUN(() ,
+    (ASSERT_EQ(AT_K(rl_auth_8, "allowed", "missing"), TRUE));
+    TRUE));
+TEST("rate/auth/8/retry_after", FUN(() ,
+    (ASSERT_EQ(AT_K(rl_auth_8, "retry_after", "missing"), 0));
+    TRUE));
+TEST("rate/auth/8/locked", FUN(() ,
+    (ASSERT_EQ(AT_K(rl_auth_8, "locked", "missing"), FALSE));
+    TRUE));
+TEST("rate/auth/8/lockout_remaining", FUN(() ,
+    (ASSERT_EQ(AT_K(rl_auth_8, "lockout_remaining", "missing"), 0));
+    TRUE));
+TEST("rate/auth/8/failures", FUN(() ,
+    (ASSERT_EQ(AT_K(rl_auth_8, "failures", "missing"), 4));
+    TRUE));
+TEST("rate/auth/8/tracked_ips", FUN(() ,
+    (ASSERT_EQ(AT_K(rl_auth_8, "tracked_ips", "missing"), 0));
+    TRUE));
+LET(rl_auth_9, RATE_LIMIT(INDEX_SET(INDEX_SET(INDEX_SET(INDEX_SET(INDEX_SET(INDEX_SET(INDEX_SET(DICT(), "client_ip", "10.2.0.1"), "now_ms", 1700000304001), "event", "auth_check"), "max_requests", 60), "window_seconds", 60), "max_failures", 5), "lockout_seconds", 300)));
+TEST("rate/auth/9/allowed", FUN(() ,
+    (ASSERT_EQ(AT_K(rl_auth_9, "allowed", "missing"), TRUE));
+    TRUE));
+TEST("rate/auth/9/retry_after", FUN(() ,
+    (ASSERT_EQ(AT_K(rl_auth_9, "retry_after", "missing"), 0));
+    TRUE));
+TEST("rate/auth/9/locked", FUN(() ,
+    (ASSERT_EQ(AT_K(rl_auth_9, "locked", "missing"), FALSE));
+    TRUE));
+TEST("rate/auth/9/lockout_remaining", FUN(() ,
+    (ASSERT_EQ(AT_K(rl_auth_9, "lockout_remaining", "missing"), 0));
+    TRUE));
+TEST("rate/auth/9/failures", FUN(() ,
+    (ASSERT_EQ(AT_K(rl_auth_9, "failures", "missing"), 0));
+    TRUE));
+TEST("rate/auth/9/tracked_ips", FUN(() ,
+    (ASSERT_EQ(AT_K(rl_auth_9, "tracked_ips", "missing"), 0));
+    TRUE));
+LET(rl_auth_10, RATE_LIMIT(INDEX_SET(INDEX_SET(INDEX_SET(INDEX_SET(INDEX_SET(INDEX_SET(INDEX_SET(DICT(), "client_ip", "10.2.0.1"), "now_ms", 1700000304001), "event", "auth_failure"), "max_requests", 60), "window_seconds", 60), "max_failures", 5), "lockout_seconds", 300)));
+TEST("rate/auth/10/allowed", FUN(() ,
+    (ASSERT_EQ(AT_K(rl_auth_10, "allowed", "missing"), TRUE));
+    TRUE));
+TEST("rate/auth/10/retry_after", FUN(() ,
+    (ASSERT_EQ(AT_K(rl_auth_10, "retry_after", "missing"), 0));
+    TRUE));
+TEST("rate/auth/10/locked", FUN(() ,
+    (ASSERT_EQ(AT_K(rl_auth_10, "locked", "missing"), FALSE));
+    TRUE));
+TEST("rate/auth/10/lockout_remaining", FUN(() ,
+    (ASSERT_EQ(AT_K(rl_auth_10, "lockout_remaining", "missing"), 0));
+    TRUE));
+TEST("rate/auth/10/failures", FUN(() ,
+    (ASSERT_EQ(AT_K(rl_auth_10, "failures", "missing"), 1));
+    TRUE));
+TEST("rate/auth/10/tracked_ips", FUN(() ,
+    (ASSERT_EQ(AT_K(rl_auth_10, "tracked_ips", "missing"), 0));
+    TRUE));
+
+// 场景 max_ips（3 步）
+RATE_LIMIT_RESET(DICT());
+LET(rl_max_ips_0, RATE_LIMIT(INDEX_SET(INDEX_SET(INDEX_SET(INDEX_SET(INDEX_SET(INDEX_SET(INDEX_SET(INDEX_SET(DICT(), "client_ip", "10.3.0.1"), "now_ms", 1700000000000), "event", "request"), "max_requests", 60), "window_seconds", 60), "max_failures", 5), "lockout_seconds", 300), "max_ips", 1)));
+TEST("rate/max_ips/0/allowed", FUN(() ,
+    (ASSERT_EQ(AT_K(rl_max_ips_0, "allowed", "missing"), TRUE));
+    TRUE));
+TEST("rate/max_ips/0/retry_after", FUN(() ,
+    (ASSERT_EQ(AT_K(rl_max_ips_0, "retry_after", "missing"), 61));
+    TRUE));
+TEST("rate/max_ips/0/locked", FUN(() ,
+    (ASSERT_EQ(AT_K(rl_max_ips_0, "locked", "missing"), FALSE));
+    TRUE));
+TEST("rate/max_ips/0/lockout_remaining", FUN(() ,
+    (ASSERT_EQ(AT_K(rl_max_ips_0, "lockout_remaining", "missing"), 0));
+    TRUE));
+TEST("rate/max_ips/0/failures", FUN(() ,
+    (ASSERT_EQ(AT_K(rl_max_ips_0, "failures", "missing"), 0));
+    TRUE));
+TEST("rate/max_ips/0/tracked_ips", FUN(() ,
+    (ASSERT_EQ(AT_K(rl_max_ips_0, "tracked_ips", "missing"), 1));
+    TRUE));
+LET(rl_max_ips_1, RATE_LIMIT(INDEX_SET(INDEX_SET(INDEX_SET(INDEX_SET(INDEX_SET(INDEX_SET(INDEX_SET(INDEX_SET(DICT(), "client_ip", "10.3.0.2"), "now_ms", 1700000001000), "event", "request"), "max_requests", 60), "window_seconds", 60), "max_failures", 5), "lockout_seconds", 300), "max_ips", 1)));
+TEST("rate/max_ips/1/allowed", FUN(() ,
+    (ASSERT_EQ(AT_K(rl_max_ips_1, "allowed", "missing"), FALSE));
+    TRUE));
+TEST("rate/max_ips/1/retry_after", FUN(() ,
+    (ASSERT_EQ(AT_K(rl_max_ips_1, "retry_after", "missing"), 0));
+    TRUE));
+TEST("rate/max_ips/1/locked", FUN(() ,
+    (ASSERT_EQ(AT_K(rl_max_ips_1, "locked", "missing"), FALSE));
+    TRUE));
+TEST("rate/max_ips/1/lockout_remaining", FUN(() ,
+    (ASSERT_EQ(AT_K(rl_max_ips_1, "lockout_remaining", "missing"), 0));
+    TRUE));
+TEST("rate/max_ips/1/failures", FUN(() ,
+    (ASSERT_EQ(AT_K(rl_max_ips_1, "failures", "missing"), 0));
+    TRUE));
+TEST("rate/max_ips/1/tracked_ips", FUN(() ,
+    (ASSERT_EQ(AT_K(rl_max_ips_1, "tracked_ips", "missing"), 1));
+    TRUE));
+LET(rl_max_ips_2, RATE_LIMIT(INDEX_SET(INDEX_SET(INDEX_SET(INDEX_SET(INDEX_SET(INDEX_SET(INDEX_SET(INDEX_SET(DICT(), "client_ip", "10.3.0.1"), "now_ms", 1700000002000), "event", "request"), "max_requests", 60), "window_seconds", 60), "max_failures", 5), "lockout_seconds", 300), "max_ips", 1)));
+TEST("rate/max_ips/2/allowed", FUN(() ,
+    (ASSERT_EQ(AT_K(rl_max_ips_2, "allowed", "missing"), TRUE));
+    TRUE));
+TEST("rate/max_ips/2/retry_after", FUN(() ,
+    (ASSERT_EQ(AT_K(rl_max_ips_2, "retry_after", "missing"), 59));
+    TRUE));
+TEST("rate/max_ips/2/locked", FUN(() ,
+    (ASSERT_EQ(AT_K(rl_max_ips_2, "locked", "missing"), FALSE));
+    TRUE));
+TEST("rate/max_ips/2/lockout_remaining", FUN(() ,
+    (ASSERT_EQ(AT_K(rl_max_ips_2, "lockout_remaining", "missing"), 0));
+    TRUE));
+TEST("rate/max_ips/2/failures", FUN(() ,
+    (ASSERT_EQ(AT_K(rl_max_ips_2, "failures", "missing"), 0));
+    TRUE));
+TEST("rate/max_ips/2/tracked_ips", FUN(() ,
+    (ASSERT_EQ(AT_K(rl_max_ips_2, "tracked_ips", "missing"), 1));
+    TRUE));
+
+// ── 反向守卫：5 次放行后第 6 次必须被限（卡片 S4-2 点名）────────
+TEST("guard/sixth_request_blocked", FUN(() ,
+    (ASSERT_EQ(AT_K(rl_window_5, "allowed", "missing"), FALSE));
+    TRUE));
+TEST("guard/locked_after_five_failures", FUN(() ,
+    (ASSERT_EQ(AT_K(rl_auth_5, "locked", "missing"), TRUE));
+    (ASSERT_EQ(AT_K(rl_auth_6, "allowed", "missing"), FALSE));
+    TRUE));
+// 300 秒后恢复（第 8 步）
+TEST("guard/unlocked_after_300s", FUN(() ,
+    (ASSERT_EQ(AT_K(rl_auth_8, "locked", "missing"), FALSE));
+    (ASSERT_EQ(AT_K(rl_auth_8, "allowed", "missing"), TRUE));
+    TRUE));
+
+// ── 审计：单行 JSONL，msg 逐字取自真 Python 日志 ────────────────
+// csrf_fail_origin_evil —— msg 逐字取自真 Python 日志（fail_origin_evil 分支）
+LET(au_0, AUDIT_EVENT(INDEX_SET(INDEX_SET(INDEX_SET(INDEX_SET(DICT(), "event", "CSRF-FAIL"), "now_ms", 1700000000000), "msg", "[CSRF-FAIL] Invalid Origin: http://evil.example.com from 203.0.113.7"), "fields", INDEX_SET(DICT(), "client_ip", "203.0.113.7"))));
+TEST("audit/csrf_fail_origin_evil", FUN(() ,
+    (ASSERT_EQ(au_0, "{\"ts\":1700000000000,\"level\":\"WARN\",\"event\":\"CSRF-FAIL\",\"msg\":\"[CSRF-FAIL] Invalid Origin: http://evil.example.com from 203.0.113.7\",\"fields\":{\"client_ip\":\"203.0.113.7\"}}"));
+    (ASSERT_EQ(LEN(SPLIT(au_0, "\n")), 1));
+    TRUE));
+// csrf_fail_cookie_mismatch —— msg 逐字取自真 Python 日志（fail_cookie_mismatch 分支）
+LET(au_1, AUDIT_EVENT(INDEX_SET(INDEX_SET(INDEX_SET(INDEX_SET(DICT(), "event", "CSRF-FAIL"), "now_ms", 1700000000000), "msg", "[CSRF-FAIL] Cookie mismatch from 203.0.113.7"), "fields", INDEX_SET(DICT(), "client_ip", "203.0.113.7"))));
+TEST("audit/csrf_fail_cookie_mismatch", FUN(() ,
+    (ASSERT_EQ(au_1, "{\"ts\":1700000000000,\"level\":\"WARN\",\"event\":\"CSRF-FAIL\",\"msg\":\"[CSRF-FAIL] Cookie mismatch from 203.0.113.7\",\"fields\":{\"client_ip\":\"203.0.113.7\"}}"));
+    (ASSERT_EQ(LEN(SPLIT(au_1, "\n")), 1));
+    TRUE));
+// csrf_fail_expired_3601 —— msg 逐字取自真 Python 日志（fail_expired_3601 分支）
+LET(au_2, AUDIT_EVENT(INDEX_SET(INDEX_SET(INDEX_SET(INDEX_SET(DICT(), "event", "CSRF-FAIL"), "now_ms", 1700003601000), "msg", "[CSRF-FAIL] Token expired or future timestamp from 203.0.113.7"), "fields", INDEX_SET(DICT(), "client_ip", "203.0.113.7"))));
+TEST("audit/csrf_fail_expired_3601", FUN(() ,
+    (ASSERT_EQ(au_2, "{\"ts\":1700003601000,\"level\":\"WARN\",\"event\":\"CSRF-FAIL\",\"msg\":\"[CSRF-FAIL] Token expired or future timestamp from 203.0.113.7\",\"fields\":{\"client_ip\":\"203.0.113.7\"}}"));
+    (ASSERT_EQ(LEN(SPLIT(au_2, "\n")), 1));
+    TRUE));
+// csrf_fail_tamper_sig —— msg 逐字取自真 Python 日志（fail_tamper_sig 分支）
+LET(au_3, AUDIT_EVENT(INDEX_SET(INDEX_SET(INDEX_SET(INDEX_SET(DICT(), "event", "CSRF-FAIL"), "now_ms", 1700000000000), "msg", "[CSRF-FAIL] Invalid signature from 203.0.113.7"), "fields", INDEX_SET(DICT(), "client_ip", "203.0.113.7"))));
+TEST("audit/csrf_fail_tamper_sig", FUN(() ,
+    (ASSERT_EQ(au_3, "{\"ts\":1700000000000,\"level\":\"WARN\",\"event\":\"CSRF-FAIL\",\"msg\":\"[CSRF-FAIL] Invalid signature from 203.0.113.7\",\"fields\":{\"client_ip\":\"203.0.113.7\"}}"));
+    (ASSERT_EQ(LEN(SPLIT(au_3, "\n")), 1));
+    TRUE));
+// csrf_fail_non_ascii —— msg 逐字取自真 Python 日志（fail_non_ascii 分支）
+LET(au_4, AUDIT_EVENT(INDEX_SET(INDEX_SET(INDEX_SET(INDEX_SET(DICT(), "event", "CSRF-ERROR"), "now_ms", 1700000000000), "msg", "[CSRF-ERROR] Validation failed from 203.0.113.7: 'ascii' codec can't encode characters in position 0-39: ordinal not in range(128)"), "fields", INDEX_SET(DICT(), "client_ip", "203.0.113.7"))));
+TEST("audit/csrf_fail_non_ascii", FUN(() ,
+    (ASSERT_EQ(au_4, "{\"ts\":1700000000000,\"level\":\"ERROR\",\"event\":\"CSRF-ERROR\",\"msg\":\"[CSRF-ERROR] Validation failed from 203.0.113.7: 'ascii' codec can't encode characters in position 0-39: ordinal not in range(128)\",\"fields\":{\"client_ip\":\"203.0.113.7\"}}"));
+    (ASSERT_EQ(LEN(SPLIT(au_4, "\n")), 1));
+    TRUE));
+// xss_dangerous_protocol —— 真 Python 日志（security.py:306）
+LET(au_5, AUDIT_EVENT(INDEX_SET(INDEX_SET(INDEX_SET(INDEX_SET(DICT(), "event", "XSS-BLOCK"), "now_ms", 1700000000000), "msg", "[XSS-BLOCK] Dangerous protocol: javascript:alert(1)"), "fields", INDEX_SET(DICT(), "url", "javascript:alert(1)"))));
+TEST("audit/xss_dangerous_protocol", FUN(() ,
+    (ASSERT_EQ(au_5, "{\"ts\":1700000000000,\"level\":\"WARN\",\"event\":\"XSS-BLOCK\",\"msg\":\"[XSS-BLOCK] Dangerous protocol: javascript:alert(1)\",\"fields\":{\"url\":\"javascript:alert(1)\"}}"));
+    (ASSERT_EQ(LEN(SPLIT(au_5, "\n")), 1));
+    TRUE));
+// delete_article —— 字面形式取自 content.py:144（不执行文件系统操作）
+LET(au_6, AUDIT_EVENT(INDEX_SET(INDEX_SET(INDEX_SET(INDEX_SET(DICT(), "event", "DELETE"), "now_ms", 1700000000000), "msg", "[DELETE] Article: 2024-02-03-hello.html"), "fields", INDEX_SET(DICT(), "path", "2024-02-03-hello.html"))));
+TEST("audit/delete_article", FUN(() ,
+    (ASSERT_EQ(au_6, "{\"ts\":1700000000000,\"level\":\"INFO\",\"event\":\"DELETE\",\"msg\":\"[DELETE] Article: 2024-02-03-hello.html\",\"fields\":{\"path\":\"2024-02-03-hello.html\"}}"));
+    (ASSERT_EQ(LEN(SPLIT(au_6, "\n")), 1));
+    TRUE));
+// delete_quoting —— 钉 JSON 转义与 Python json.dumps 逐字一致
+LET(au_7, AUDIT_EVENT(INDEX_SET(INDEX_SET(INDEX_SET(INDEX_SET(DICT(), "event", "DELETE"), "now_ms", 1700000000000), "msg", "[DELETE] Article: a\"b\\c-中文.html"), "fields", INDEX_SET(INDEX_SET(DICT(), "path", "a\"b\\c-中文.html"), "note", "引号\\反斜杠"))));
+TEST("audit/delete_quoting", FUN(() ,
+    (ASSERT_EQ(au_7, "{\"ts\":1700000000000,\"level\":\"INFO\",\"event\":\"DELETE\",\"msg\":\"[DELETE] Article: a\\\"b\\\\c-中文.html\",\"fields\":{\"path\":\"a\\\"b\\\\c-中文.html\",\"note\":\"引号\\\\反斜杠\"}}"));
+    (ASSERT_EQ(LEN(SPLIT(au_7, "\n")), 1));
+    TRUE));
+// auth_fail_extension —— D-S4-3：源码无此字面量，S4-2 新增
+LET(au_8, AUDIT_EVENT(INDEX_SET(INDEX_SET(INDEX_SET(INDEX_SET(DICT(), "event", "AUTH-FAIL"), "now_ms", 1700000000000), "msg", "[AUTH-FAIL] Login failed from 203.0.113.7"), "fields", INDEX_SET(INDEX_SET(DICT(), "client_ip", "203.0.113.7"), "attempts", 6))));
+TEST("audit/auth_fail_extension", FUN(() ,
+    (ASSERT_EQ(au_8, "{\"ts\":1700000000000,\"level\":\"WARN\",\"event\":\"AUTH-FAIL\",\"msg\":\"[AUTH-FAIL] Login failed from 203.0.113.7\",\"fields\":{\"client_ip\":\"203.0.113.7\",\"attempts\":6}}"));
+    (ASSERT_EQ(LEN(SPLIT(au_8, "\n")), 1));
+    TRUE));
+// rate_limit_extension —— D-S4-3：源码无此字面量，S4-2 新增
+LET(au_9, AUDIT_EVENT(INDEX_SET(INDEX_SET(INDEX_SET(INDEX_SET(DICT(), "event", "RATE-LIMIT"), "now_ms", 1700000000000), "msg", "[RATE-LIMIT] Blocked 203.0.113.7 (retry_after=56)"), "fields", INDEX_SET(INDEX_SET(DICT(), "client_ip", "203.0.113.7"), "retry_after", 56))));
+TEST("audit/rate_limit_extension", FUN(() ,
+    (ASSERT_EQ(au_9, "{\"ts\":1700000000000,\"level\":\"WARN\",\"event\":\"RATE-LIMIT\",\"msg\":\"[RATE-LIMIT] Blocked 203.0.113.7 (retry_after=56)\",\"fields\":{\"client_ip\":\"203.0.113.7\",\"retry_after\":56}}"));
+    (ASSERT_EQ(LEN(SPLIT(au_9, "\n")), 1));
+    TRUE));
+TEST("audit/unknown_event_rejected", FUN(() ,
+    (ASSERT_EQ(AUDIT_EVENT(INDEX_SET(DICT(), "event", "NOPE")), ""));
+    TRUE));
+TEST("audit/level_override", FUN(() ,
+    (ASSERT_EQ(AUDIT_EVENT(INDEX_SET(INDEX_SET(INDEX_SET(INDEX_SET(DICT(), "event", "CSRF-FAIL"), "level", "ERROR"), "now_ms", 1700000000000), "msg", "[CSRF-FAIL] x")), "{\"ts\":1700000000000,\"level\":\"ERROR\",\"event\":\"CSRF-FAIL\",\"msg\":\"[CSRF-FAIL] x\",\"fields\":{}}"));
+    TRUE));
+
+// ── 口令：Argon2id 官方向量 + 自定存储格式 + 错口令必拒 ───────────
+// 标准库·安全册 §11.5 的官方向量（Python 独立复算一致）
+LET(vec, HASH_PASSWORD(INDEX_SET(INDEX_SET(INDEX_SET(DICT(), "password", "password"), "salt_hex", "73616c7453616c7453616c74"), "len", 32)));
+TEST("password/argon2_spec_vector", FUN(() ,
+    (ASSERT_EQ(vec, "argon2id\$2\$19456\$1\$73616c7453616c7453616c74\$7784e9edc034c74be067bacf7f12f6cfb5babfbccd53f7654386c604d40eb808"));
+    TRUE));
+LET(argon, HASH_PASSWORD(INDEX_SET(INDEX_SET(INDEX_SET(INDEX_SET(INDEX_SET(INDEX_SET(DICT(), "password", "correct horse"), "salt_hex", "00112233445566778899aabbccddeeff"), "t_cost", 2), "m_cost", 19456), "p_cost", 1), "len", 32)));
+TEST("password/argon2_stored", FUN(() ,
+    (ASSERT_EQ(argon, "argon2id\$2\$19456\$1\$00112233445566778899aabbccddeeff\$8201b97950fdae7af6f6a0c10bfff8675338f97b871a8a7d5c9f7c187db0d1ab"));
+    TRUE));
+LET(av_ok, VERIFY_PASSWORD(INDEX_SET(INDEX_SET(DICT(), "password", "correct horse"), "stored", "argon2id\$2\$19456\$1\$00112233445566778899aabbccddeeff\$8201b97950fdae7af6f6a0c10bfff8675338f97b871a8a7d5c9f7c187db0d1ab")));
+LET(av_bad, VERIFY_PASSWORD(INDEX_SET(INDEX_SET(DICT(), "password", "wrong horse"), "stored", "argon2id\$2\$19456\$1\$00112233445566778899aabbccddeeff\$8201b97950fdae7af6f6a0c10bfff8675338f97b871a8a7d5c9f7c187db0d1ab")));
+TEST("password/argon2_verify", FUN(() ,
+    (ASSERT_EQ(av_ok, TRUE));
+    (ASSERT_EQ(av_bad, FALSE));
+    TRUE));
+// PBKDF2：OWASP 下界 600000（官方向量）
+LET(pbk, HASH_PASSWORD(INDEX_SET(INDEX_SET(INDEX_SET(INDEX_SET(INDEX_SET(DICT(), "password", "password"), "salt_hex", "73616c74"), "iter", 600000), "len", 32), "algo", "pbkdf2")));
+TEST("password/pbkdf2_stored", FUN(() ,
+    (ASSERT_EQ(pbk, "pbkdf2-sha256\$600000\$32\$73616c74\$669cfe52482116fda1aa2cbe409b2f56c8e4563752b7a28f6eaab614ee005178"));
+    TRUE));
+LET(pv_ok, VERIFY_PASSWORD(INDEX_SET(INDEX_SET(DICT(), "password", "password"), "stored", "pbkdf2-sha256\$600000\$32\$73616c74\$669cfe52482116fda1aa2cbe409b2f56c8e4563752b7a28f6eaab614ee005178")));
+LET(pv_bad, VERIFY_PASSWORD(INDEX_SET(INDEX_SET(DICT(), "password", "wrong password"), "stored", "pbkdf2-sha256\$600000\$32\$73616c74\$669cfe52482116fda1aa2cbe409b2f56c8e4563752b7a28f6eaab614ee005178")));
+TEST("password/pbkdf2_verify", FUN(() ,
+    (ASSERT_EQ(pv_ok, TRUE));
+    (ASSERT_EQ(pv_bad, FALSE));
+    TRUE));
+TEST("password/weak_iter_rejected", FUN(() ,
+    (ASSERT_EQ(HASH_PASSWORD(INDEX_SET(INDEX_SET(INDEX_SET(INDEX_SET(DICT(), "password", "x"), "salt_hex", "73616c74"), "iter", 1000), "algo", "pbkdf2")), ""));
+    (ASSERT_EQ(VERIFY_PASSWORD(INDEX_SET(INDEX_SET(DICT(), "password", "x"), "stored", "pbkdf2-sha256\$1000\$32\$73616c74\$aa")), FALSE));
+    TRUE));
+
+// ── 跑测试 + 自己把关退出码 ─────────────────────────────────────
+LET(records, RUN_TESTS());
+PRINT("test_security: ", LEN(records), " test(s) run");
+LET MUT(failed, 0);
+FOR(rec, records,
+    (IF(AT_K(rec, "passed", FALSE),
+        PRINT("  PASS ", AT_K(rec, "name", "?")),
+        (SET(failed, +(failed, 1));
+         PRINT("  FAIL ", AT_K(rec, "name", "?"), " :: ", AT_K(rec, "error", ""))))));
+PRINT("test_security: failed=", failed);
+IF(>(failed, 0), (PRINT_ERR("test_security: FAILED"); PANIC("security tests failed")), NULL);
+PRINT("test_security: OK");

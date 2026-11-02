@@ -1,0 +1,1490 @@
+{
+  "meta": {
+    "generated_by": "tp/test/gen_security_baseline.py",
+    "python_sources": [
+      "tinypage/security.py:43 generate_csrf_token",
+      "tinypage/security.py:53 validate_csrf_token",
+      "tinypage/security.py:116 get_csrf_cookie_header",
+      "tinypage/security.py:134 generate_session_token",
+      "tinypage/security.py:139 get_session_cookie_header",
+      "tinypage/security.py:159 get_session_clear_cookie_header",
+      "tinypage/security.py:375 SessionManager",
+      "tinypage/security.py:436 RateLimiter",
+      "tinypage/security.py:494 AuthFailureTracker",
+      "tinypage/content.py:144 [DELETE] 字面形式"
+    ],
+    "cross_checks": {
+      "csrf_token_len": 72,
+      "csrf_decoded_len": 52,
+      "csrf_token_matches_hand_computed_d_s4_1": true,
+      "csrf_raw_byte_token_differs": true,
+      "session_token_len": 43,
+      "argon2_spec_vector_matches": true,
+      "csrf_cases": 34,
+      "session_scenarios": 3,
+      "rate_scenarios": 3,
+      "audit_lines": 10
+    },
+    "differences": [
+      "D-S4-1：HMAC 的 key/data 以 hex 文本参与（WLWL 的 HMAC 只收 STRING） ⇒ token 形状一致但不与 Python 原版互通；本文件用 HmacShim 让 Python 控制流原样可跑。",
+      "D-S4-2：源码无口令哈希函数；HASH_PASSWORD 的存储格式由本实现自定（argon2id$t$m$p$salt$hash / pbkdf2-sha256$iter$len$salt$hash）。",
+      "D-S4-3：[AUTH-FAIL] / [RATE-LIMIT] 在源码里不存在（grep 全树无字面量），是 S4-2 新增事件；级别按 WARN 登记。",
+      "D-S4-4：SESSION_DESTROY 返回 BOOLEAN（Python destroy_session 返回 None）——Python 侧结果按 null 记录，测试只比对副作用。",
+      "D-S4-5：SESSION_RESET 是「进程重启」的等价替身（同一进程内无法真重启）；注册表只在内存里，源码语义即重启失效。"
+    ]
+  },
+  "csrf": {
+    "secret": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+    "random_hex": "000102030405060708090a0b0c0d0e0f",
+    "now_ms": 1700000000000,
+    "token": "AAECAwQFBgcICQoLDA0OD2VT8QADsOV5qW0XQQ2jO5X_wSocFyL4QUc3Vwia16wd6b0WaQ==",
+    "token_len": 72,
+    "decoded_len": 52,
+    "timestamp": 1700000000,
+    "token_python_raw_bytes": "AAECAwQFBgcICQoLDA0OD2VT8QBzCr92d0mJwIIQAiEfiSRFMLdoOwPdphr456m3xxAlHQ==",
+    "note": "D-S4-1：签名覆盖 token_data 的 hex 文本；token 形状（72 字符 / 52 字节 / ts 在第 17-20 字节）与 Python 一致，但签名值与 Python 原版不同 ⇒ 不互通。"
+  },
+  "csrf_cases": [
+    {
+      "name": "ok_ip",
+      "note": "正常：token + cookie + 127.0.0.1 Origin",
+      "source": "security.py:53",
+      "opts": {
+        "secret": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+        "now_ms": 1700000000000,
+        "token": "AAECAwQFBgcICQoLDA0OD2VT8QADsOV5qW0XQQ2jO5X_wSocFyL4QUc3Vwia16wd6b0WaQ==",
+        "cookie": "csrf_token=AAECAwQFBgcICQoLDA0OD2VT8QADsOV5qW0XQQ2jO5X_wSocFyL4QUc3Vwia16wd6b0WaQ==",
+        "origin": "http://127.0.0.1:8081",
+        "referer": "",
+        "admin_port": 8081,
+        "bind_domain": ""
+      },
+      "want": true,
+      "log": "",
+      "log_level": ""
+    },
+    {
+      "name": "ok_localhost",
+      "note": "localhost Origin 也在白名单",
+      "source": "security.py:53",
+      "opts": {
+        "secret": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+        "now_ms": 1700000000000,
+        "token": "AAECAwQFBgcICQoLDA0OD2VT8QADsOV5qW0XQQ2jO5X_wSocFyL4QUc3Vwia16wd6b0WaQ==",
+        "cookie": "csrf_token=AAECAwQFBgcICQoLDA0OD2VT8QADsOV5qW0XQQ2jO5X_wSocFyL4QUc3Vwia16wd6b0WaQ==",
+        "origin": "http://localhost:8081",
+        "referer": "",
+        "admin_port": 8081,
+        "bind_domain": ""
+      },
+      "want": true,
+      "log": "",
+      "log_level": ""
+    },
+    {
+      "name": "ok_no_origin_referer",
+      "note": "Origin/Referer 都缺 ⇒ 跳过域名检查",
+      "source": "security.py:53",
+      "opts": {
+        "secret": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+        "now_ms": 1700000000000,
+        "token": "AAECAwQFBgcICQoLDA0OD2VT8QADsOV5qW0XQQ2jO5X_wSocFyL4QUc3Vwia16wd6b0WaQ==",
+        "cookie": "csrf_token=AAECAwQFBgcICQoLDA0OD2VT8QADsOV5qW0XQQ2jO5X_wSocFyL4QUc3Vwia16wd6b0WaQ==",
+        "origin": "",
+        "referer": "",
+        "admin_port": 8081,
+        "bind_domain": ""
+      },
+      "want": true,
+      "log": "",
+      "log_level": ""
+    },
+    {
+      "name": "ok_null_origin",
+      "note": "Origin: null ⇒ 跳过（大小写不敏感）",
+      "source": "security.py:53",
+      "opts": {
+        "secret": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+        "now_ms": 1700000000000,
+        "token": "AAECAwQFBgcICQoLDA0OD2VT8QADsOV5qW0XQQ2jO5X_wSocFyL4QUc3Vwia16wd6b0WaQ==",
+        "cookie": "csrf_token=AAECAwQFBgcICQoLDA0OD2VT8QADsOV5qW0XQQ2jO5X_wSocFyL4QUc3Vwia16wd6b0WaQ==",
+        "origin": "null",
+        "referer": "",
+        "admin_port": 8081,
+        "bind_domain": ""
+      },
+      "want": true,
+      "log": "",
+      "log_level": ""
+    },
+    {
+      "name": "ok_null_origin_upper",
+      "note": "Origin: NULL ⇒ 跳过",
+      "source": "security.py:53",
+      "opts": {
+        "secret": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+        "now_ms": 1700000000000,
+        "token": "AAECAwQFBgcICQoLDA0OD2VT8QADsOV5qW0XQQ2jO5X_wSocFyL4QUc3Vwia16wd6b0WaQ==",
+        "cookie": "csrf_token=AAECAwQFBgcICQoLDA0OD2VT8QADsOV5qW0XQQ2jO5X_wSocFyL4QUc3Vwia16wd6b0WaQ==",
+        "origin": "NULL",
+        "referer": "",
+        "admin_port": 8081,
+        "bind_domain": ""
+      },
+      "want": true,
+      "log": "",
+      "log_level": ""
+    },
+    {
+      "name": "ok_extra_cookie",
+      "note": "Cookie 里还有别的键",
+      "source": "security.py:53",
+      "opts": {
+        "secret": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+        "now_ms": 1700000000000,
+        "token": "AAECAwQFBgcICQoLDA0OD2VT8QADsOV5qW0XQQ2jO5X_wSocFyL4QUc3Vwia16wd6b0WaQ==",
+        "cookie": "a=1; csrf_token=AAECAwQFBgcICQoLDA0OD2VT8QADsOV5qW0XQQ2jO5X_wSocFyL4QUc3Vwia16wd6b0WaQ==; b=2",
+        "origin": "",
+        "referer": "",
+        "admin_port": 8081,
+        "bind_domain": ""
+      },
+      "want": true,
+      "log": "",
+      "log_level": ""
+    },
+    {
+      "name": "ok_cookie_spaces",
+      "note": "Cookie 段两侧空白被 strip",
+      "source": "security.py:53",
+      "opts": {
+        "secret": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+        "now_ms": 1700000000000,
+        "token": "AAECAwQFBgcICQoLDA0OD2VT8QADsOV5qW0XQQ2jO5X_wSocFyL4QUc3Vwia16wd6b0WaQ==",
+        "cookie": "   csrf_token=AAECAwQFBgcICQoLDA0OD2VT8QADsOV5qW0XQQ2jO5X_wSocFyL4QUc3Vwia16wd6b0WaQ==   ",
+        "origin": "",
+        "referer": "",
+        "admin_port": 8081,
+        "bind_domain": ""
+      },
+      "want": true,
+      "log": "",
+      "log_level": ""
+    },
+    {
+      "name": "ok_referer",
+      "note": "Referer 命中白名单",
+      "source": "security.py:53",
+      "opts": {
+        "secret": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+        "now_ms": 1700000000000,
+        "token": "AAECAwQFBgcICQoLDA0OD2VT8QADsOV5qW0XQQ2jO5X_wSocFyL4QUc3Vwia16wd6b0WaQ==",
+        "cookie": "csrf_token=AAECAwQFBgcICQoLDA0OD2VT8QADsOV5qW0XQQ2jO5X_wSocFyL4QUc3Vwia16wd6b0WaQ==",
+        "origin": "",
+        "referer": "http://127.0.0.1:8081/index.html",
+        "admin_port": 8081,
+        "bind_domain": ""
+      },
+      "want": true,
+      "log": "",
+      "log_level": ""
+    },
+    {
+      "name": "ok_admin_port_9090",
+      "note": "admin_port 参与白名单构造",
+      "source": "security.py:53",
+      "opts": {
+        "secret": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+        "now_ms": 1700000000000,
+        "token": "AAECAwQFBgcICQoLDA0OD2VT8QADsOV5qW0XQQ2jO5X_wSocFyL4QUc3Vwia16wd6b0WaQ==",
+        "cookie": "csrf_token=AAECAwQFBgcICQoLDA0OD2VT8QADsOV5qW0XQQ2jO5X_wSocFyL4QUc3Vwia16wd6b0WaQ==",
+        "origin": "http://127.0.0.1:9090",
+        "referer": "",
+        "admin_port": 9090,
+        "bind_domain": ""
+      },
+      "want": true,
+      "log": "",
+      "log_level": ""
+    },
+    {
+      "name": "ok_bind_domain_https",
+      "note": "bind_domain 追加 https 前缀",
+      "source": "security.py:53",
+      "opts": {
+        "secret": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+        "now_ms": 1700000000000,
+        "token": "AAECAwQFBgcICQoLDA0OD2VT8QADsOV5qW0XQQ2jO5X_wSocFyL4QUc3Vwia16wd6b0WaQ==",
+        "cookie": "csrf_token=AAECAwQFBgcICQoLDA0OD2VT8QADsOV5qW0XQQ2jO5X_wSocFyL4QUc3Vwia16wd6b0WaQ==",
+        "origin": "https://blog.example.com",
+        "referer": "",
+        "admin_port": 8081,
+        "bind_domain": "blog.example.com"
+      },
+      "want": true,
+      "log": "",
+      "log_level": ""
+    },
+    {
+      "name": "ok_bind_domain_http",
+      "note": "bind_domain 追加 http 前缀",
+      "source": "security.py:53",
+      "opts": {
+        "secret": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+        "now_ms": 1700000000000,
+        "token": "AAECAwQFBgcICQoLDA0OD2VT8QADsOV5qW0XQQ2jO5X_wSocFyL4QUc3Vwia16wd6b0WaQ==",
+        "cookie": "csrf_token=AAECAwQFBgcICQoLDA0OD2VT8QADsOV5qW0XQQ2jO5X_wSocFyL4QUc3Vwia16wd6b0WaQ==",
+        "origin": "http://blog.example.com",
+        "referer": "",
+        "admin_port": 8081,
+        "bind_domain": "blog.example.com"
+      },
+      "want": true,
+      "log": "",
+      "log_level": ""
+    },
+    {
+      "name": "ok_boundary_3600",
+      "note": "恰好 3600 秒：不判过期（> 才过期）",
+      "source": "security.py:53",
+      "opts": {
+        "secret": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+        "now_ms": 1700003600000,
+        "token": "AAECAwQFBgcICQoLDA0OD2VT8QADsOV5qW0XQQ2jO5X_wSocFyL4QUc3Vwia16wd6b0WaQ==",
+        "cookie": "csrf_token=AAECAwQFBgcICQoLDA0OD2VT8QADsOV5qW0XQQ2jO5X_wSocFyL4QUc3Vwia16wd6b0WaQ==",
+        "origin": "",
+        "referer": "",
+        "admin_port": 8081,
+        "bind_domain": ""
+      },
+      "want": true,
+      "log": "",
+      "log_level": ""
+    },
+    {
+      "name": "ok_future_boundary_60",
+      "note": "时间戳比 now 大 60 秒：不判未来",
+      "source": "security.py:53",
+      "opts": {
+        "secret": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+        "now_ms": 1699999940000,
+        "token": "AAECAwQFBgcICQoLDA0OD2VT8QADsOV5qW0XQQ2jO5X_wSocFyL4QUc3Vwia16wd6b0WaQ==",
+        "cookie": "csrf_token=AAECAwQFBgcICQoLDA0OD2VT8QADsOV5qW0XQQ2jO5X_wSocFyL4QUc3Vwia16wd6b0WaQ==",
+        "origin": "",
+        "referer": "",
+        "admin_port": 8081,
+        "bind_domain": ""
+      },
+      "want": true,
+      "log": "",
+      "log_level": ""
+    },
+    {
+      "name": "ok_junk_char",
+      "note": "Python b64decode 忽略字母表外字符 ⇒ 仍可解",
+      "source": "security.py:53",
+      "opts": {
+        "secret": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+        "now_ms": 1700000000000,
+        "token": "AAECAwQFBgcICQoLDA0OD2VT8QADsOV5qW0XQQ2jO5X_wSocFyL4QUc3Vwia16wd6b0WaQ==!",
+        "cookie": "csrf_token=AAECAwQFBgcICQoLDA0OD2VT8QADsOV5qW0XQQ2jO5X_wSocFyL4QUc3Vwia16wd6b0WaQ==!",
+        "origin": "",
+        "referer": "",
+        "admin_port": 8081,
+        "bind_domain": ""
+      },
+      "want": true,
+      "log": "",
+      "log_level": ""
+    },
+    {
+      "name": "fail_empty",
+      "note": "空 token",
+      "source": "security.py:53",
+      "opts": {
+        "secret": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+        "now_ms": 1700000000000,
+        "token": "",
+        "cookie": "csrf_token=AAECAwQFBgcICQoLDA0OD2VT8QADsOV5qW0XQQ2jO5X_wSocFyL4QUc3Vwia16wd6b0WaQ==",
+        "origin": "",
+        "referer": "",
+        "admin_port": 8081,
+        "bind_domain": ""
+      },
+      "want": false,
+      "log": "[CSRF-FAIL] Invalid token format from 203.0.113.7",
+      "log_level": "WARN"
+    },
+    {
+      "name": "fail_short",
+      "note": "长度 < 32",
+      "source": "security.py:53",
+      "opts": {
+        "secret": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+        "now_ms": 1700000000000,
+        "token": "abc",
+        "cookie": "csrf_token=abc",
+        "origin": "",
+        "referer": "",
+        "admin_port": 8081,
+        "bind_domain": ""
+      },
+      "want": false,
+      "log": "[CSRF-FAIL] Invalid token format from 203.0.113.7",
+      "log_level": "WARN"
+    },
+    {
+      "name": "fail_non_ascii",
+      "note": "非 ASCII ⇒ Python 编码异常",
+      "source": "security.py:53",
+      "opts": {
+        "secret": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+        "now_ms": 1700000000000,
+        "token": "中中中中中中中中中中中中中中中中中中中中中中中中中中中中中中中中中中中中中中中中",
+        "cookie": "csrf_token=中中中中中中中中中中中中中中中中中中中中中中中中中中中中中中中中中中中中中中中中",
+        "origin": "",
+        "referer": "",
+        "admin_port": 8081,
+        "bind_domain": ""
+      },
+      "want": false,
+      "log": "[CSRF-ERROR] Validation failed from 203.0.113.7: 'ascii' codec can't encode characters in position 0-39: ordinal not in range(128)",
+      "log_level": "ERROR"
+    },
+    {
+      "name": "fail_onepad",
+      "note": "少一个 = ⇒ 总长 71，非 4 倍数",
+      "source": "security.py:53",
+      "opts": {
+        "secret": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+        "now_ms": 1700000000000,
+        "token": "AAECAwQFBgcICQoLDA0OD2VT8QADsOV5qW0XQQ2jO5X_wSocFyL4QUc3Vwia16wd6b0WaQ=",
+        "cookie": "csrf_token=AAECAwQFBgcICQoLDA0OD2VT8QADsOV5qW0XQQ2jO5X_wSocFyL4QUc3Vwia16wd6b0WaQ=",
+        "origin": "",
+        "referer": "",
+        "admin_port": 8081,
+        "bind_domain": ""
+      },
+      "want": false,
+      "log": "[CSRF-ERROR] Validation failed from 203.0.113.7: Incorrect padding",
+      "log_level": "ERROR"
+    },
+    {
+      "name": "fail_unpadded",
+      "note": "去掉 == 后 70 字符 ⇒ Python 报 padding 错",
+      "source": "security.py:53",
+      "opts": {
+        "secret": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+        "now_ms": 1700000000000,
+        "token": "AAECAwQFBgcICQoLDA0OD2VT8QADsOV5qW0XQQ2jO5X_wSocFyL4QUc3Vwia16wd6b0WaQ",
+        "cookie": "csrf_token=AAECAwQFBgcICQoLDA0OD2VT8QADsOV5qW0XQQ2jO5X_wSocFyL4QUc3Vwia16wd6b0WaQ",
+        "origin": "",
+        "referer": "",
+        "admin_port": 8081,
+        "bind_domain": ""
+      },
+      "want": false,
+      "log": "[CSRF-ERROR] Validation failed from 203.0.113.7: Incorrect padding",
+      "log_level": "ERROR"
+    },
+    {
+      "name": "fail_tamper_sig",
+      "note": "篡改签名区 1 字节",
+      "source": "security.py:53",
+      "opts": {
+        "secret": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+        "now_ms": 1700000000000,
+        "token": "AAECAwQFBgcICQoLDA0OD2VT8QADsOV5qW0XQQ2jO5X_wSocFyM4QUc3Vwia16wd6b0WaQ==",
+        "cookie": "csrf_token=AAECAwQFBgcICQoLDA0OD2VT8QADsOV5qW0XQQ2jO5X_wSocFyM4QUc3Vwia16wd6b0WaQ==",
+        "origin": "",
+        "referer": "",
+        "admin_port": 8081,
+        "bind_domain": ""
+      },
+      "want": false,
+      "log": "[CSRF-FAIL] Invalid signature from 203.0.113.7",
+      "log_level": "WARN"
+    },
+    {
+      "name": "fail_tamper_random",
+      "note": "篡改随机区 1 字节",
+      "source": "security.py:53",
+      "opts": {
+        "secret": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+        "now_ms": 1700000000000,
+        "token": "AAEDAwQFBgcICQoLDA0OD2VT8QADsOV5qW0XQQ2jO5X_wSocFyL4QUc3Vwia16wd6b0WaQ==",
+        "cookie": "csrf_token=AAEDAwQFBgcICQoLDA0OD2VT8QADsOV5qW0XQQ2jO5X_wSocFyL4QUc3Vwia16wd6b0WaQ==",
+        "origin": "",
+        "referer": "",
+        "admin_port": 8081,
+        "bind_domain": ""
+      },
+      "want": false,
+      "log": "[CSRF-FAIL] Invalid signature from 203.0.113.7",
+      "log_level": "WARN"
+    },
+    {
+      "name": "fail_other_secret",
+      "note": "别的密钥签出的 token",
+      "source": "security.py:53",
+      "opts": {
+        "secret": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+        "now_ms": 1700000000000,
+        "token": "AAECAwQFBgcICQoLDA0OD2VT8QCOLrlb9CAgYJM86Iy0VNASzi_PyhDrdOMFDwI6BZBZow==",
+        "cookie": "csrf_token=AAECAwQFBgcICQoLDA0OD2VT8QCOLrlb9CAgYJM86Iy0VNASzi_PyhDrdOMFDwI6BZBZow==",
+        "origin": "",
+        "referer": "",
+        "admin_port": 8081,
+        "bind_domain": ""
+      },
+      "want": false,
+      "log": "[CSRF-FAIL] Invalid signature from 203.0.113.7",
+      "log_level": "WARN"
+    },
+    {
+      "name": "fail_expired_3601",
+      "note": "超过 1 小时 1 秒",
+      "source": "security.py:53",
+      "opts": {
+        "secret": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+        "now_ms": 1700003601000,
+        "token": "AAECAwQFBgcICQoLDA0OD2VT8QADsOV5qW0XQQ2jO5X_wSocFyL4QUc3Vwia16wd6b0WaQ==",
+        "cookie": "csrf_token=AAECAwQFBgcICQoLDA0OD2VT8QADsOV5qW0XQQ2jO5X_wSocFyL4QUc3Vwia16wd6b0WaQ==",
+        "origin": "",
+        "referer": "",
+        "admin_port": 8081,
+        "bind_domain": ""
+      },
+      "want": false,
+      "log": "[CSRF-FAIL] Token expired or future timestamp from 203.0.113.7",
+      "log_level": "WARN"
+    },
+    {
+      "name": "fail_future_61",
+      "note": "时间戳比 now 大 61 秒",
+      "source": "security.py:53",
+      "opts": {
+        "secret": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+        "now_ms": 1699999939000,
+        "token": "AAECAwQFBgcICQoLDA0OD2VT8QADsOV5qW0XQQ2jO5X_wSocFyL4QUc3Vwia16wd6b0WaQ==",
+        "cookie": "csrf_token=AAECAwQFBgcICQoLDA0OD2VT8QADsOV5qW0XQQ2jO5X_wSocFyL4QUc3Vwia16wd6b0WaQ==",
+        "origin": "",
+        "referer": "",
+        "admin_port": 8081,
+        "bind_domain": ""
+      },
+      "want": false,
+      "log": "[CSRF-FAIL] Token expired or future timestamp from 203.0.113.7",
+      "log_level": "WARN"
+    },
+    {
+      "name": "fail_no_cookie",
+      "note": "没有 cookie（双提交缺失）",
+      "source": "security.py:53",
+      "opts": {
+        "secret": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+        "now_ms": 1700000000000,
+        "token": "AAECAwQFBgcICQoLDA0OD2VT8QADsOV5qW0XQQ2jO5X_wSocFyL4QUc3Vwia16wd6b0WaQ==",
+        "cookie": "",
+        "origin": "",
+        "referer": "",
+        "admin_port": 8081,
+        "bind_domain": ""
+      },
+      "want": false,
+      "log": "[CSRF-FAIL] Cookie mismatch from 203.0.113.7",
+      "log_level": "WARN"
+    },
+    {
+      "name": "fail_cookie_mismatch",
+      "note": "cookie 里是另一个 token",
+      "source": "security.py:53",
+      "opts": {
+        "secret": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+        "now_ms": 1700000000000,
+        "token": "AAECAwQFBgcICQoLDA0OD2VT8QADsOV5qW0XQQ2jO5X_wSocFyL4QUc3Vwia16wd6b0WaQ==",
+        "cookie": "csrf_token=EBAQEBAQEBAQEBAQEBAQEGVT8QBvdbaC3eabP9mVob4lBUiop8-MS8GGfB4uA5FDbdhaHA==",
+        "origin": "",
+        "referer": "",
+        "admin_port": 8081,
+        "bind_domain": ""
+      },
+      "want": false,
+      "log": "[CSRF-FAIL] Cookie mismatch from 203.0.113.7",
+      "log_level": "WARN"
+    },
+    {
+      "name": "fail_cookie_first_wins",
+      "note": "同名 cookie 取第一个（即便是坏的）",
+      "source": "security.py:53",
+      "opts": {
+        "secret": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+        "now_ms": 1700000000000,
+        "token": "AAECAwQFBgcICQoLDA0OD2VT8QADsOV5qW0XQQ2jO5X_wSocFyL4QUc3Vwia16wd6b0WaQ==",
+        "cookie": "csrf_token=bad; csrf_token=AAECAwQFBgcICQoLDA0OD2VT8QADsOV5qW0XQQ2jO5X_wSocFyL4QUc3Vwia16wd6b0WaQ==",
+        "origin": "",
+        "referer": "",
+        "admin_port": 8081,
+        "bind_domain": ""
+      },
+      "want": false,
+      "log": "[CSRF-FAIL] Cookie mismatch from 203.0.113.7",
+      "log_level": "WARN"
+    },
+    {
+      "name": "fail_origin_evil",
+      "note": "Origin 不在白名单",
+      "source": "security.py:53",
+      "opts": {
+        "secret": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+        "now_ms": 1700000000000,
+        "token": "AAECAwQFBgcICQoLDA0OD2VT8QADsOV5qW0XQQ2jO5X_wSocFyL4QUc3Vwia16wd6b0WaQ==",
+        "cookie": "csrf_token=AAECAwQFBgcICQoLDA0OD2VT8QADsOV5qW0XQQ2jO5X_wSocFyL4QUc3Vwia16wd6b0WaQ==",
+        "origin": "http://evil.example.com",
+        "referer": "",
+        "admin_port": 8081,
+        "bind_domain": ""
+      },
+      "want": false,
+      "log": "[CSRF-FAIL] Invalid Origin: http://evil.example.com from 203.0.113.7",
+      "log_level": "WARN"
+    },
+    {
+      "name": "fail_origin_wrong_port",
+      "note": "Origin 端口不对",
+      "source": "security.py:53",
+      "opts": {
+        "secret": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+        "now_ms": 1700000000000,
+        "token": "AAECAwQFBgcICQoLDA0OD2VT8QADsOV5qW0XQQ2jO5X_wSocFyL4QUc3Vwia16wd6b0WaQ==",
+        "cookie": "csrf_token=AAECAwQFBgcICQoLDA0OD2VT8QADsOV5qW0XQQ2jO5X_wSocFyL4QUc3Vwia16wd6b0WaQ==",
+        "origin": "http://127.0.0.1:9099",
+        "referer": "",
+        "admin_port": 8081,
+        "bind_domain": ""
+      },
+      "want": false,
+      "log": "[CSRF-FAIL] Invalid Origin: http://127.0.0.1:9099 from 203.0.113.7",
+      "log_level": "WARN"
+    },
+    {
+      "name": "fail_origin_https_localhost",
+      "note": "https 不在 http 白名单里",
+      "source": "security.py:53",
+      "opts": {
+        "secret": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+        "now_ms": 1700000000000,
+        "token": "AAECAwQFBgcICQoLDA0OD2VT8QADsOV5qW0XQQ2jO5X_wSocFyL4QUc3Vwia16wd6b0WaQ==",
+        "cookie": "csrf_token=AAECAwQFBgcICQoLDA0OD2VT8QADsOV5qW0XQQ2jO5X_wSocFyL4QUc3Vwia16wd6b0WaQ==",
+        "origin": "https://localhost:8081",
+        "referer": "",
+        "admin_port": 8081,
+        "bind_domain": ""
+      },
+      "want": false,
+      "log": "[CSRF-FAIL] Invalid Origin: https://localhost:8081 from 203.0.113.7",
+      "log_level": "WARN"
+    },
+    {
+      "name": "fail_origin_case",
+      "note": "startswith 区分大小写",
+      "source": "security.py:53",
+      "opts": {
+        "secret": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+        "now_ms": 1700000000000,
+        "token": "AAECAwQFBgcICQoLDA0OD2VT8QADsOV5qW0XQQ2jO5X_wSocFyL4QUc3Vwia16wd6b0WaQ==",
+        "cookie": "csrf_token=AAECAwQFBgcICQoLDA0OD2VT8QADsOV5qW0XQQ2jO5X_wSocFyL4QUc3Vwia16wd6b0WaQ==",
+        "origin": "http://LOCALHOST:8081",
+        "referer": "",
+        "admin_port": 8081,
+        "bind_domain": ""
+      },
+      "want": false,
+      "log": "[CSRF-FAIL] Invalid Origin: http://LOCALHOST:8081 from 203.0.113.7",
+      "log_level": "WARN"
+    },
+    {
+      "name": "ok_origin_prefix_spoof",
+      "note": "源码是**前缀**匹配 ⇒ 8081.evil.com 会通过（照抄，不加固）",
+      "source": "security.py:53",
+      "opts": {
+        "secret": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+        "now_ms": 1700000000000,
+        "token": "AAECAwQFBgcICQoLDA0OD2VT8QADsOV5qW0XQQ2jO5X_wSocFyL4QUc3Vwia16wd6b0WaQ==",
+        "cookie": "csrf_token=AAECAwQFBgcICQoLDA0OD2VT8QADsOV5qW0XQQ2jO5X_wSocFyL4QUc3Vwia16wd6b0WaQ==",
+        "origin": "http://127.0.0.1:8081.evil.com",
+        "referer": "",
+        "admin_port": 8081,
+        "bind_domain": ""
+      },
+      "want": true,
+      "log": "",
+      "log_level": ""
+    },
+    {
+      "name": "fail_referer_evil",
+      "note": "Referer 不在白名单",
+      "source": "security.py:53",
+      "opts": {
+        "secret": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+        "now_ms": 1700000000000,
+        "token": "AAECAwQFBgcICQoLDA0OD2VT8QADsOV5qW0XQQ2jO5X_wSocFyL4QUc3Vwia16wd6b0WaQ==",
+        "cookie": "csrf_token=AAECAwQFBgcICQoLDA0OD2VT8QADsOV5qW0XQQ2jO5X_wSocFyL4QUc3Vwia16wd6b0WaQ==",
+        "origin": "",
+        "referer": "http://evil.example.com/x",
+        "admin_port": 8081,
+        "bind_domain": ""
+      },
+      "want": false,
+      "log": "[CSRF-FAIL] Invalid Referer: http://evil.example.com/x from 203.0.113.7",
+      "log_level": "WARN"
+    },
+    {
+      "name": "fail_bind_domain_other",
+      "note": "bind_domain 之外的域名被拒",
+      "source": "security.py:53",
+      "opts": {
+        "secret": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+        "now_ms": 1700000000000,
+        "token": "AAECAwQFBgcICQoLDA0OD2VT8QADsOV5qW0XQQ2jO5X_wSocFyL4QUc3Vwia16wd6b0WaQ==",
+        "cookie": "csrf_token=AAECAwQFBgcICQoLDA0OD2VT8QADsOV5qW0XQQ2jO5X_wSocFyL4QUc3Vwia16wd6b0WaQ==",
+        "origin": "https://other.example.com",
+        "referer": "",
+        "admin_port": 8081,
+        "bind_domain": "blog.example.com"
+      },
+      "want": false,
+      "log": "[CSRF-FAIL] Invalid Origin: https://other.example.com from 203.0.113.7",
+      "log_level": "WARN"
+    }
+  ],
+  "cookies": [
+    {
+      "name": "csrf_plain",
+      "opts": {
+        "token": "AAECAwQFBgcICQoLDA0OD2VT8QADsOV5qW0XQQ2jO5X_wSocFyL4QUc3Vwia16wd6b0WaQ==",
+        "secure": false
+      },
+      "want": [
+        "Set-Cookie",
+        "csrf_token=AAECAwQFBgcICQoLDA0OD2VT8QADsOV5qW0XQQ2jO5X_wSocFyL4QUc3Vwia16wd6b0WaQ==; Path=/; HttpOnly; SameSite=Strict"
+      ],
+      "source": "security.py:116/139/159"
+    },
+    {
+      "name": "csrf_secure",
+      "opts": {
+        "token": "AAECAwQFBgcICQoLDA0OD2VT8QADsOV5qW0XQQ2jO5X_wSocFyL4QUc3Vwia16wd6b0WaQ==",
+        "secure": true
+      },
+      "want": [
+        "Set-Cookie",
+        "csrf_token=AAECAwQFBgcICQoLDA0OD2VT8QADsOV5qW0XQQ2jO5X_wSocFyL4QUc3Vwia16wd6b0WaQ==; Path=/; HttpOnly; SameSite=Strict; Secure"
+      ],
+      "source": "security.py:116/139/159"
+    },
+    {
+      "name": "session_plain",
+      "opts": {
+        "token": "AAECAwQFBgcICQoLDA0ODxAREhMUFRYXGBkaGxwdHh8",
+        "secure": false
+      },
+      "want": [
+        "Set-Cookie",
+        "session_id=AAECAwQFBgcICQoLDA0ODxAREhMUFRYXGBkaGxwdHh8; Path=/; HttpOnly; SameSite=Strict; Max-Age=86400"
+      ],
+      "source": "security.py:116/139/159"
+    },
+    {
+      "name": "session_secure_maxage60",
+      "opts": {
+        "token": "AAECAwQFBgcICQoLDA0ODxAREhMUFRYXGBkaGxwdHh8",
+        "secure": true,
+        "max_age": 60
+      },
+      "want": [
+        "Set-Cookie",
+        "session_id=AAECAwQFBgcICQoLDA0ODxAREhMUFRYXGBkaGxwdHh8; Path=/; HttpOnly; SameSite=Strict; Max-Age=60; Secure"
+      ],
+      "source": "security.py:116/139/159"
+    },
+    {
+      "name": "session_clear",
+      "opts": {
+        "secure": false
+      },
+      "want": [
+        "Set-Cookie",
+        "session_id=; Path=/; HttpOnly; SameSite=Strict; Max-Age=0"
+      ],
+      "source": "security.py:116/139/159"
+    },
+    {
+      "name": "session_clear_secure",
+      "opts": {
+        "secure": true
+      },
+      "want": [
+        "Set-Cookie",
+        "session_id=; Path=/; HttpOnly; SameSite=Strict; Max-Age=0; Secure"
+      ],
+      "source": "security.py:116/139/159"
+    }
+  ],
+  "sessions": {
+    "config": {
+      "max_age": 86400,
+      "max_tracked": 5000,
+      "cleanup_interval": 300
+    },
+    "token": {
+      "random_hex": "000102030405060708090a0b0c0d0e0f101112131415161718191a1b1c1d1e1f",
+      "want": "AAECAwQFBgcICQoLDA0ODxAREhMUFRYXGBkaGxwdHh8",
+      "want_len": 43
+    },
+    "create_len": 43,
+    "scenario_main": {
+      "events": [
+        {
+          "op": "create",
+          "at_ms": 1700000000000,
+          "client_ip": "198.51.100.1",
+          "as": "s1"
+        },
+        {
+          "op": "validate",
+          "at_ms": 1700000000000,
+          "client_ip": "",
+          "ref": "s1"
+        },
+        {
+          "op": "validate",
+          "at_ms": 1700000000000,
+          "client_ip": "",
+          "ref": "never-created"
+        },
+        {
+          "op": "create",
+          "at_ms": 1700000001000,
+          "client_ip": "198.51.100.2",
+          "as": "s2"
+        },
+        {
+          "op": "validate",
+          "at_ms": 1700086400000,
+          "client_ip": "",
+          "ref": "s1"
+        },
+        {
+          "op": "validate",
+          "at_ms": 1700086400001,
+          "client_ip": "",
+          "ref": "s1"
+        },
+        {
+          "op": "validate",
+          "at_ms": 1700086400001,
+          "client_ip": "",
+          "ref": "s2"
+        },
+        {
+          "op": "destroy",
+          "at_ms": 1700086400002,
+          "client_ip": "",
+          "ref": "s2"
+        },
+        {
+          "op": "validate",
+          "at_ms": 1700086400002,
+          "client_ip": "",
+          "ref": "s2"
+        },
+        {
+          "op": "destroy",
+          "at_ms": 1700086400002,
+          "client_ip": "",
+          "ref": "never-created"
+        },
+        {
+          "op": "from_cookie",
+          "at_ms": 1700000000000,
+          "client_ip": "",
+          "cookie": "x=1; session_id=abc"
+        },
+        {
+          "op": "from_cookie",
+          "at_ms": 1700000000000,
+          "client_ip": "",
+          "cookie": "x=1"
+        }
+      ],
+      "results": [
+        {
+          "created": true,
+          "len": 43
+        },
+        true,
+        false,
+        {
+          "created": true,
+          "len": 43
+        },
+        true,
+        false,
+        true,
+        "",
+        false,
+        "",
+        "abc",
+        ""
+      ],
+      "count": 0,
+      "note": "create 的结果是 {created, len}（随机值不比）；destroy 记录 null"
+    },
+    "scenario_evict": {
+      "events": [
+        {
+          "op": "create",
+          "at_ms": 1700000000000,
+          "client_ip": "",
+          "as": "e1"
+        },
+        {
+          "op": "create",
+          "at_ms": 1700000000100,
+          "client_ip": "",
+          "as": "e2"
+        },
+        {
+          "op": "create",
+          "at_ms": 1700000000200,
+          "client_ip": "",
+          "as": "e3"
+        },
+        {
+          "op": "create",
+          "at_ms": 1700000000300,
+          "client_ip": "",
+          "as": "e4"
+        },
+        {
+          "op": "validate",
+          "at_ms": 1700000000300,
+          "client_ip": "",
+          "ref": "e1"
+        },
+        {
+          "op": "validate",
+          "at_ms": 1700000000300,
+          "client_ip": "",
+          "ref": "e2"
+        },
+        {
+          "op": "create",
+          "at_ms": 1700000000400,
+          "client_ip": "",
+          "as": "e5"
+        },
+        {
+          "op": "validate",
+          "at_ms": 1700000000400,
+          "client_ip": "",
+          "ref": "e2"
+        },
+        {
+          "op": "validate",
+          "at_ms": 1700000000400,
+          "client_ip": "",
+          "ref": "e5"
+        }
+      ],
+      "results": [
+        {
+          "created": true,
+          "len": 43
+        },
+        {
+          "created": true,
+          "len": 43
+        },
+        {
+          "created": true,
+          "len": 43
+        },
+        {
+          "created": true,
+          "len": 43
+        },
+        false,
+        true,
+        {
+          "created": true,
+          "len": 43
+        },
+        false,
+        true
+      ],
+      "count": 3,
+      "max_tracked": 3,
+      "note": "源码是「最老创建」淘汰（卡片写 LRU，实现照源码）"
+    },
+    "scenario_restart": {
+      "results": [
+        false,
+        false,
+        false
+      ],
+      "refs": [
+        "s2",
+        "e3"
+      ],
+      "note": "新进程 = 新 SessionManager ⇒ 旧 token 全失效"
+    }
+  },
+  "rate": {
+    "window": {
+      "cfg": {
+        "max_requests": 5,
+        "window_seconds": 60,
+        "max_failures": 5,
+        "lockout_seconds": 300,
+        "max_ips": null
+      },
+      "events": [
+        {
+          "kind": "request",
+          "at_ms": 1700000000000,
+          "client_ip": "10.1.0.1"
+        },
+        {
+          "kind": "request",
+          "at_ms": 1700000001000,
+          "client_ip": "10.1.0.1"
+        },
+        {
+          "kind": "request",
+          "at_ms": 1700000002000,
+          "client_ip": "10.1.0.1"
+        },
+        {
+          "kind": "request",
+          "at_ms": 1700000003000,
+          "client_ip": "10.1.0.1"
+        },
+        {
+          "kind": "request",
+          "at_ms": 1700000004000,
+          "client_ip": "10.1.0.1"
+        },
+        {
+          "kind": "request",
+          "at_ms": 1700000005000,
+          "client_ip": "10.1.0.1"
+        },
+        {
+          "kind": "request",
+          "at_ms": 1700000005000,
+          "client_ip": "10.1.0.2"
+        },
+        {
+          "kind": "request",
+          "at_ms": 1700000060000,
+          "client_ip": "10.1.0.1"
+        },
+        {
+          "kind": "request",
+          "at_ms": 1700000061000,
+          "client_ip": "10.1.0.1"
+        }
+      ],
+      "results": [
+        {
+          "allowed": true,
+          "retry_after": 61,
+          "locked": false,
+          "lockout_remaining": 0,
+          "failures": 0,
+          "tracked_ips": 1
+        },
+        {
+          "allowed": true,
+          "retry_after": 60,
+          "locked": false,
+          "lockout_remaining": 0,
+          "failures": 0,
+          "tracked_ips": 1
+        },
+        {
+          "allowed": true,
+          "retry_after": 59,
+          "locked": false,
+          "lockout_remaining": 0,
+          "failures": 0,
+          "tracked_ips": 1
+        },
+        {
+          "allowed": true,
+          "retry_after": 58,
+          "locked": false,
+          "lockout_remaining": 0,
+          "failures": 0,
+          "tracked_ips": 1
+        },
+        {
+          "allowed": true,
+          "retry_after": 57,
+          "locked": false,
+          "lockout_remaining": 0,
+          "failures": 0,
+          "tracked_ips": 1
+        },
+        {
+          "allowed": false,
+          "retry_after": 56,
+          "locked": false,
+          "lockout_remaining": 0,
+          "failures": 0,
+          "tracked_ips": 1
+        },
+        {
+          "allowed": true,
+          "retry_after": 61,
+          "locked": false,
+          "lockout_remaining": 0,
+          "failures": 0,
+          "tracked_ips": 2
+        },
+        {
+          "allowed": true,
+          "retry_after": 2,
+          "locked": false,
+          "lockout_remaining": 0,
+          "failures": 0,
+          "tracked_ips": 2
+        },
+        {
+          "allowed": true,
+          "retry_after": 2,
+          "locked": false,
+          "lockout_remaining": 0,
+          "failures": 0,
+          "tracked_ips": 2
+        }
+      ]
+    },
+    "auth": {
+      "cfg": {
+        "max_requests": 60,
+        "window_seconds": 60,
+        "max_failures": 5,
+        "lockout_seconds": 300,
+        "max_ips": null
+      },
+      "events": [
+        {
+          "kind": "auth_check",
+          "at_ms": 1700000000000,
+          "client_ip": "10.2.0.1"
+        },
+        {
+          "kind": "auth_failure",
+          "at_ms": 1700000000000,
+          "client_ip": "10.2.0.1"
+        },
+        {
+          "kind": "auth_failure",
+          "at_ms": 1700000001000,
+          "client_ip": "10.2.0.1"
+        },
+        {
+          "kind": "auth_failure",
+          "at_ms": 1700000002000,
+          "client_ip": "10.2.0.1"
+        },
+        {
+          "kind": "auth_failure",
+          "at_ms": 1700000003000,
+          "client_ip": "10.2.0.1"
+        },
+        {
+          "kind": "auth_failure",
+          "at_ms": 1700000004000,
+          "client_ip": "10.2.0.1"
+        },
+        {
+          "kind": "auth_check",
+          "at_ms": 1700000005000,
+          "client_ip": "10.2.0.1"
+        },
+        {
+          "kind": "auth_check",
+          "at_ms": 1700000299000,
+          "client_ip": "10.2.0.1"
+        },
+        {
+          "kind": "auth_check",
+          "at_ms": 1700000300000,
+          "client_ip": "10.2.0.1"
+        },
+        {
+          "kind": "auth_check",
+          "at_ms": 1700000304001,
+          "client_ip": "10.2.0.1"
+        },
+        {
+          "kind": "auth_failure",
+          "at_ms": 1700000304001,
+          "client_ip": "10.2.0.1"
+        }
+      ],
+      "results": [
+        {
+          "allowed": true,
+          "retry_after": 0,
+          "locked": false,
+          "lockout_remaining": 0,
+          "failures": 0,
+          "tracked_ips": 0
+        },
+        {
+          "allowed": true,
+          "retry_after": 0,
+          "locked": false,
+          "lockout_remaining": 0,
+          "failures": 1,
+          "tracked_ips": 0
+        },
+        {
+          "allowed": true,
+          "retry_after": 0,
+          "locked": false,
+          "lockout_remaining": 0,
+          "failures": 2,
+          "tracked_ips": 0
+        },
+        {
+          "allowed": true,
+          "retry_after": 0,
+          "locked": false,
+          "lockout_remaining": 0,
+          "failures": 3,
+          "tracked_ips": 0
+        },
+        {
+          "allowed": true,
+          "retry_after": 0,
+          "locked": false,
+          "lockout_remaining": 0,
+          "failures": 4,
+          "tracked_ips": 0
+        },
+        {
+          "allowed": false,
+          "retry_after": 297,
+          "locked": true,
+          "lockout_remaining": 297,
+          "failures": 5,
+          "tracked_ips": 0
+        },
+        {
+          "allowed": false,
+          "retry_after": 296,
+          "locked": true,
+          "lockout_remaining": 296,
+          "failures": 5,
+          "tracked_ips": 0
+        },
+        {
+          "allowed": false,
+          "retry_after": 2,
+          "locked": true,
+          "lockout_remaining": 2,
+          "failures": 5,
+          "tracked_ips": 0
+        },
+        {
+          "allowed": true,
+          "retry_after": 0,
+          "locked": false,
+          "lockout_remaining": 0,
+          "failures": 4,
+          "tracked_ips": 0
+        },
+        {
+          "allowed": true,
+          "retry_after": 0,
+          "locked": false,
+          "lockout_remaining": 0,
+          "failures": 0,
+          "tracked_ips": 0
+        },
+        {
+          "allowed": true,
+          "retry_after": 0,
+          "locked": false,
+          "lockout_remaining": 0,
+          "failures": 1,
+          "tracked_ips": 0
+        }
+      ]
+    },
+    "max_ips": {
+      "cfg": {
+        "max_requests": 60,
+        "window_seconds": 60,
+        "max_failures": 5,
+        "lockout_seconds": 300,
+        "max_ips": 1
+      },
+      "events": [
+        {
+          "kind": "request",
+          "at_ms": 1700000000000,
+          "client_ip": "10.3.0.1"
+        },
+        {
+          "kind": "request",
+          "at_ms": 1700000001000,
+          "client_ip": "10.3.0.2"
+        },
+        {
+          "kind": "request",
+          "at_ms": 1700000002000,
+          "client_ip": "10.3.0.1"
+        }
+      ],
+      "results": [
+        {
+          "allowed": true,
+          "retry_after": 61,
+          "locked": false,
+          "lockout_remaining": 0,
+          "failures": 0,
+          "tracked_ips": 1
+        },
+        {
+          "allowed": false,
+          "retry_after": 0,
+          "locked": false,
+          "lockout_remaining": 0,
+          "failures": 0,
+          "tracked_ips": 1
+        },
+        {
+          "allowed": true,
+          "retry_after": 59,
+          "locked": false,
+          "lockout_remaining": 0,
+          "failures": 0,
+          "tracked_ips": 1
+        }
+      ]
+    }
+  },
+  "audit": {
+    "cases": [
+      {
+        "name": "csrf_fail_origin_evil",
+        "note": "msg 逐字取自真 Python 日志（fail_origin_evil 分支）",
+        "source": "security.py:58-112",
+        "opts": {
+          "event": "CSRF-FAIL",
+          "now_ms": 1700000000000,
+          "msg": "[CSRF-FAIL] Invalid Origin: http://evil.example.com from 203.0.113.7",
+          "fields": {
+            "client_ip": "203.0.113.7"
+          }
+        },
+        "want_level": "WARN",
+        "want": "{\"ts\":1700000000000,\"level\":\"WARN\",\"event\":\"CSRF-FAIL\",\"msg\":\"[CSRF-FAIL] Invalid Origin: http://evil.example.com from 203.0.113.7\",\"fields\":{\"client_ip\":\"203.0.113.7\"}}"
+      },
+      {
+        "name": "csrf_fail_cookie_mismatch",
+        "note": "msg 逐字取自真 Python 日志（fail_cookie_mismatch 分支）",
+        "source": "security.py:58-112",
+        "opts": {
+          "event": "CSRF-FAIL",
+          "now_ms": 1700000000000,
+          "msg": "[CSRF-FAIL] Cookie mismatch from 203.0.113.7",
+          "fields": {
+            "client_ip": "203.0.113.7"
+          }
+        },
+        "want_level": "WARN",
+        "want": "{\"ts\":1700000000000,\"level\":\"WARN\",\"event\":\"CSRF-FAIL\",\"msg\":\"[CSRF-FAIL] Cookie mismatch from 203.0.113.7\",\"fields\":{\"client_ip\":\"203.0.113.7\"}}"
+      },
+      {
+        "name": "csrf_fail_expired_3601",
+        "note": "msg 逐字取自真 Python 日志（fail_expired_3601 分支）",
+        "source": "security.py:58-112",
+        "opts": {
+          "event": "CSRF-FAIL",
+          "now_ms": 1700003601000,
+          "msg": "[CSRF-FAIL] Token expired or future timestamp from 203.0.113.7",
+          "fields": {
+            "client_ip": "203.0.113.7"
+          }
+        },
+        "want_level": "WARN",
+        "want": "{\"ts\":1700003601000,\"level\":\"WARN\",\"event\":\"CSRF-FAIL\",\"msg\":\"[CSRF-FAIL] Token expired or future timestamp from 203.0.113.7\",\"fields\":{\"client_ip\":\"203.0.113.7\"}}"
+      },
+      {
+        "name": "csrf_fail_tamper_sig",
+        "note": "msg 逐字取自真 Python 日志（fail_tamper_sig 分支）",
+        "source": "security.py:58-112",
+        "opts": {
+          "event": "CSRF-FAIL",
+          "now_ms": 1700000000000,
+          "msg": "[CSRF-FAIL] Invalid signature from 203.0.113.7",
+          "fields": {
+            "client_ip": "203.0.113.7"
+          }
+        },
+        "want_level": "WARN",
+        "want": "{\"ts\":1700000000000,\"level\":\"WARN\",\"event\":\"CSRF-FAIL\",\"msg\":\"[CSRF-FAIL] Invalid signature from 203.0.113.7\",\"fields\":{\"client_ip\":\"203.0.113.7\"}}"
+      },
+      {
+        "name": "csrf_fail_non_ascii",
+        "note": "msg 逐字取自真 Python 日志（fail_non_ascii 分支）",
+        "source": "security.py:58-112",
+        "opts": {
+          "event": "CSRF-ERROR",
+          "now_ms": 1700000000000,
+          "msg": "[CSRF-ERROR] Validation failed from 203.0.113.7: 'ascii' codec can't encode characters in position 0-39: ordinal not in range(128)",
+          "fields": {
+            "client_ip": "203.0.113.7"
+          }
+        },
+        "want_level": "ERROR",
+        "want": "{\"ts\":1700000000000,\"level\":\"ERROR\",\"event\":\"CSRF-ERROR\",\"msg\":\"[CSRF-ERROR] Validation failed from 203.0.113.7: 'ascii' codec can't encode characters in position 0-39: ordinal not in range(128)\",\"fields\":{\"client_ip\":\"203.0.113.7\"}}"
+      },
+      {
+        "name": "xss_dangerous_protocol",
+        "note": "真 Python 日志（security.py:306）",
+        "source": "security.py:306",
+        "opts": {
+          "event": "XSS-BLOCK",
+          "now_ms": 1700000000000,
+          "msg": "[XSS-BLOCK] Dangerous protocol: javascript:alert(1)",
+          "fields": {
+            "url": "javascript:alert(1)"
+          }
+        },
+        "want_level": "WARN",
+        "want": "{\"ts\":1700000000000,\"level\":\"WARN\",\"event\":\"XSS-BLOCK\",\"msg\":\"[XSS-BLOCK] Dangerous protocol: javascript:alert(1)\",\"fields\":{\"url\":\"javascript:alert(1)\"}}"
+      },
+      {
+        "name": "delete_article",
+        "note": "字面形式取自 content.py:144（不执行文件系统操作）",
+        "source": "content.py:144",
+        "opts": {
+          "event": "DELETE",
+          "now_ms": 1700000000000,
+          "msg": "[DELETE] Article: 2024-02-03-hello.html",
+          "fields": {
+            "path": "2024-02-03-hello.html"
+          }
+        },
+        "want_level": "INFO",
+        "want": "{\"ts\":1700000000000,\"level\":\"INFO\",\"event\":\"DELETE\",\"msg\":\"[DELETE] Article: 2024-02-03-hello.html\",\"fields\":{\"path\":\"2024-02-03-hello.html\"}}"
+      },
+      {
+        "name": "delete_quoting",
+        "note": "钉 JSON 转义与 Python json.dumps 逐字一致",
+        "source": "content.py:144",
+        "opts": {
+          "event": "DELETE",
+          "now_ms": 1700000000000,
+          "msg": "[DELETE] Article: a\"b\\c-中文.html",
+          "fields": {
+            "path": "a\"b\\c-中文.html",
+            "note": "引号\\反斜杠"
+          }
+        },
+        "want_level": "INFO",
+        "want": "{\"ts\":1700000000000,\"level\":\"INFO\",\"event\":\"DELETE\",\"msg\":\"[DELETE] Article: a\\\"b\\\\c-中文.html\",\"fields\":{\"path\":\"a\\\"b\\\\c-中文.html\",\"note\":\"引号\\\\反斜杠\"}}"
+      },
+      {
+        "name": "auth_fail_extension",
+        "note": "D-S4-3：源码无此字面量，S4-2 新增",
+        "source": "security.py（无）",
+        "opts": {
+          "event": "AUTH-FAIL",
+          "now_ms": 1700000000000,
+          "msg": "[AUTH-FAIL] Login failed from 203.0.113.7",
+          "fields": {
+            "client_ip": "203.0.113.7",
+            "attempts": 6
+          }
+        },
+        "want_level": "WARN",
+        "want": "{\"ts\":1700000000000,\"level\":\"WARN\",\"event\":\"AUTH-FAIL\",\"msg\":\"[AUTH-FAIL] Login failed from 203.0.113.7\",\"fields\":{\"client_ip\":\"203.0.113.7\",\"attempts\":6}}"
+      },
+      {
+        "name": "rate_limit_extension",
+        "note": "D-S4-3：源码无此字面量，S4-2 新增",
+        "source": "security.py（无）",
+        "opts": {
+          "event": "RATE-LIMIT",
+          "now_ms": 1700000000000,
+          "msg": "[RATE-LIMIT] Blocked 203.0.113.7 (retry_after=56)",
+          "fields": {
+            "client_ip": "203.0.113.7",
+            "retry_after": 56
+          }
+        },
+        "want_level": "WARN",
+        "want": "{\"ts\":1700000000000,\"level\":\"WARN\",\"event\":\"RATE-LIMIT\",\"msg\":\"[RATE-LIMIT] Blocked 203.0.113.7 (retry_after=56)\",\"fields\":{\"client_ip\":\"203.0.113.7\",\"retry_after\":56}}"
+      }
+    ],
+    "unknown": {
+      "event": "NOPE",
+      "want": ""
+    }
+  },
+  "password": {
+    "argon2": {
+      "salt_hex": "00112233445566778899aabbccddeeff",
+      "password": "correct horse",
+      "t_cost": 2,
+      "m_cost": 19456,
+      "p_cost": 1,
+      "len": 32,
+      "stored": "argon2id$2$19456$1$00112233445566778899aabbccddeeff$8201b97950fdae7af6f6a0c10bfff8675338f97b871a8a7d5c9f7c187db0d1ab",
+      "verify_ok": true,
+      "verify_bad": false,
+      "note": "hash_secret_raw(Type.ID) 与 WLWL 的 ARGON2ID 同参"
+    },
+    "argon2_spec_vector": {
+      "salt_hex": "73616c7453616c7453616c74",
+      "password": "password",
+      "stored": "argon2id$2$19456$1$73616c7453616c7453616c74$7784e9edc034c74be067bacf7f12f6cfb5babfbccd53f7654386c604d40eb808",
+      "hex": "7784e9edc034c74be067bacf7f12f6cfb5babfbccd53f7654386c604d40eb808",
+      "note": "标准库·安全册 §11.5 的官方向量（Python 独立复算一致）"
+    },
+    "pbkdf2": {
+      "salt_hex": "73616c74",
+      "password": "password",
+      "iter": 600000,
+      "len": 32,
+      "stored": "pbkdf2-sha256$600000$32$73616c74$669cfe52482116fda1aa2cbe409b2f56c8e4563752b7a28f6eaab614ee005178",
+      "hex": "669cfe52482116fda1aa2cbe409b2f56c8e4563752b7a28f6eaab614ee005178",
+      "verify_ok": true,
+      "verify_bad": false,
+      "note": "OWASP 下界 600000；一次调用约 0.8s（CI 可接受）"
+    },
+    "weak_iter": {
+      "iter": 1000,
+      "want": "",
+      "note": "iter < 600000 ⇒ \"\"（拒绝）"
+    },
+    "config": {
+      "default_algo": "argon2id",
+      "t_cost": 2,
+      "m_cost": 19456,
+      "p_cost": 1,
+      "len": 32,
+      "pbkdf2_min_iter": 600000
+    }
+  }
+}

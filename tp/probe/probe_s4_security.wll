@@ -1,0 +1,41 @@
+// tp/probe/probe_s4_security.wll —— 卡 S4-1/S4-2 的本机探针（不属 CI 测试）
+// 用途：在写正式测试前，用真 Python 手算的期望值对拍 security.wll 的关键输出。
+IMPORT("wlwl:std.str", ["CAT"]);
+IMPORT("./../lib/security.wll", ["NEW_CSRF_TOKEN", "VALIDATE_CSRF_TOKEN", "CSRF_COOKIE_HEADER", "NEW_SESSION_TOKEN", "SESSION_COOKIE_HEADER", "SESSION_CLEAR_COOKIE_HEADER", "SESSION_CREATE", "SESSION_VALIDATE", "SESSION_COUNT", "RATE_LIMIT", "AUDIT_EVENT", "HASH_PASSWORD", "VERIFY_PASSWORD"]);
+
+LET(secret, "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa");
+LET(tok, NEW_CSRF_TOKEN(INDEX_SET(INDEX_SET(INDEX_SET(DICT(), "secret", secret), "random_hex", "000102030405060708090a0b0c0d0e0f"), "now_ms", 1700000000000)));
+PRINT("A token=", tok);
+PRINT("A len=", LEN(tok));
+
+LET(okopts, INDEX_SET(INDEX_SET(INDEX_SET(INDEX_SET(INDEX_SET(INDEX_SET(DICT(), "secret", secret), "now_ms", 1700000000000), "token", tok), "cookie", CAT("a=1; csrf_token=", tok, "; b=2")), "origin", "http://127.0.0.1:8081"), "admin_port", 8081));
+PRINT("B ok=", VALIDATE_CSRF_TOKEN(okopts));
+PRINT("B no_cookie=", VALIDATE_CSRF_TOKEN(INDEX_SET(okopts, "cookie", "")));
+PRINT("B bad_origin=", VALIDATE_CSRF_TOKEN(INDEX_SET(okopts, "origin", "http://evil.example.com")));
+PRINT("B spoof=", VALIDATE_CSRF_TOKEN(INDEX_SET(okopts, "origin", "http://127.0.0.1:8081.evil.com")));
+PRINT("B expired=", VALIDATE_CSRF_TOKEN(INDEX_SET(okopts, "now_ms", 1700003601000)));
+PRINT("B future_ok=", VALIDATE_CSRF_TOKEN(INDEX_SET(okopts, "now_ms", 1699999940000)));
+PRINT("B null_origin=", VALIDATE_CSRF_TOKEN(INDEX_SET(okopts, "origin", "NULL")));
+
+PRINT("C csrf_cookie=", CSRF_COOKIE_HEADER(INDEX_SET(INDEX_SET(DICT(), "token", tok), "secure", TRUE)));
+PRINT("C sess_tok=", NEW_SESSION_TOKEN(INDEX_SET(DICT(), "random_hex", "000102030405060708090a0b0c0d0e0f101112131415161718191a1b1c1d1e1f")));
+PRINT("C sess_cookie=", SESSION_COOKIE_HEADER(INDEX_SET(INDEX_SET(INDEX_SET(DICT(), "token", "TS"), "secure", FALSE), "max_age", 60)));
+PRINT("C clear=", SESSION_CLEAR_COOKIE_HEADER(DICT()));
+
+PRINT("D t1=", SESSION_CREATE(INDEX_SET(INDEX_SET(INDEX_SET(DICT(), "token", "s1"), "now_ms", 1700000000000), "client_ip", "1.2.3.4")));
+PRINT("D v1=", SESSION_VALIDATE(INDEX_SET(INDEX_SET(DICT(), "token", "s1"), "now_ms", 1700000000000)));
+PRINT("D v_exp=", SESSION_VALIDATE(INDEX_SET(INDEX_SET(DICT(), "token", "s1"), "now_ms", 1786400001000)));
+PRINT("D count=", SESSION_COUNT(DICT()));
+
+LET(h1, RATE_LIMIT(INDEX_SET(INDEX_SET(INDEX_SET(INDEX_SET(DICT(), "client_ip", "9.9.9.9"), "now_ms", 1700000000000), "max_requests", 5), "window_seconds", 60)));
+PRINT("E h1=", h1);
+LET(h6, RATE_LIMIT(INDEX_SET(INDEX_SET(INDEX_SET(INDEX_SET(INDEX_SET(DICT(), "client_ip", "9.9.9.9"), "now_ms", 1700000005000), "max_requests", 5), "window_seconds", 60), "event", "request")));
+PRINT("E h6=", h6);
+
+PRINT("F audit=", AUDIT_EVENT(INDEX_SET(INDEX_SET(INDEX_SET(DICT(), "event", "CSRF-FAIL"), "now_ms", 1700000000000), "fields", INDEX_SET(INDEX_SET(DICT(), "client_ip", "1.2.3.4"), "origin", "http://evil.example.com"))));
+PRINT("F unknown=", AUDIT_EVENT(INDEX_SET(DICT(), "event", "NOPE")));
+
+LET(hs, HASH_PASSWORD(INDEX_SET(INDEX_SET(INDEX_SET(DICT(), "password", "correct horse"), "salt_hex", "00112233445566778899aabbccddeeff"), "len", 32)));
+PRINT("G stored=", hs);
+PRINT("G verify=", VERIFY_PASSWORD(INDEX_SET(INDEX_SET(DICT(), "stored", hs), "password", "correct horse")));
+PRINT("G reject=", VERIFY_PASSWORD(INDEX_SET(INDEX_SET(DICT(), "stored", hs), "password", "wrong horse")));

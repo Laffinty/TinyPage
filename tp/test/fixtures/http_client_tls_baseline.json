@@ -1,0 +1,878 @@
+{
+  "meta": {
+    "card": "S5-1",
+    "generator": "tp/test/gen_http_client_tls_baseline.py",
+    "sources": [
+      "tinypage/core/ai_assistance.py:45-88（_get_default_endpoint / _build_headers / _call_api）",
+      "RFC 7230 §3（报文）、§3.2.2（同名头合并）、§3.3.2（Content-Length）、§5.4（Host）",
+      "卡 S5-1（docs/plans/tinypage-wlwl-rewrite-plan.md:1369-1390）"
+    ],
+    "conventions": [
+      "want.status == -1 ⇒ 期望 status 是 **NULL**（合法状态码只有 100–599，-1 不可能是真值）",
+      "want.status == None 不会出现；失败用例一律用 -1",
+      "parse 用例的 want.ok 只表示「报文是否成形」，4xx/5xx 的成败在 request/chat 用例里测"
+    ],
+    "divergences": [
+      {
+        "case": "cl_smaller_than_actual",
+        "ours": "body = 全部 11 字节（不截断），length_mismatch=TRUE",
+        "python": "body = 前 5 字节（按 Content-Length 截断）",
+        "why": "卡 S5-1 反向守卫「不得截断读取」要求保留全部实收字节"
+      },
+      {
+        "case": "chunked",
+        "ours": "ok=FALSE（不实现分块解码）",
+        "python": "解码 chunked（body_len=2）",
+        "why": "本模块取舍 ④：宁可明确失败也不把未解码的块当正文"
+      },
+      {
+        "case": "bad_content_length",
+        "ours": "ok=FALSE（Content-Length 不是整数 ⇒ fail closed）",
+        "python": "status=200、按「读到 EOF」处理（body_len=1）",
+        "why": "本模块取舍：长度声明坏了就明确失败，不猜"
+      }
+    ],
+    "cross_checks": [
+      {
+        "case": "ok_json",
+        "verdict": "agree"
+      },
+      {
+        "case": "headers_mixed_case",
+        "verdict": "agree"
+      },
+      {
+        "case": "no_body",
+        "verdict": "agree"
+      },
+      {
+        "case": "cl_smaller_than_actual",
+        "verdict": "diverges (by design)"
+      },
+      {
+        "case": "cl_larger_truncated",
+        "verdict": "ours=FALSE",
+        "python": "IncompleteRead: IncompleteRead(5 bytes read, 5 more expected)"
+      },
+      {
+        "case": "status_401",
+        "verdict": "agree"
+      },
+      {
+        "case": "status_500",
+        "verdict": "agree"
+      },
+      {
+        "case": "dup_headers",
+        "verdict": "agree"
+      },
+      {
+        "case": "status_without_reason",
+        "verdict": "agree"
+      },
+      {
+        "case": "blank_lines_in_body",
+        "verdict": "agree"
+      },
+      {
+        "case": "no_terminator",
+        "verdict": "ours=FALSE",
+        "python": "IncompleteRead: IncompleteRead(0 bytes read, 2 more expected)"
+      },
+      {
+        "case": "bad_status_code",
+        "verdict": "ours=FALSE",
+        "python": "BadStatusLine: HTTP/1.1 ABC OK\r\n"
+      },
+      {
+        "case": "bad_protocol",
+        "verdict": "ours=FALSE",
+        "python": "BadStatusLine: FTP/1.1 200 OK\r\n"
+      },
+      {
+        "case": "chunked",
+        "verdict": "ours=FALSE",
+        "python": "status=200 body_len=2"
+      },
+      {
+        "case": "bad_content_length",
+        "verdict": "ours=FALSE",
+        "python": "status=200 body_len=1"
+      }
+    ]
+  },
+  "build": [
+    {
+      "name": "post_json",
+      "note": "POST + Bearer + JSON：请求行 / Host / Authorization / Content-Type / Content-Length / Connection: close 的**顺序与字节**",
+      "source": "ai_assistance.py:50-54（_build_headers）+ :67-73（Request(data, headers, method)）",
+      "opts": {
+        "method": "POST",
+        "host": "api.example.com",
+        "path": "/v1/chat/completions",
+        "headers": {
+          "Authorization": "Bearer sk-test",
+          "Content-Type": "application/json"
+        },
+        "body": "{\"model\":\"gpt-3.5-turbo\",\"messages\":[]}"
+      },
+      "want": "POST /v1/chat/completions HTTP/1.1\r\nHost: api.example.com\r\nAuthorization: Bearer sk-test\r\nContent-Type: application/json\r\nContent-Length: 39\r\nConnection: close\r\n\r\n{\"model\":\"gpt-3.5-turbo\",\"messages\":[]}"
+    },
+    {
+      "name": "post_utf8_body",
+      "note": "body 是中文 ⇒ Content-Length 必须是 **BYTE_LEN**（UTF-8 字节数），不是 LEN（码点数）",
+      "source": "卡 S5-1「逐字节」+ 标准库册 §11.3（BYTE_LEN 给字节数）",
+      "opts": {
+        "method": "POST",
+        "host": "api.example.com",
+        "path": "/v1/chat/completions",
+        "headers": {
+          "Content-Type": "application/json"
+        },
+        "body": "{\"text\":\"中文 body\"}"
+      },
+      "want": "POST /v1/chat/completions HTTP/1.1\r\nHost: api.example.com\r\nContent-Type: application/json\r\nContent-Length: 22\r\nConnection: close\r\n\r\n{\"text\":\"中文 body\"}"
+    },
+    {
+      "name": "get_no_body",
+      "note": "无 body 的 GET ⇒ **不发** Content-Length（对齐 urllib 对 GET 的处理），仍发 Connection: close",
+      "source": "ai_assistance.py 只有 POST；GET 分支是本模块的通用层（HTTP_REQUEST）",
+      "opts": {
+        "method": "GET",
+        "host": "api.example.com",
+        "path": "/v1/models",
+        "headers": {}
+      },
+      "want": "GET /v1/models HTTP/1.1\r\nHost: api.example.com\r\nConnection: close\r\n\r\n"
+    },
+    {
+      "name": "host_port_8443",
+      "note": "非 443 端口 ⇒ Host 头**带端口**（RFC 7230 §5.4）",
+      "source": "RFC 7230 §5.4（Host = uri-host [\":\" port]）",
+      "opts": {
+        "method": "POST",
+        "host": "api.example.com",
+        "port": 8443,
+        "path": "/v1/chat/completions",
+        "headers": {},
+        "body": "{}"
+      },
+      "want": "POST /v1/chat/completions HTTP/1.1\r\nHost: api.example.com:8443\r\nContent-Length: 2\r\nConnection: close\r\n\r\n{}"
+    },
+    {
+      "name": "post_empty_body",
+      "note": "POST + 空 body ⇒ 仍要发 `Content-Length: 0`（POST 有 body 语义）",
+      "source": "RFC 7230 §3.3.2（无 body 的 POST 要显式 0）",
+      "opts": {
+        "method": "POST",
+        "host": "api.example.com",
+        "path": "/v1/chat/completions",
+        "headers": {},
+        "body": ""
+      },
+      "want": "POST /v1/chat/completions HTTP/1.1\r\nHost: api.example.com\r\nContent-Length: 0\r\nConnection: close\r\n\r\n"
+    },
+    {
+      "name": "header_injection",
+      "note": "头值里夹 CRLF ⇒ 必须压成一行（否则凭空多一行头 = 头注入）",
+      "source": "安全守卫（本模块 HC_ONELINE）；卡 S5-1「手写 HTTP/1.1」的必然要求",
+      "opts": {
+        "method": "POST",
+        "host": "api.example.com",
+        "path": "/v1/chat/completions",
+        "headers": {
+          "X-Evil": "a\r\nX-Injected: 1"
+        },
+        "body": ""
+      },
+      "want": "POST /v1/chat/completions HTTP/1.1\r\nHost: api.example.com\r\nX-Evil: a X-Injected: 1\r\nContent-Length: 0\r\nConnection: close\r\n\r\n"
+    },
+    {
+      "name": "dup_host_and_length",
+      "note": "调用方自带 Host / Content-Length ⇒ 一律**丢弃**（报文里只允许有一份，且由本模块算）",
+      "source": "反向守卫：两个互相矛盾的 Content-Length 会让服务端读到错的位置",
+      "opts": {
+        "method": "POST",
+        "host": "api.example.com",
+        "path": "/v1/chat/completions",
+        "headers": {
+          "Host": "evil.example",
+          "Content-Length": "9999"
+        },
+        "body": "abc"
+      },
+      "want": "POST /v1/chat/completions HTTP/1.1\r\nHost: api.example.com\r\nContent-Length: 3\r\nConnection: close\r\n\r\nabc"
+    },
+    {
+      "name": "path_normalized",
+      "note": "path 不以 \"/\" 开头 ⇒ 补一个（避免拼出 \"POST v1/x HTTP/1.1\"）",
+      "source": "RFC 7230 §5.3.1（origin-form = absolute-path）",
+      "opts": {
+        "method": "GET",
+        "host": "api.example.com",
+        "path": "v1/models"
+      },
+      "want": "GET /v1/models HTTP/1.1\r\nHost: api.example.com\r\nConnection: close\r\n\r\n"
+    }
+  ],
+  "parse": [
+    {
+      "name": "ok_json",
+      "note": "200 + Content-Length 正确 ⇒ ok，头名小写，body 逐字节",
+      "source": "卡 S5-1「响应解析：状态行 + 头 + body」",
+      "raw": "HTTP/1.1 200 OK\r\nContent-Type: application/json\r\nContent-Length: 7\r\n\r\n{\"a\":1}",
+      "want": {
+        "ok": true,
+        "status": 200,
+        "reason": "OK",
+        "headers": [
+          [
+            "content-type",
+            "application/json"
+          ],
+          [
+            "content-length",
+            "7"
+          ]
+        ],
+        "body": "{\"a\":1}",
+        "length_mismatch": false,
+        "extra_bytes": 0
+      }
+    },
+    {
+      "name": "headers_mixed_case",
+      "note": "头名大小写混写 ⇒ 查表一律按小写（HTTP 头名不区分大小写）",
+      "source": "RFC 7230 §3.2（field-name 大小写不敏感）",
+      "raw": "HTTP/1.1 200 OK\r\nCONTENT-LENGTH: 2\r\nContent-TYPE: Application/JSON\r\nX-Trace-Id: abc\r\n\r\n{}",
+      "want": {
+        "ok": true,
+        "status": 200,
+        "reason": "OK",
+        "headers": [
+          [
+            "content-length",
+            "2"
+          ],
+          [
+            "content-type",
+            "Application/JSON"
+          ],
+          [
+            "x-trace-id",
+            "abc"
+          ]
+        ],
+        "body": "{}",
+        "length_mismatch": false,
+        "extra_bytes": 0
+      }
+    },
+    {
+      "name": "no_body",
+      "note": "204 无 Content-Length、空行后无字节 ⇒ body 是空串",
+      "source": "RFC 7230 §3.3（204 无 body）",
+      "raw": "HTTP/1.1 204 No Content\r\nDate: Mon, 02 Nov 2026 00:00:00 GMT\r\n\r\n",
+      "want": {
+        "ok": true,
+        "status": 204,
+        "reason": "No Content",
+        "headers": [
+          [
+            "date",
+            "Mon, 02 Nov 2026 00:00:00 GMT"
+          ]
+        ],
+        "body": "",
+        "length_mismatch": false,
+        "extra_bytes": 0
+      }
+    },
+    {
+      "name": "cl_smaller_than_actual",
+      "note": "**反向守卫**：实收 body 多于 Content-Length ⇒ 不得截断，body 给全部字节 + 记差额",
+      "source": "卡 S5-1 反向守卫「响应体超过 Content-Length ⇒ 不得截断读取」",
+      "raw": "HTTP/1.1 200 OK\r\nContent-Length: 5\r\n\r\nhello world",
+      "want": {
+        "ok": true,
+        "status": 200,
+        "reason": "OK",
+        "headers": [
+          [
+            "content-length",
+            "5"
+          ]
+        ],
+        "body": "hello world",
+        "length_mismatch": true,
+        "extra_bytes": 6
+      }
+    },
+    {
+      "name": "cl_larger_truncated",
+      "note": "实收 body 少于 Content-Length ⇒ ok:FALSE（读不全就是错，不交付半截 body）",
+      "source": "反向守卫（本模块取舍 ③）",
+      "raw": "HTTP/1.1 200 OK\r\nContent-Length: 10\r\n\r\nhello",
+      "want": {
+        "ok": false,
+        "status": 200,
+        "error_contains": "truncated body: 5 of 10"
+      }
+    },
+    {
+      "name": "status_401",
+      "note": "4xx：解析层**仍判成形**（ok:TRUE），成败由 HC_VERDICT 定 —— 两件事分开测",
+      "source": "卡 S5-1 反向守卫「4xx/5xx 必须 ERR」（落在 HTTP_REQUEST 层）",
+      "raw": "HTTP/1.1 401 Unauthorized\r\nContent-Type: application/json\r\nContent-Length: 19\r\n\r\n{\"error\":\"bad key\"}",
+      "want": {
+        "ok": true,
+        "status": 401,
+        "reason": "Unauthorized",
+        "headers": [
+          [
+            "content-type",
+            "application/json"
+          ],
+          [
+            "content-length",
+            "19"
+          ]
+        ],
+        "body": "{\"error\":\"bad key\"}",
+        "length_mismatch": false,
+        "extra_bytes": 0
+      }
+    },
+    {
+      "name": "status_500",
+      "note": "5xx：同上（解析成形，成败在策略层）",
+      "source": "卡 S5-1 反向守卫「4xx/5xx 必须 ERR」",
+      "raw": "HTTP/1.1 500 Internal Server Error\r\nContent-Length: 16\r\n\r\n{\"error\":\"boom\"}",
+      "want": {
+        "ok": true,
+        "status": 500,
+        "reason": "Internal Server Error",
+        "headers": [
+          [
+            "content-length",
+            "16"
+          ]
+        ],
+        "body": "{\"error\":\"boom\"}",
+        "length_mismatch": false,
+        "extra_bytes": 0
+      }
+    },
+    {
+      "name": "dup_headers",
+      "note": "同名头出现两次 ⇒ 按出现顺序用 \", \" 合并（RFC 7230 §3.2.2）",
+      "source": "RFC 7230 §3.2.2（recipient MAY combine field-values with \", \"）",
+      "raw": "HTTP/1.1 200 OK\r\nSet-Cookie: a=1\r\nSet-Cookie: b=2\r\nContent-Length: 0\r\n\r\n",
+      "want": {
+        "ok": true,
+        "status": 200,
+        "reason": "OK",
+        "headers": [
+          [
+            "set-cookie",
+            "a=1, b=2"
+          ],
+          [
+            "content-length",
+            "0"
+          ]
+        ],
+        "body": "",
+        "length_mismatch": false,
+        "extra_bytes": 0
+      }
+    },
+    {
+      "name": "status_without_reason",
+      "note": "状态行没有 reason 短语 ⇒ reason 是空串（不得报错）",
+      "source": "RFC 7230 §3.1.2（reason-phrase 可以为空）",
+      "raw": "HTTP/1.1 204\r\n\r\n",
+      "want": {
+        "ok": true,
+        "status": 204,
+        "reason": "",
+        "headers": [],
+        "body": "",
+        "length_mismatch": false,
+        "extra_bytes": 0
+      }
+    },
+    {
+      "name": "blank_lines_in_body",
+      "note": "body 里含 CRLFCRLF ⇒ 头块仍切在**第一个** CRLFCRLF（不能被 body 里的空行骗到）",
+      "source": "RFC 7230 §3（头块以**第一个**空行结束）",
+      "raw": "HTTP/1.1 200 OK\r\nContent-Length: 14\r\n\r\n{\"t\":\"a\r\n\r\nb\"}",
+      "want": {
+        "ok": true,
+        "status": 200,
+        "reason": "OK",
+        "headers": [
+          [
+            "content-length",
+            "14"
+          ]
+        ],
+        "body": "{\"t\":\"a\r\n\r\nb\"}",
+        "length_mismatch": false,
+        "extra_bytes": 0
+      }
+    },
+    {
+      "name": "no_terminator",
+      "note": "没有 CRLFCRLF ⇒ ok:FALSE（不得把整条报文当 body）",
+      "source": "反向守卫（本模块取舍：只认 CRLFCRLF）",
+      "raw": "HTTP/1.1 200 OK\r\nContent-Length: 2\r\n",
+      "want": {
+        "ok": false,
+        "status": -1,
+        "error_contains": "no CRLFCRLF header terminator"
+      }
+    },
+    {
+      "name": "bad_status_code",
+      "note": "状态码不是整数 ⇒ ok:FALSE",
+      "source": "RFC 7230 §3.1.2（status-code = 3DIGIT）",
+      "raw": "HTTP/1.1 ABC OK\r\nContent-Length: 0\r\n\r\n",
+      "want": {
+        "ok": false,
+        "status": -1,
+        "error_contains": "bad status code"
+      }
+    },
+    {
+      "name": "bad_protocol",
+      "note": "不是 HTTP/ 开头 ⇒ ok:FALSE",
+      "source": "RFC 7230 §2.6（HTTP-version）",
+      "raw": "FTP/1.1 200 OK\r\n\r\n",
+      "want": {
+        "ok": false,
+        "status": -1,
+        "error_contains": "bad protocol"
+      }
+    },
+    {
+      "name": "chunked",
+      "note": "Transfer-Encoding: chunked ⇒ ok:FALSE（不实现分块解码，明确失败）",
+      "source": "本模块取舍 ④（Python 的 http.client 会解码 —— 已登记差异）",
+      "raw": "HTTP/1.1 200 OK\r\nTransfer-Encoding: chunked\r\n\r\n2\r\n{}\r\n0\r\n\r\n",
+      "want": {
+        "ok": false,
+        "status": 200,
+        "error_contains": "chunked"
+      }
+    },
+    {
+      "name": "bad_content_length",
+      "note": "Content-Length 不是整数 ⇒ ok:FALSE（fail closed，不猜长度）",
+      "source": "RFC 7230 §3.3.2（Content-Length = 1*DIGIT）",
+      "raw": "HTTP/1.1 200 OK\r\nContent-Length: abc\r\n\r\nx",
+      "want": {
+        "ok": false,
+        "status": 200,
+        "error_contains": "invalid Content-Length"
+      }
+    }
+  ],
+  "request": [
+    {
+      "name": "post_ok",
+      "api": "post_json",
+      "note": "200 ⇒ ok:TRUE，status/body 原样透出；请求真的走了 exchange（且带 Bearer）",
+      "source": "卡 S5-1 主入口",
+      "opts": {
+        "api_key": "sk-test",
+        "host": "api.example.com",
+        "body": "{\"x\":1}"
+      },
+      "raw": "HTTP/1.1 200 OK\r\nContent-Type: application/json\r\nContent-Length: 7\r\n\r\n{\"a\":1}",
+      "want": {
+        "ok": true,
+        "status": 200,
+        "body": "{\"a\":1}",
+        "exchange_called": true,
+        "wire_contains": [
+          "Authorization: Bearer sk-test",
+          "Content-Type: application/json",
+          "POST /v1/chat/completions HTTP/1.1"
+        ]
+      }
+    },
+    {
+      "name": "post_401",
+      "api": "post_json",
+      "note": "**反向守卫**：401 ⇒ ok:FALSE，status 保留，error 里带服务端正文",
+      "source": "卡 S5-1 反向守卫「4xx/5xx 必须 ERR，不得当正常结果」",
+      "opts": {
+        "api_key": "sk-test",
+        "host": "api.example.com",
+        "body": "{\"x\":1}"
+      },
+      "raw": "HTTP/1.1 401 Unauthorized\r\nContent-Type: application/json\r\nContent-Length: 19\r\n\r\n{\"error\":\"bad key\"}",
+      "want": {
+        "ok": false,
+        "status": 401,
+        "error_contains": [
+          "HTTP 401",
+          "bad key"
+        ],
+        "exchange_called": true
+      }
+    },
+    {
+      "name": "post_500",
+      "api": "post_json",
+      "note": "**反向守卫**：500 ⇒ ok:FALSE",
+      "source": "卡 S5-1 反向守卫「4xx/5xx 必须 ERR」",
+      "opts": {
+        "api_key": "sk-test",
+        "host": "api.example.com",
+        "body": "{\"x\":1}"
+      },
+      "raw": "HTTP/1.1 500 Internal Server Error\r\nContent-Length: 16\r\n\r\n{\"error\":\"boom\"}",
+      "want": {
+        "ok": false,
+        "status": 500,
+        "error_contains": [
+          "HTTP 500",
+          "boom"
+        ],
+        "exchange_called": true
+      }
+    },
+    {
+      "name": "no_key",
+      "api": "post_json",
+      "note": "**反向守卫**：未配置 API key ⇒ 明确报错，且**根本不碰传输**（exchange 不该被调）",
+      "source": "卡 S5-1 反向守卫「未配置 API key ⇒ 必须明确报错」+ ai_assistance.py:57-58",
+      "opts": {
+        "host": "api.example.com",
+        "body": "{\"x\":1}"
+      },
+      "raw": "HTTP/1.1 200 OK\r\nContent-Type: application/json\r\nContent-Length: 7\r\n\r\n{\"a\":1}",
+      "want": {
+        "ok": false,
+        "status": -1,
+        "error_contains": [
+          "API key not configured"
+        ],
+        "exchange_called": false
+      }
+    },
+    {
+      "name": "get_no_key",
+      "api": "http_request",
+      "note": "通用层 GET 不要求 API key（key 是 HTTPS_POST_JSON / CHAT 的门）",
+      "source": "本模块分层（HTTP_REQUEST 是通用层）",
+      "opts": {
+        "method": "GET",
+        "host": "api.example.com",
+        "path": "/v1/models"
+      },
+      "raw": "HTTP/1.1 200 OK\r\nContent-Type: application/json\r\nContent-Length: 7\r\n\r\n{\"a\":1}",
+      "want": {
+        "ok": true,
+        "status": 200,
+        "body": "{\"a\":1}",
+        "exchange_called": true,
+        "wire_contains": [
+          "GET /v1/models HTTP/1.1"
+        ]
+      }
+    },
+    {
+      "name": "transport_error",
+      "api": "http_request",
+      "note": "传输失败 ⇒ ok:FALSE、status NULL、error 原样带出",
+      "source": "ai_assistance.py:86-88（URLError ⇒ AIAssistanceError）",
+      "opts": {
+        "method": "GET",
+        "host": "api.example.com"
+      },
+      "reply": {
+        "ok": false,
+        "error": "tls connect failed: boom"
+      },
+      "want": {
+        "ok": false,
+        "status": -1,
+        "error_contains": [
+          "tls connect failed: boom"
+        ],
+        "exchange_called": true
+      }
+    },
+    {
+      "name": "host_missing",
+      "api": "http_request",
+      "note": "缺 host ⇒ ok:FALSE（不得拼出 \"POST  HTTP/1.1\" 这种废报文）",
+      "source": "本模块的入参守卫",
+      "opts": {
+        "method": "GET"
+      },
+      "raw": "HTTP/1.1 200 OK\r\nContent-Type: application/json\r\nContent-Length: 7\r\n\r\n{\"a\":1}",
+      "want": {
+        "ok": false,
+        "status": -1,
+        "error_contains": [
+          "host is required"
+        ],
+        "exchange_called": false
+      }
+    },
+    {
+      "name": "garbage_response",
+      "api": "http_request",
+      "note": "对端回的不是 HTTP ⇒ ok:FALSE（不得当 body 交给上层）",
+      "source": "反向守卫（本模块取舍：只认 CRLFCRLF）",
+      "opts": {
+        "method": "GET",
+        "host": "api.example.com"
+      },
+      "raw": "<html>not http</html>",
+      "want": {
+        "ok": false,
+        "status": -1,
+        "error_contains": [
+          "no CRLFCRLF header terminator"
+        ],
+        "exchange_called": true
+      }
+    }
+  ],
+  "chat": [
+    {
+      "name": "ok",
+      "note": "正常：取 choices[0].message.content（含中文）",
+      "source": "ai_assistance.py:76-81（result[\"choices\"][0][\"message\"][\"content\"]）",
+      "opts": {
+        "api_key": "sk-test",
+        "host": "api.example.com",
+        "messages": [
+          {
+            "role": "user",
+            "content": "hi"
+          }
+        ]
+      },
+      "raw": "HTTP/1.1 200 OK\r\nContent-Type: application/json\r\nContent-Length: 65\r\n\r\n{\"choices\":[{\"message\":{\"role\":\"assistant\",\"content\":\"你好\"}}]}",
+      "want": {
+        "ok": true,
+        "status": 200,
+        "content": "你好",
+        "wire_body": "{\"messages\":[{\"content\":\"hi\",\"role\":\"user\"}],\"model\":\"gpt-3.5-turbo\",\"temperature\":0.7}"
+      }
+    },
+    {
+      "name": "custom_model_temperature",
+      "note": "model / temperature 透传到请求体（键序是 STRINGIFY 的**字典序**）",
+      "source": "ai_assistance.py:61-65（payload 三个键）",
+      "opts": {
+        "api_key": "sk-test",
+        "host": "api.example.com",
+        "model": "deepseek-chat",
+        "temperature": 0.3,
+        "messages": [
+          {
+            "role": "user",
+            "content": "hi"
+          }
+        ]
+      },
+      "raw": "HTTP/1.1 200 OK\r\nContent-Type: application/json\r\nContent-Length: 65\r\n\r\n{\"choices\":[{\"message\":{\"role\":\"assistant\",\"content\":\"你好\"}}]}",
+      "want": {
+        "ok": true,
+        "status": 200,
+        "content": "你好",
+        "wire_body": "{\"messages\":[{\"content\":\"hi\",\"role\":\"user\"}],\"model\":\"deepseek-chat\",\"temperature\":0.3}"
+      }
+    },
+    {
+      "name": "no_choices",
+      "note": "响应里没有 choices ⇒ ok:FALSE（Python 这里抛 AIAssistanceError）",
+      "source": "ai_assistance.py:78-80（if not choices: raise）",
+      "opts": {
+        "api_key": "sk-test",
+        "host": "api.example.com",
+        "messages": [
+          {
+            "role": "user",
+            "content": "hi"
+          }
+        ]
+      },
+      "raw": "HTTP/1.1 200 OK\r\nContent-Type: application/json\r\nContent-Length: 10\r\n\r\n{\"id\":\"x\"}",
+      "want": {
+        "ok": false,
+        "status": 200,
+        "error_contains": [
+          "no choices array"
+        ]
+      }
+    },
+    {
+      "name": "empty_choices",
+      "note": "choices 是空数组 ⇒ ok:FALSE（等价 Python 的 `if not choices`）",
+      "source": "ai_assistance.py:78-80",
+      "opts": {
+        "api_key": "sk-test",
+        "host": "api.example.com",
+        "messages": [
+          {
+            "role": "user",
+            "content": "hi"
+          }
+        ]
+      },
+      "raw": "HTTP/1.1 200 OK\r\nContent-Type: application/json\r\nContent-Length: 14\r\n\r\n{\"choices\":[]}",
+      "want": {
+        "ok": false,
+        "status": 200,
+        "error_contains": [
+          "empty choices"
+        ]
+      }
+    },
+    {
+      "name": "missing_message",
+      "note": "choices[0] 没有 message ⇒ ok:FALSE",
+      "source": "ai_assistance.py:81（.get(\"message\", {}) 的缺字段路径）",
+      "opts": {
+        "api_key": "sk-test",
+        "host": "api.example.com",
+        "messages": [
+          {
+            "role": "user",
+            "content": "hi"
+          }
+        ]
+      },
+      "raw": "HTTP/1.1 200 OK\r\nContent-Type: application/json\r\nContent-Length: 25\r\n\r\n{\"choices\":[{\"index\":0}]}",
+      "want": {
+        "ok": false,
+        "status": 200,
+        "error_contains": [
+          "message is not an object"
+        ]
+      }
+    },
+    {
+      "name": "missing_content",
+      "note": "message 里没有 content ⇒ ok:FALSE（不得静默返回空串）",
+      "source": "反向守卫（卡 S5-1「失败返回 ok:FALSE」）",
+      "opts": {
+        "api_key": "sk-test",
+        "host": "api.example.com",
+        "messages": [
+          {
+            "role": "user",
+            "content": "hi"
+          }
+        ]
+      },
+      "raw": "HTTP/1.1 200 OK\r\nContent-Type: application/json\r\nContent-Length: 46\r\n\r\n{\"choices\":[{\"message\":{\"role\":\"assistant\"}}]}",
+      "want": {
+        "ok": false,
+        "status": 200,
+        "error_contains": [
+          "content is missing"
+        ]
+      }
+    },
+    {
+      "name": "not_json",
+      "note": "body 不是 JSON ⇒ ok:FALSE（**不得**让 PARSE 的 E0070 中止整个运行）",
+      "source": "坑 47（PARSE 失败 = E0070 中止）⇒ 先 JSON_VALIDATE",
+      "opts": {
+        "api_key": "sk-test",
+        "host": "api.example.com",
+        "messages": [
+          {
+            "role": "user",
+            "content": "hi"
+          }
+        ]
+      },
+      "raw": "HTTP/1.1 200 OK\r\nContent-Type: application/json\r\nContent-Length: 8\r\n\r\nnot json",
+      "want": {
+        "ok": false,
+        "status": 200,
+        "error_contains": [
+          "not valid JSON"
+        ]
+      }
+    },
+    {
+      "name": "json_array",
+      "note": "body 是 JSON 但不是对象 ⇒ ok:FALSE",
+      "source": "本模块的类型守卫（坑 35：AT_K 对非 DICT 是 E0030）",
+      "opts": {
+        "api_key": "sk-test",
+        "host": "api.example.com",
+        "messages": [
+          {
+            "role": "user",
+            "content": "hi"
+          }
+        ]
+      },
+      "raw": "HTTP/1.1 200 OK\r\nContent-Type: application/json\r\nContent-Length: 2\r\n\r\n[]",
+      "want": {
+        "ok": false,
+        "status": 200,
+        "error_contains": [
+          "not an object"
+        ]
+      }
+    },
+    {
+      "name": "status_401",
+      "note": "后端 401 ⇒ ok:FALSE，status 401（不进入 content 提取）",
+      "source": "卡 S5-1 反向守卫 + ai_assistance.py:82-85（HTTPError ⇒ raise）",
+      "opts": {
+        "api_key": "sk-test",
+        "host": "api.example.com",
+        "messages": [
+          {
+            "role": "user",
+            "content": "hi"
+          }
+        ]
+      },
+      "raw": "HTTP/1.1 401 Unauthorized\r\nContent-Type: application/json\r\nContent-Length: 19\r\n\r\n{\"error\":\"bad key\"}",
+      "want": {
+        "ok": false,
+        "status": 401,
+        "error_contains": [
+          "HTTP 401"
+        ]
+      }
+    },
+    {
+      "name": "no_key",
+      "note": "未配置 API key ⇒ ok:FALSE（同 Python 的 `raise AIAssistanceError(\"API key not configured\")`）",
+      "source": "ai_assistance.py:57-58",
+      "opts": {
+        "host": "api.example.com",
+        "messages": [
+          {
+            "role": "user",
+            "content": "hi"
+          }
+        ]
+      },
+      "raw": "HTTP/1.1 200 OK\r\nContent-Type: application/json\r\nContent-Length: 65\r\n\r\n{\"choices\":[{\"message\":{\"role\":\"assistant\",\"content\":\"你好\"}}]}",
+      "want": {
+        "ok": false,
+        "status": -1,
+        "error_contains": [
+          "API key not configured"
+        ]
+      }
+    }
+  ]
+}

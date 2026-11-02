@@ -1,0 +1,849 @@
+// tp/test/test_http_client_tls.wll —— 出站 HTTPS 客户端的脱网测试（卡 S5-1）
+//
+// ⚠ 本文件由 tp/test/gen_test_http_client_tls.py 生成 —— 请勿手改。
+//
+// 被测：tp/lib/http_client_tls.wll
+//   HTTP_BUILD_REQUEST / HTTP_PARSE_RESPONSE（纯函数，逐字节）
+//   HTTP_REQUEST / HTTPS_POST_JSON / CHAT_COMPLETION（用注入的假传输跑全链路）
+// 基准：tp/test/fixtures/http_client_tls_baseline.json
+//   · 手写期望值 + 出处；生成期对 Python http.client 做过交叉校验
+//   · 刻意偏离 Python 的三处登记在该 JSON 的 meta.divergences
+//
+// ⚠ **本文件不碰 TLS**：不带 --ext 也能全绿（CI 没有 TLS 扩展）。
+//   真正的 TLS 往返只在本机探针 tp/probe/probe_s5_https.wll 里验。
+//
+// ⚠ RUN_TESTS() 的失败**不影响退出码**（规范明载）⇒ 本文件自己把关。
+IMPORT("wlwl:std.test", ["TEST", "ASSERT", "ASSERT_EQ", "RUN_TESTS"]);
+IMPORT("wlwl:std.str", ["INDEX_OF", "CONTAINS_SUB", "COUNT", "JOIN", "CAT"]);
+IMPORT("wlwl:std.encode", ["BYTE_LEN"]);
+IMPORT("./../lib/http_client_tls.wll", ["HTTP_BUILD_REQUEST", "HTTP_PARSE_RESPONSE",
+        "HTTP_REQUEST", "HTTPS_POST_JSON", "CHAT_COMPLETION"]);
+
+// ── 测试缝：假传输（记下真实发出的请求文本，回放夹具里的响应）──────────
+// ⚠ 闭包可以写外层的 LET MUT（坑 12），所以这里能记下 hc0_seen。
+LET MUT(T0_seen, "");
+LET MUT(T0_reply, "");
+LET(T0_exchange, FUN((req), (SET(T0_seen, req); T0_reply)));
+
+// ── ① 请求报文逐字节（纯函数 HTTP_BUILD_REQUEST）─────────────────
+// post_json —— POST + Bearer + JSON：请求行 / Host / Authorization / Content-Type / Content-Length / Connection: close 的**顺序与字节**
+//   出处：ai_assistance.py:50-54（_build_headers）+ :67-73（Request(data, headers, method)）
+LET(hc0_build_post_json, HTTP_BUILD_REQUEST(INDEX_SET(INDEX_SET(INDEX_SET(INDEX_SET(INDEX_SET(DICT(), "method", "POST"), "host", "api.example.com"), "path", "/v1/chat/completions"), "headers", INDEX_SET(INDEX_SET(DICT(), "Authorization", "Bearer sk-test"), "Content-Type", "application/json")), "body", "{\"model\":\"gpt-3.5-turbo\",\"messages\":[]}")));
+// post_utf8_body —— body 是中文 ⇒ Content-Length 必须是 **BYTE_LEN**（UTF-8 字节数），不是 LEN（码点数）
+//   出处：卡 S5-1「逐字节」+ 标准库册 §11.3（BYTE_LEN 给字节数）
+LET(hc0_build_post_utf8_body, HTTP_BUILD_REQUEST(INDEX_SET(INDEX_SET(INDEX_SET(INDEX_SET(INDEX_SET(DICT(), "method", "POST"), "host", "api.example.com"), "path", "/v1/chat/completions"), "headers", INDEX_SET(DICT(), "Content-Type", "application/json")), "body", "{\"text\":\"中文 body\"}")));
+// get_no_body —— 无 body 的 GET ⇒ **不发** Content-Length（对齐 urllib 对 GET 的处理），仍发 Connection: close
+//   出处：ai_assistance.py 只有 POST；GET 分支是本模块的通用层（HTTP_REQUEST）
+LET(hc0_build_get_no_body, HTTP_BUILD_REQUEST(INDEX_SET(INDEX_SET(INDEX_SET(INDEX_SET(DICT(), "method", "GET"), "host", "api.example.com"), "path", "/v1/models"), "headers", DICT())));
+// host_port_8443 —— 非 443 端口 ⇒ Host 头**带端口**（RFC 7230 §5.4）
+//   出处：RFC 7230 §5.4（Host = uri-host [":" port]）
+LET(hc0_build_host_port_8443, HTTP_BUILD_REQUEST(INDEX_SET(INDEX_SET(INDEX_SET(INDEX_SET(INDEX_SET(INDEX_SET(DICT(), "method", "POST"), "host", "api.example.com"), "port", 8443), "path", "/v1/chat/completions"), "headers", DICT()), "body", "{}")));
+// post_empty_body —— POST + 空 body ⇒ 仍要发 `Content-Length: 0`（POST 有 body 语义）
+//   出处：RFC 7230 §3.3.2（无 body 的 POST 要显式 0）
+LET(hc0_build_post_empty_body, HTTP_BUILD_REQUEST(INDEX_SET(INDEX_SET(INDEX_SET(INDEX_SET(INDEX_SET(DICT(), "method", "POST"), "host", "api.example.com"), "path", "/v1/chat/completions"), "headers", DICT()), "body", "")));
+// header_injection —— 头值里夹 CRLF ⇒ 必须压成一行（否则凭空多一行头 = 头注入）
+//   出处：安全守卫（本模块 HC_ONELINE）；卡 S5-1「手写 HTTP/1.1」的必然要求
+LET(hc0_build_header_injection, HTTP_BUILD_REQUEST(INDEX_SET(INDEX_SET(INDEX_SET(INDEX_SET(INDEX_SET(DICT(), "method", "POST"), "host", "api.example.com"), "path", "/v1/chat/completions"), "headers", INDEX_SET(DICT(), "X-Evil", "a\r\nX-Injected: 1")), "body", "")));
+// dup_host_and_length —— 调用方自带 Host / Content-Length ⇒ 一律**丢弃**（报文里只允许有一份，且由本模块算）
+//   出处：反向守卫：两个互相矛盾的 Content-Length 会让服务端读到错的位置
+LET(hc0_build_dup_host_and_length, HTTP_BUILD_REQUEST(INDEX_SET(INDEX_SET(INDEX_SET(INDEX_SET(INDEX_SET(DICT(), "method", "POST"), "host", "api.example.com"), "path", "/v1/chat/completions"), "headers", INDEX_SET(INDEX_SET(DICT(), "Host", "evil.example"), "Content-Length", "9999")), "body", "abc")));
+// path_normalized —— path 不以 "/" 开头 ⇒ 补一个（避免拼出 "POST v1/x HTTP/1.1"）
+//   出处：RFC 7230 §5.3.1（origin-form = absolute-path）
+LET(hc0_build_path_normalized, HTTP_BUILD_REQUEST(INDEX_SET(INDEX_SET(INDEX_SET(DICT(), "method", "GET"), "host", "api.example.com"), "path", "v1/models")));
+
+TEST("build/post_json", FUN(() ,
+    (ASSERT_EQ(hc0_build_post_json, "POST /v1/chat/completions HTTP/1.1\r\nHost: api.example.com\r\nAuthorization: Bearer sk-test\r\nContent-Type: application/json\r\nContent-Length: 39\r\nConnection: close\r\n\r\n{\"model\":\"gpt-3.5-turbo\",\"messages\":[]}"));
+    TRUE));
+TEST("build/post_utf8_body", FUN(() ,
+    (ASSERT_EQ(hc0_build_post_utf8_body, "POST /v1/chat/completions HTTP/1.1\r\nHost: api.example.com\r\nContent-Type: application/json\r\nContent-Length: 22\r\nConnection: close\r\n\r\n{\"text\":\"中文 body\"}"));
+    TRUE));
+TEST("build/get_no_body", FUN(() ,
+    (ASSERT_EQ(hc0_build_get_no_body, "GET /v1/models HTTP/1.1\r\nHost: api.example.com\r\nConnection: close\r\n\r\n"));
+    TRUE));
+TEST("build/host_port_8443", FUN(() ,
+    (ASSERT_EQ(hc0_build_host_port_8443, "POST /v1/chat/completions HTTP/1.1\r\nHost: api.example.com:8443\r\nContent-Length: 2\r\nConnection: close\r\n\r\n{}"));
+    TRUE));
+TEST("build/post_empty_body", FUN(() ,
+    (ASSERT_EQ(hc0_build_post_empty_body, "POST /v1/chat/completions HTTP/1.1\r\nHost: api.example.com\r\nContent-Length: 0\r\nConnection: close\r\n\r\n"));
+    TRUE));
+TEST("build/header_injection", FUN(() ,
+    (ASSERT_EQ(hc0_build_header_injection, "POST /v1/chat/completions HTTP/1.1\r\nHost: api.example.com\r\nX-Evil: a X-Injected: 1\r\nContent-Length: 0\r\nConnection: close\r\n\r\n"));
+    TRUE));
+TEST("build/dup_host_and_length", FUN(() ,
+    (ASSERT_EQ(hc0_build_dup_host_and_length, "POST /v1/chat/completions HTTP/1.1\r\nHost: api.example.com\r\nContent-Length: 3\r\nConnection: close\r\n\r\nabc"));
+    TRUE));
+TEST("build/path_normalized", FUN(() ,
+    (ASSERT_EQ(hc0_build_path_normalized, "GET /v1/models HTTP/1.1\r\nHost: api.example.com\r\nConnection: close\r\n\r\n"));
+    TRUE));
+
+// ── 反向守卫：Content-Length 只许有一份；头注入不得多出一行 ──────────
+TEST("guard/single_content_length", FUN(() ,
+    (ASSERT_EQ(COUNT(hc0_build_dup_host_and_length, "Content-Length"), 1));
+    TRUE));
+TEST("guard/no_injected_header_line", FUN(() ,
+    // 5 行头 + 1 个空行 = 6 个 CRLF；注入成功会变 7 个
+    (ASSERT_EQ(COUNT(hc0_build_header_injection, "\r\n"), 6));
+    TRUE));
+TEST("guard/host_not_overridden", FUN(() ,
+    (ASSERT_EQ(COUNT(hc0_build_dup_host_and_length, "evil.example"), 0));
+    TRUE));
+
+// ── 反向守卫：中文 body 的 Content-Length 必须按**字节**算 ───────────
+// 若夹具里的 body 换成纯 ASCII，这条会红 —— 它守着「这条断言还有区分力」。
+LET(hc0_utf8_body, "{\"text\":\"中文 body\"}");
+TEST("guard/content_length_is_bytes_not_codepoints", FUN(() ,
+    (ASSERT(!=(BYTE_LEN(hc0_utf8_body), LEN(hc0_utf8_body)),
+            "fixture body must contain multi-byte chars, else BYTE_LEN/LEN are indistinguishable"));
+    TRUE));
+
+// ── ② 响应解析（纯函数 HTTP_PARSE_RESPONSE）──────────────────────
+// ok_json —— 200 + Content-Length 正确 ⇒ ok，头名小写，body 逐字节
+//   出处：卡 S5-1「响应解析：状态行 + 头 + body」
+LET(hc0_parse_ok_json, HTTP_PARSE_RESPONSE("HTTP/1.1 200 OK\r\nContent-Type: application/json\r\nContent-Length: 7\r\n\r\n{\"a\":1}"));
+// headers_mixed_case —— 头名大小写混写 ⇒ 查表一律按小写（HTTP 头名不区分大小写）
+//   出处：RFC 7230 §3.2（field-name 大小写不敏感）
+LET(hc0_parse_headers_mixed_case, HTTP_PARSE_RESPONSE("HTTP/1.1 200 OK\r\nCONTENT-LENGTH: 2\r\nContent-TYPE: Application/JSON\r\nX-Trace-Id: abc\r\n\r\n{}"));
+// no_body —— 204 无 Content-Length、空行后无字节 ⇒ body 是空串
+//   出处：RFC 7230 §3.3（204 无 body）
+LET(hc0_parse_no_body, HTTP_PARSE_RESPONSE("HTTP/1.1 204 No Content\r\nDate: Mon, 02 Nov 2026 00:00:00 GMT\r\n\r\n"));
+// cl_smaller_than_actual —— **反向守卫**：实收 body 多于 Content-Length ⇒ 不得截断，body 给全部字节 + 记差额
+//   出处：卡 S5-1 反向守卫「响应体超过 Content-Length ⇒ 不得截断读取」
+LET(hc0_parse_cl_smaller_than_actual, HTTP_PARSE_RESPONSE("HTTP/1.1 200 OK\r\nContent-Length: 5\r\n\r\nhello world"));
+// cl_larger_truncated —— 实收 body 少于 Content-Length ⇒ ok:FALSE（读不全就是错，不交付半截 body）
+//   出处：反向守卫（本模块取舍 ③）
+LET(hc0_parse_cl_larger_truncated, HTTP_PARSE_RESPONSE("HTTP/1.1 200 OK\r\nContent-Length: 10\r\n\r\nhello"));
+// status_401 —— 4xx：解析层**仍判成形**（ok:TRUE），成败由 HC_VERDICT 定 —— 两件事分开测
+//   出处：卡 S5-1 反向守卫「4xx/5xx 必须 ERR」（落在 HTTP_REQUEST 层）
+LET(hc0_parse_status_401, HTTP_PARSE_RESPONSE("HTTP/1.1 401 Unauthorized\r\nContent-Type: application/json\r\nContent-Length: 19\r\n\r\n{\"error\":\"bad key\"}"));
+// status_500 —— 5xx：同上（解析成形，成败在策略层）
+//   出处：卡 S5-1 反向守卫「4xx/5xx 必须 ERR」
+LET(hc0_parse_status_500, HTTP_PARSE_RESPONSE("HTTP/1.1 500 Internal Server Error\r\nContent-Length: 16\r\n\r\n{\"error\":\"boom\"}"));
+// dup_headers —— 同名头出现两次 ⇒ 按出现顺序用 ", " 合并（RFC 7230 §3.2.2）
+//   出处：RFC 7230 §3.2.2（recipient MAY combine field-values with ", "）
+LET(hc0_parse_dup_headers, HTTP_PARSE_RESPONSE("HTTP/1.1 200 OK\r\nSet-Cookie: a=1\r\nSet-Cookie: b=2\r\nContent-Length: 0\r\n\r\n"));
+// status_without_reason —— 状态行没有 reason 短语 ⇒ reason 是空串（不得报错）
+//   出处：RFC 7230 §3.1.2（reason-phrase 可以为空）
+LET(hc0_parse_status_without_reason, HTTP_PARSE_RESPONSE("HTTP/1.1 204\r\n\r\n"));
+// blank_lines_in_body —— body 里含 CRLFCRLF ⇒ 头块仍切在**第一个** CRLFCRLF（不能被 body 里的空行骗到）
+//   出处：RFC 7230 §3（头块以**第一个**空行结束）
+LET(hc0_parse_blank_lines_in_body, HTTP_PARSE_RESPONSE("HTTP/1.1 200 OK\r\nContent-Length: 14\r\n\r\n{\"t\":\"a\r\n\r\nb\"}"));
+// no_terminator —— 没有 CRLFCRLF ⇒ ok:FALSE（不得把整条报文当 body）
+//   出处：反向守卫（本模块取舍：只认 CRLFCRLF）
+LET(hc0_parse_no_terminator, HTTP_PARSE_RESPONSE("HTTP/1.1 200 OK\r\nContent-Length: 2\r\n"));
+// bad_status_code —— 状态码不是整数 ⇒ ok:FALSE
+//   出处：RFC 7230 §3.1.2（status-code = 3DIGIT）
+LET(hc0_parse_bad_status_code, HTTP_PARSE_RESPONSE("HTTP/1.1 ABC OK\r\nContent-Length: 0\r\n\r\n"));
+// bad_protocol —— 不是 HTTP/ 开头 ⇒ ok:FALSE
+//   出处：RFC 7230 §2.6（HTTP-version）
+LET(hc0_parse_bad_protocol, HTTP_PARSE_RESPONSE("FTP/1.1 200 OK\r\n\r\n"));
+// chunked —— Transfer-Encoding: chunked ⇒ ok:FALSE（不实现分块解码，明确失败）
+//   出处：本模块取舍 ④（Python 的 http.client 会解码 —— 已登记差异）
+LET(hc0_parse_chunked, HTTP_PARSE_RESPONSE("HTTP/1.1 200 OK\r\nTransfer-Encoding: chunked\r\n\r\n2\r\n{}\r\n0\r\n\r\n"));
+// bad_content_length —— Content-Length 不是整数 ⇒ ok:FALSE（fail closed，不猜长度）
+//   出处：RFC 7230 §3.3.2（Content-Length = 1*DIGIT）
+LET(hc0_parse_bad_content_length, HTTP_PARSE_RESPONSE("HTTP/1.1 200 OK\r\nContent-Length: abc\r\n\r\nx"));
+
+
+// ok_json
+TEST("parse/ok_json/ok", FUN(() ,
+    (ASSERT_EQ(AT_K(hc0_parse_ok_json, "ok", "?"), TRUE));
+    TRUE));
+TEST("parse/ok_json/status", FUN(() ,
+    (ASSERT_EQ(AT_K(hc0_parse_ok_json, "status", -999), 200));
+    TRUE));
+TEST("parse/ok_json/reason", FUN(() ,
+    (ASSERT_EQ(AT_K(hc0_parse_ok_json, "reason", "?"), "OK"));
+    TRUE));
+TEST("parse/ok_json/header_order", FUN(() ,
+    (ASSERT_EQ(JOIN(KEYS(AT_K(hc0_parse_ok_json, "headers", DICT())), "|"), "content-type|content-length"));
+    TRUE));
+TEST("parse/ok_json/header/content-type", FUN(() ,
+    (ASSERT_EQ(AT_K(AT_K(hc0_parse_ok_json, "headers", DICT()), "content-type", "<missing>"), "application/json"));
+    TRUE));
+TEST("parse/ok_json/header/content-length", FUN(() ,
+    (ASSERT_EQ(AT_K(AT_K(hc0_parse_ok_json, "headers", DICT()), "content-length", "<missing>"), "7"));
+    TRUE));
+TEST("parse/ok_json/body", FUN(() ,
+    (ASSERT_EQ(AT_K(hc0_parse_ok_json, "body", "<missing>"), "{\"a\":1}"));
+    TRUE));
+TEST("parse/ok_json/length_mismatch", FUN(() ,
+    (ASSERT_EQ(AT_K(hc0_parse_ok_json, "length_mismatch", "?"), FALSE));
+    TRUE));
+TEST("parse/ok_json/extra_bytes", FUN(() ,
+    (ASSERT_EQ(AT_K(hc0_parse_ok_json, "extra_bytes", -999), 0));
+    TRUE));
+
+// headers_mixed_case
+TEST("parse/headers_mixed_case/ok", FUN(() ,
+    (ASSERT_EQ(AT_K(hc0_parse_headers_mixed_case, "ok", "?"), TRUE));
+    TRUE));
+TEST("parse/headers_mixed_case/status", FUN(() ,
+    (ASSERT_EQ(AT_K(hc0_parse_headers_mixed_case, "status", -999), 200));
+    TRUE));
+TEST("parse/headers_mixed_case/reason", FUN(() ,
+    (ASSERT_EQ(AT_K(hc0_parse_headers_mixed_case, "reason", "?"), "OK"));
+    TRUE));
+TEST("parse/headers_mixed_case/header_order", FUN(() ,
+    (ASSERT_EQ(JOIN(KEYS(AT_K(hc0_parse_headers_mixed_case, "headers", DICT())), "|"), "content-length|content-type|x-trace-id"));
+    TRUE));
+TEST("parse/headers_mixed_case/header/content-length", FUN(() ,
+    (ASSERT_EQ(AT_K(AT_K(hc0_parse_headers_mixed_case, "headers", DICT()), "content-length", "<missing>"), "2"));
+    TRUE));
+TEST("parse/headers_mixed_case/header/content-type", FUN(() ,
+    (ASSERT_EQ(AT_K(AT_K(hc0_parse_headers_mixed_case, "headers", DICT()), "content-type", "<missing>"), "Application/JSON"));
+    TRUE));
+TEST("parse/headers_mixed_case/header/x-trace-id", FUN(() ,
+    (ASSERT_EQ(AT_K(AT_K(hc0_parse_headers_mixed_case, "headers", DICT()), "x-trace-id", "<missing>"), "abc"));
+    TRUE));
+TEST("parse/headers_mixed_case/body", FUN(() ,
+    (ASSERT_EQ(AT_K(hc0_parse_headers_mixed_case, "body", "<missing>"), "{}"));
+    TRUE));
+TEST("parse/headers_mixed_case/length_mismatch", FUN(() ,
+    (ASSERT_EQ(AT_K(hc0_parse_headers_mixed_case, "length_mismatch", "?"), FALSE));
+    TRUE));
+TEST("parse/headers_mixed_case/extra_bytes", FUN(() ,
+    (ASSERT_EQ(AT_K(hc0_parse_headers_mixed_case, "extra_bytes", -999), 0));
+    TRUE));
+
+// no_body
+TEST("parse/no_body/ok", FUN(() ,
+    (ASSERT_EQ(AT_K(hc0_parse_no_body, "ok", "?"), TRUE));
+    TRUE));
+TEST("parse/no_body/status", FUN(() ,
+    (ASSERT_EQ(AT_K(hc0_parse_no_body, "status", -999), 204));
+    TRUE));
+TEST("parse/no_body/reason", FUN(() ,
+    (ASSERT_EQ(AT_K(hc0_parse_no_body, "reason", "?"), "No Content"));
+    TRUE));
+TEST("parse/no_body/header_order", FUN(() ,
+    (ASSERT_EQ(JOIN(KEYS(AT_K(hc0_parse_no_body, "headers", DICT())), "|"), "date"));
+    TRUE));
+TEST("parse/no_body/header/date", FUN(() ,
+    (ASSERT_EQ(AT_K(AT_K(hc0_parse_no_body, "headers", DICT()), "date", "<missing>"), "Mon, 02 Nov 2026 00:00:00 GMT"));
+    TRUE));
+TEST("parse/no_body/body", FUN(() ,
+    (ASSERT_EQ(AT_K(hc0_parse_no_body, "body", "<missing>"), ""));
+    TRUE));
+TEST("parse/no_body/length_mismatch", FUN(() ,
+    (ASSERT_EQ(AT_K(hc0_parse_no_body, "length_mismatch", "?"), FALSE));
+    TRUE));
+TEST("parse/no_body/extra_bytes", FUN(() ,
+    (ASSERT_EQ(AT_K(hc0_parse_no_body, "extra_bytes", -999), 0));
+    TRUE));
+
+// cl_smaller_than_actual
+TEST("parse/cl_smaller_than_actual/ok", FUN(() ,
+    (ASSERT_EQ(AT_K(hc0_parse_cl_smaller_than_actual, "ok", "?"), TRUE));
+    TRUE));
+TEST("parse/cl_smaller_than_actual/status", FUN(() ,
+    (ASSERT_EQ(AT_K(hc0_parse_cl_smaller_than_actual, "status", -999), 200));
+    TRUE));
+TEST("parse/cl_smaller_than_actual/reason", FUN(() ,
+    (ASSERT_EQ(AT_K(hc0_parse_cl_smaller_than_actual, "reason", "?"), "OK"));
+    TRUE));
+TEST("parse/cl_smaller_than_actual/header_order", FUN(() ,
+    (ASSERT_EQ(JOIN(KEYS(AT_K(hc0_parse_cl_smaller_than_actual, "headers", DICT())), "|"), "content-length"));
+    TRUE));
+TEST("parse/cl_smaller_than_actual/header/content-length", FUN(() ,
+    (ASSERT_EQ(AT_K(AT_K(hc0_parse_cl_smaller_than_actual, "headers", DICT()), "content-length", "<missing>"), "5"));
+    TRUE));
+TEST("parse/cl_smaller_than_actual/body", FUN(() ,
+    (ASSERT_EQ(AT_K(hc0_parse_cl_smaller_than_actual, "body", "<missing>"), "hello world"));
+    TRUE));
+TEST("parse/cl_smaller_than_actual/length_mismatch", FUN(() ,
+    (ASSERT_EQ(AT_K(hc0_parse_cl_smaller_than_actual, "length_mismatch", "?"), TRUE));
+    TRUE));
+TEST("parse/cl_smaller_than_actual/extra_bytes", FUN(() ,
+    (ASSERT_EQ(AT_K(hc0_parse_cl_smaller_than_actual, "extra_bytes", -999), 6));
+    TRUE));
+
+// cl_larger_truncated
+TEST("parse/cl_larger_truncated/ok", FUN(() ,
+    (ASSERT_EQ(AT_K(hc0_parse_cl_larger_truncated, "ok", "?"), FALSE));
+    TRUE));
+TEST("parse/cl_larger_truncated/status", FUN(() ,
+    (ASSERT_EQ(AT_K(hc0_parse_cl_larger_truncated, "status", -999), 200));
+    TRUE));
+TEST("parse/cl_larger_truncated/error", FUN(() ,
+    (ASSERT(CONTAINS_SUB(AT_K(hc0_parse_cl_larger_truncated, "error", ""), "truncated body: 5 of 10"),
+        "cl_larger_truncated: error must mention the failed check"));
+    TRUE));
+
+// status_401
+TEST("parse/status_401/ok", FUN(() ,
+    (ASSERT_EQ(AT_K(hc0_parse_status_401, "ok", "?"), TRUE));
+    TRUE));
+TEST("parse/status_401/status", FUN(() ,
+    (ASSERT_EQ(AT_K(hc0_parse_status_401, "status", -999), 401));
+    TRUE));
+TEST("parse/status_401/reason", FUN(() ,
+    (ASSERT_EQ(AT_K(hc0_parse_status_401, "reason", "?"), "Unauthorized"));
+    TRUE));
+TEST("parse/status_401/header_order", FUN(() ,
+    (ASSERT_EQ(JOIN(KEYS(AT_K(hc0_parse_status_401, "headers", DICT())), "|"), "content-type|content-length"));
+    TRUE));
+TEST("parse/status_401/header/content-type", FUN(() ,
+    (ASSERT_EQ(AT_K(AT_K(hc0_parse_status_401, "headers", DICT()), "content-type", "<missing>"), "application/json"));
+    TRUE));
+TEST("parse/status_401/header/content-length", FUN(() ,
+    (ASSERT_EQ(AT_K(AT_K(hc0_parse_status_401, "headers", DICT()), "content-length", "<missing>"), "19"));
+    TRUE));
+TEST("parse/status_401/body", FUN(() ,
+    (ASSERT_EQ(AT_K(hc0_parse_status_401, "body", "<missing>"), "{\"error\":\"bad key\"}"));
+    TRUE));
+TEST("parse/status_401/length_mismatch", FUN(() ,
+    (ASSERT_EQ(AT_K(hc0_parse_status_401, "length_mismatch", "?"), FALSE));
+    TRUE));
+TEST("parse/status_401/extra_bytes", FUN(() ,
+    (ASSERT_EQ(AT_K(hc0_parse_status_401, "extra_bytes", -999), 0));
+    TRUE));
+
+// status_500
+TEST("parse/status_500/ok", FUN(() ,
+    (ASSERT_EQ(AT_K(hc0_parse_status_500, "ok", "?"), TRUE));
+    TRUE));
+TEST("parse/status_500/status", FUN(() ,
+    (ASSERT_EQ(AT_K(hc0_parse_status_500, "status", -999), 500));
+    TRUE));
+TEST("parse/status_500/reason", FUN(() ,
+    (ASSERT_EQ(AT_K(hc0_parse_status_500, "reason", "?"), "Internal Server Error"));
+    TRUE));
+TEST("parse/status_500/header_order", FUN(() ,
+    (ASSERT_EQ(JOIN(KEYS(AT_K(hc0_parse_status_500, "headers", DICT())), "|"), "content-length"));
+    TRUE));
+TEST("parse/status_500/header/content-length", FUN(() ,
+    (ASSERT_EQ(AT_K(AT_K(hc0_parse_status_500, "headers", DICT()), "content-length", "<missing>"), "16"));
+    TRUE));
+TEST("parse/status_500/body", FUN(() ,
+    (ASSERT_EQ(AT_K(hc0_parse_status_500, "body", "<missing>"), "{\"error\":\"boom\"}"));
+    TRUE));
+TEST("parse/status_500/length_mismatch", FUN(() ,
+    (ASSERT_EQ(AT_K(hc0_parse_status_500, "length_mismatch", "?"), FALSE));
+    TRUE));
+TEST("parse/status_500/extra_bytes", FUN(() ,
+    (ASSERT_EQ(AT_K(hc0_parse_status_500, "extra_bytes", -999), 0));
+    TRUE));
+
+// dup_headers
+TEST("parse/dup_headers/ok", FUN(() ,
+    (ASSERT_EQ(AT_K(hc0_parse_dup_headers, "ok", "?"), TRUE));
+    TRUE));
+TEST("parse/dup_headers/status", FUN(() ,
+    (ASSERT_EQ(AT_K(hc0_parse_dup_headers, "status", -999), 200));
+    TRUE));
+TEST("parse/dup_headers/reason", FUN(() ,
+    (ASSERT_EQ(AT_K(hc0_parse_dup_headers, "reason", "?"), "OK"));
+    TRUE));
+TEST("parse/dup_headers/header_order", FUN(() ,
+    (ASSERT_EQ(JOIN(KEYS(AT_K(hc0_parse_dup_headers, "headers", DICT())), "|"), "set-cookie|content-length"));
+    TRUE));
+TEST("parse/dup_headers/header/set-cookie", FUN(() ,
+    (ASSERT_EQ(AT_K(AT_K(hc0_parse_dup_headers, "headers", DICT()), "set-cookie", "<missing>"), "a=1, b=2"));
+    TRUE));
+TEST("parse/dup_headers/header/content-length", FUN(() ,
+    (ASSERT_EQ(AT_K(AT_K(hc0_parse_dup_headers, "headers", DICT()), "content-length", "<missing>"), "0"));
+    TRUE));
+TEST("parse/dup_headers/body", FUN(() ,
+    (ASSERT_EQ(AT_K(hc0_parse_dup_headers, "body", "<missing>"), ""));
+    TRUE));
+TEST("parse/dup_headers/length_mismatch", FUN(() ,
+    (ASSERT_EQ(AT_K(hc0_parse_dup_headers, "length_mismatch", "?"), FALSE));
+    TRUE));
+TEST("parse/dup_headers/extra_bytes", FUN(() ,
+    (ASSERT_EQ(AT_K(hc0_parse_dup_headers, "extra_bytes", -999), 0));
+    TRUE));
+
+// status_without_reason
+TEST("parse/status_without_reason/ok", FUN(() ,
+    (ASSERT_EQ(AT_K(hc0_parse_status_without_reason, "ok", "?"), TRUE));
+    TRUE));
+TEST("parse/status_without_reason/status", FUN(() ,
+    (ASSERT_EQ(AT_K(hc0_parse_status_without_reason, "status", -999), 204));
+    TRUE));
+TEST("parse/status_without_reason/reason", FUN(() ,
+    (ASSERT_EQ(AT_K(hc0_parse_status_without_reason, "reason", "?"), ""));
+    TRUE));
+TEST("parse/status_without_reason/header_order", FUN(() ,
+    (ASSERT_EQ(JOIN(KEYS(AT_K(hc0_parse_status_without_reason, "headers", DICT())), "|"), ""));
+    TRUE));
+TEST("parse/status_without_reason/body", FUN(() ,
+    (ASSERT_EQ(AT_K(hc0_parse_status_without_reason, "body", "<missing>"), ""));
+    TRUE));
+TEST("parse/status_without_reason/length_mismatch", FUN(() ,
+    (ASSERT_EQ(AT_K(hc0_parse_status_without_reason, "length_mismatch", "?"), FALSE));
+    TRUE));
+TEST("parse/status_without_reason/extra_bytes", FUN(() ,
+    (ASSERT_EQ(AT_K(hc0_parse_status_without_reason, "extra_bytes", -999), 0));
+    TRUE));
+
+// blank_lines_in_body
+TEST("parse/blank_lines_in_body/ok", FUN(() ,
+    (ASSERT_EQ(AT_K(hc0_parse_blank_lines_in_body, "ok", "?"), TRUE));
+    TRUE));
+TEST("parse/blank_lines_in_body/status", FUN(() ,
+    (ASSERT_EQ(AT_K(hc0_parse_blank_lines_in_body, "status", -999), 200));
+    TRUE));
+TEST("parse/blank_lines_in_body/reason", FUN(() ,
+    (ASSERT_EQ(AT_K(hc0_parse_blank_lines_in_body, "reason", "?"), "OK"));
+    TRUE));
+TEST("parse/blank_lines_in_body/header_order", FUN(() ,
+    (ASSERT_EQ(JOIN(KEYS(AT_K(hc0_parse_blank_lines_in_body, "headers", DICT())), "|"), "content-length"));
+    TRUE));
+TEST("parse/blank_lines_in_body/header/content-length", FUN(() ,
+    (ASSERT_EQ(AT_K(AT_K(hc0_parse_blank_lines_in_body, "headers", DICT()), "content-length", "<missing>"), "14"));
+    TRUE));
+TEST("parse/blank_lines_in_body/body", FUN(() ,
+    (ASSERT_EQ(AT_K(hc0_parse_blank_lines_in_body, "body", "<missing>"), "{\"t\":\"a\r\n\r\nb\"}"));
+    TRUE));
+TEST("parse/blank_lines_in_body/length_mismatch", FUN(() ,
+    (ASSERT_EQ(AT_K(hc0_parse_blank_lines_in_body, "length_mismatch", "?"), FALSE));
+    TRUE));
+TEST("parse/blank_lines_in_body/extra_bytes", FUN(() ,
+    (ASSERT_EQ(AT_K(hc0_parse_blank_lines_in_body, "extra_bytes", -999), 0));
+    TRUE));
+
+// no_terminator
+TEST("parse/no_terminator/ok", FUN(() ,
+    (ASSERT_EQ(AT_K(hc0_parse_no_terminator, "ok", "?"), FALSE));
+    TRUE));
+TEST("parse/no_terminator/status_null", FUN(() ,
+    (ASSERT_EQ(TYPE(AT_K(hc0_parse_no_terminator, "status", NULL)), "NULL"));
+    TRUE));
+TEST("parse/no_terminator/error", FUN(() ,
+    (ASSERT(CONTAINS_SUB(AT_K(hc0_parse_no_terminator, "error", ""), "no CRLFCRLF header terminator"),
+        "no_terminator: error must mention the failed check"));
+    TRUE));
+
+// bad_status_code
+TEST("parse/bad_status_code/ok", FUN(() ,
+    (ASSERT_EQ(AT_K(hc0_parse_bad_status_code, "ok", "?"), FALSE));
+    TRUE));
+TEST("parse/bad_status_code/status_null", FUN(() ,
+    (ASSERT_EQ(TYPE(AT_K(hc0_parse_bad_status_code, "status", NULL)), "NULL"));
+    TRUE));
+TEST("parse/bad_status_code/error", FUN(() ,
+    (ASSERT(CONTAINS_SUB(AT_K(hc0_parse_bad_status_code, "error", ""), "bad status code"),
+        "bad_status_code: error must mention the failed check"));
+    TRUE));
+
+// bad_protocol
+TEST("parse/bad_protocol/ok", FUN(() ,
+    (ASSERT_EQ(AT_K(hc0_parse_bad_protocol, "ok", "?"), FALSE));
+    TRUE));
+TEST("parse/bad_protocol/status_null", FUN(() ,
+    (ASSERT_EQ(TYPE(AT_K(hc0_parse_bad_protocol, "status", NULL)), "NULL"));
+    TRUE));
+TEST("parse/bad_protocol/error", FUN(() ,
+    (ASSERT(CONTAINS_SUB(AT_K(hc0_parse_bad_protocol, "error", ""), "bad protocol"),
+        "bad_protocol: error must mention the failed check"));
+    TRUE));
+
+// chunked
+TEST("parse/chunked/ok", FUN(() ,
+    (ASSERT_EQ(AT_K(hc0_parse_chunked, "ok", "?"), FALSE));
+    TRUE));
+TEST("parse/chunked/status", FUN(() ,
+    (ASSERT_EQ(AT_K(hc0_parse_chunked, "status", -999), 200));
+    TRUE));
+TEST("parse/chunked/error", FUN(() ,
+    (ASSERT(CONTAINS_SUB(AT_K(hc0_parse_chunked, "error", ""), "chunked"),
+        "chunked: error must mention the failed check"));
+    TRUE));
+
+// bad_content_length
+TEST("parse/bad_content_length/ok", FUN(() ,
+    (ASSERT_EQ(AT_K(hc0_parse_bad_content_length, "ok", "?"), FALSE));
+    TRUE));
+TEST("parse/bad_content_length/status", FUN(() ,
+    (ASSERT_EQ(AT_K(hc0_parse_bad_content_length, "status", -999), 200));
+    TRUE));
+TEST("parse/bad_content_length/error", FUN(() ,
+    (ASSERT(CONTAINS_SUB(AT_K(hc0_parse_bad_content_length, "error", ""), "invalid Content-Length"),
+        "bad_content_length: error must mention the failed check"));
+    TRUE));
+
+// ── ③ 请求链（HTTP_REQUEST / HTTPS_POST_JSON，假传输）─────────────
+// post_ok —— 200 ⇒ ok:TRUE，status/body 原样透出；请求真的走了 exchange（且带 Bearer）
+SET(T0_seen, "");
+SET(T0_reply, "HTTP/1.1 200 OK\r\nContent-Type: application/json\r\nContent-Length: 7\r\n\r\n{\"a\":1}");
+LET(hc0_req_post_ok, HTTPS_POST_JSON(INDEX_SET(INDEX_SET(INDEX_SET(INDEX_SET(DICT(), "api_key", "sk-test"), "host", "api.example.com"), "body", "{\"x\":1}"), "exchange", T0_exchange)));
+LET(hc0_reqwire_post_ok, T0_seen);
+// post_401 —— **反向守卫**：401 ⇒ ok:FALSE，status 保留，error 里带服务端正文
+SET(T0_seen, "");
+SET(T0_reply, "HTTP/1.1 401 Unauthorized\r\nContent-Type: application/json\r\nContent-Length: 19\r\n\r\n{\"error\":\"bad key\"}");
+LET(hc0_req_post_401, HTTPS_POST_JSON(INDEX_SET(INDEX_SET(INDEX_SET(INDEX_SET(DICT(), "api_key", "sk-test"), "host", "api.example.com"), "body", "{\"x\":1}"), "exchange", T0_exchange)));
+LET(hc0_reqwire_post_401, T0_seen);
+// post_500 —— **反向守卫**：500 ⇒ ok:FALSE
+SET(T0_seen, "");
+SET(T0_reply, "HTTP/1.1 500 Internal Server Error\r\nContent-Length: 16\r\n\r\n{\"error\":\"boom\"}");
+LET(hc0_req_post_500, HTTPS_POST_JSON(INDEX_SET(INDEX_SET(INDEX_SET(INDEX_SET(DICT(), "api_key", "sk-test"), "host", "api.example.com"), "body", "{\"x\":1}"), "exchange", T0_exchange)));
+LET(hc0_reqwire_post_500, T0_seen);
+// no_key —— **反向守卫**：未配置 API key ⇒ 明确报错，且**根本不碰传输**（exchange 不该被调）
+SET(T0_seen, "");
+SET(T0_reply, "HTTP/1.1 200 OK\r\nContent-Type: application/json\r\nContent-Length: 7\r\n\r\n{\"a\":1}");
+LET(hc0_req_no_key, HTTPS_POST_JSON(INDEX_SET(INDEX_SET(INDEX_SET(DICT(), "host", "api.example.com"), "body", "{\"x\":1}"), "exchange", T0_exchange)));
+LET(hc0_reqwire_no_key, T0_seen);
+// get_no_key —— 通用层 GET 不要求 API key（key 是 HTTPS_POST_JSON / CHAT 的门）
+SET(T0_seen, "");
+SET(T0_reply, "HTTP/1.1 200 OK\r\nContent-Type: application/json\r\nContent-Length: 7\r\n\r\n{\"a\":1}");
+LET(hc0_req_get_no_key, HTTP_REQUEST(INDEX_SET(INDEX_SET(INDEX_SET(INDEX_SET(DICT(), "method", "GET"), "host", "api.example.com"), "path", "/v1/models"), "exchange", T0_exchange)));
+LET(hc0_reqwire_get_no_key, T0_seen);
+// transport_error —— 传输失败 ⇒ ok:FALSE、status NULL、error 原样带出
+SET(T0_seen, "");
+SET(T0_reply, INDEX_SET(INDEX_SET(DICT(), "ok", FALSE), "error", "tls connect failed: boom"));
+LET(hc0_req_transport_error, HTTP_REQUEST(INDEX_SET(INDEX_SET(INDEX_SET(DICT(), "method", "GET"), "host", "api.example.com"), "exchange", T0_exchange)));
+LET(hc0_reqwire_transport_error, T0_seen);
+// host_missing —— 缺 host ⇒ ok:FALSE（不得拼出 "POST  HTTP/1.1" 这种废报文）
+SET(T0_seen, "");
+SET(T0_reply, "HTTP/1.1 200 OK\r\nContent-Type: application/json\r\nContent-Length: 7\r\n\r\n{\"a\":1}");
+LET(hc0_req_host_missing, HTTP_REQUEST(INDEX_SET(INDEX_SET(DICT(), "method", "GET"), "exchange", T0_exchange)));
+LET(hc0_reqwire_host_missing, T0_seen);
+// garbage_response —— 对端回的不是 HTTP ⇒ ok:FALSE（不得当 body 交给上层）
+SET(T0_seen, "");
+SET(T0_reply, "<html>not http</html>");
+LET(hc0_req_garbage_response, HTTP_REQUEST(INDEX_SET(INDEX_SET(INDEX_SET(DICT(), "method", "GET"), "host", "api.example.com"), "exchange", T0_exchange)));
+LET(hc0_reqwire_garbage_response, T0_seen);
+
+
+// post_ok
+TEST("request/post_ok/ok", FUN(() ,
+    (ASSERT_EQ(AT_K(hc0_req_post_ok, "ok", "?"), TRUE));
+    TRUE));
+TEST("request/post_ok/status", FUN(() ,
+    (ASSERT_EQ(AT_K(hc0_req_post_ok, "status", -999), 200));
+    TRUE));
+TEST("request/post_ok/body", FUN(() ,
+    (ASSERT_EQ(AT_K(hc0_req_post_ok, "body", "<missing>"), "{\"a\":1}"));
+    TRUE));
+TEST("request/post_ok/exchange_called", FUN(() ,
+    (ASSERT(>(LEN(hc0_reqwire_post_ok), 0), "post_ok: exchange must be called"));
+    TRUE));
+TEST("request/post_ok/wire/Authorization", FUN(() ,
+    (ASSERT(CONTAINS_SUB(hc0_reqwire_post_ok, "Authorization: Bearer sk-test"),
+        "post_ok: wire must contain 'Authorization: Bearer sk-test'"));
+    TRUE));
+TEST("request/post_ok/wire/Content-Type", FUN(() ,
+    (ASSERT(CONTAINS_SUB(hc0_reqwire_post_ok, "Content-Type: application/json"),
+        "post_ok: wire must contain 'Content-Type: application/json'"));
+    TRUE));
+TEST("request/post_ok/wire/POST__v1_chat_completions_HTTP_1.1", FUN(() ,
+    (ASSERT(CONTAINS_SUB(hc0_reqwire_post_ok, "POST /v1/chat/completions HTTP/1.1"),
+        "post_ok: wire must contain 'POST /v1/chat/completions HTTP/1.1'"));
+    TRUE));
+
+// post_401
+TEST("request/post_401/ok", FUN(() ,
+    (ASSERT_EQ(AT_K(hc0_req_post_401, "ok", "?"), FALSE));
+    TRUE));
+TEST("request/post_401/status", FUN(() ,
+    (ASSERT_EQ(AT_K(hc0_req_post_401, "status", -999), 401));
+    TRUE));
+TEST("request/post_401/error/HTTP_401", FUN(() ,
+    (ASSERT(CONTAINS_SUB(AT_K(hc0_req_post_401, "error", ""), "HTTP 401"),
+        "post_401: error must contain 'HTTP 401'"));
+    TRUE));
+TEST("request/post_401/error/bad_key", FUN(() ,
+    (ASSERT(CONTAINS_SUB(AT_K(hc0_req_post_401, "error", ""), "bad key"),
+        "post_401: error must contain 'bad key'"));
+    TRUE));
+TEST("request/post_401/exchange_called", FUN(() ,
+    (ASSERT(>(LEN(hc0_reqwire_post_401), 0), "post_401: exchange must be called"));
+    TRUE));
+
+// post_500
+TEST("request/post_500/ok", FUN(() ,
+    (ASSERT_EQ(AT_K(hc0_req_post_500, "ok", "?"), FALSE));
+    TRUE));
+TEST("request/post_500/status", FUN(() ,
+    (ASSERT_EQ(AT_K(hc0_req_post_500, "status", -999), 500));
+    TRUE));
+TEST("request/post_500/error/HTTP_500", FUN(() ,
+    (ASSERT(CONTAINS_SUB(AT_K(hc0_req_post_500, "error", ""), "HTTP 500"),
+        "post_500: error must contain 'HTTP 500'"));
+    TRUE));
+TEST("request/post_500/error/boom", FUN(() ,
+    (ASSERT(CONTAINS_SUB(AT_K(hc0_req_post_500, "error", ""), "boom"),
+        "post_500: error must contain 'boom'"));
+    TRUE));
+TEST("request/post_500/exchange_called", FUN(() ,
+    (ASSERT(>(LEN(hc0_reqwire_post_500), 0), "post_500: exchange must be called"));
+    TRUE));
+
+// no_key
+TEST("request/no_key/ok", FUN(() ,
+    (ASSERT_EQ(AT_K(hc0_req_no_key, "ok", "?"), FALSE));
+    TRUE));
+TEST("request/no_key/status_null", FUN(() ,
+    (ASSERT_EQ(TYPE(AT_K(hc0_req_no_key, "status", NULL)), "NULL"));
+    TRUE));
+TEST("request/no_key/error/API_key_not_configured", FUN(() ,
+    (ASSERT(CONTAINS_SUB(AT_K(hc0_req_no_key, "error", ""), "API key not configured"),
+        "no_key: error must contain 'API key not configured'"));
+    TRUE));
+// 反向守卫：没配 key / 缺 host ⇒ **根本不碰传输**
+TEST("request/no_key/exchange_not_called", FUN(() ,
+    (ASSERT_EQ(hc0_reqwire_no_key, ""));
+    TRUE));
+
+// get_no_key
+TEST("request/get_no_key/ok", FUN(() ,
+    (ASSERT_EQ(AT_K(hc0_req_get_no_key, "ok", "?"), TRUE));
+    TRUE));
+TEST("request/get_no_key/status", FUN(() ,
+    (ASSERT_EQ(AT_K(hc0_req_get_no_key, "status", -999), 200));
+    TRUE));
+TEST("request/get_no_key/body", FUN(() ,
+    (ASSERT_EQ(AT_K(hc0_req_get_no_key, "body", "<missing>"), "{\"a\":1}"));
+    TRUE));
+TEST("request/get_no_key/exchange_called", FUN(() ,
+    (ASSERT(>(LEN(hc0_reqwire_get_no_key), 0), "get_no_key: exchange must be called"));
+    TRUE));
+TEST("request/get_no_key/wire/GET__v1_models_HTTP_1.1", FUN(() ,
+    (ASSERT(CONTAINS_SUB(hc0_reqwire_get_no_key, "GET /v1/models HTTP/1.1"),
+        "get_no_key: wire must contain 'GET /v1/models HTTP/1.1'"));
+    TRUE));
+
+// transport_error
+TEST("request/transport_error/ok", FUN(() ,
+    (ASSERT_EQ(AT_K(hc0_req_transport_error, "ok", "?"), FALSE));
+    TRUE));
+TEST("request/transport_error/status_null", FUN(() ,
+    (ASSERT_EQ(TYPE(AT_K(hc0_req_transport_error, "status", NULL)), "NULL"));
+    TRUE));
+TEST("request/transport_error/error/tls_connect_failed__boom", FUN(() ,
+    (ASSERT(CONTAINS_SUB(AT_K(hc0_req_transport_error, "error", ""), "tls connect failed: boom"),
+        "transport_error: error must contain 'tls connect failed: boom'"));
+    TRUE));
+TEST("request/transport_error/exchange_called", FUN(() ,
+    (ASSERT(>(LEN(hc0_reqwire_transport_error), 0), "transport_error: exchange must be called"));
+    TRUE));
+
+// host_missing
+TEST("request/host_missing/ok", FUN(() ,
+    (ASSERT_EQ(AT_K(hc0_req_host_missing, "ok", "?"), FALSE));
+    TRUE));
+TEST("request/host_missing/status_null", FUN(() ,
+    (ASSERT_EQ(TYPE(AT_K(hc0_req_host_missing, "status", NULL)), "NULL"));
+    TRUE));
+TEST("request/host_missing/error/host_is_required", FUN(() ,
+    (ASSERT(CONTAINS_SUB(AT_K(hc0_req_host_missing, "error", ""), "host is required"),
+        "host_missing: error must contain 'host is required'"));
+    TRUE));
+// 反向守卫：没配 key / 缺 host ⇒ **根本不碰传输**
+TEST("request/host_missing/exchange_not_called", FUN(() ,
+    (ASSERT_EQ(hc0_reqwire_host_missing, ""));
+    TRUE));
+
+// garbage_response
+TEST("request/garbage_response/ok", FUN(() ,
+    (ASSERT_EQ(AT_K(hc0_req_garbage_response, "ok", "?"), FALSE));
+    TRUE));
+TEST("request/garbage_response/status_null", FUN(() ,
+    (ASSERT_EQ(TYPE(AT_K(hc0_req_garbage_response, "status", NULL)), "NULL"));
+    TRUE));
+TEST("request/garbage_response/error/no_CRLFCRLF_header_terminator", FUN(() ,
+    (ASSERT(CONTAINS_SUB(AT_K(hc0_req_garbage_response, "error", ""), "no CRLFCRLF header terminator"),
+        "garbage_response: error must contain 'no CRLFCRLF header terminator'"));
+    TRUE));
+TEST("request/garbage_response/exchange_called", FUN(() ,
+    (ASSERT(>(LEN(hc0_reqwire_garbage_response), 0), "garbage_response: exchange must be called"));
+    TRUE));
+
+// ── ④ CHAT_COMPLETION（取 choices[0].message.content）────────────
+// ok —— 正常：取 choices[0].message.content（含中文）
+SET(T0_seen, "");
+SET(T0_reply, "HTTP/1.1 200 OK\r\nContent-Type: application/json\r\nContent-Length: 65\r\n\r\n{\"choices\":[{\"message\":{\"role\":\"assistant\",\"content\":\"你好\"}}]}");
+LET(hc0_chat_ok, CHAT_COMPLETION(INDEX_SET(INDEX_SET(INDEX_SET(INDEX_SET(DICT(), "api_key", "sk-test"), "host", "api.example.com"), "messages", [INDEX_SET(INDEX_SET(DICT(), "role", "user"), "content", "hi")]), "exchange", T0_exchange)));
+LET(hc0_chatwire_ok, T0_seen);
+// custom_model_temperature —— model / temperature 透传到请求体（键序是 STRINGIFY 的**字典序**）
+SET(T0_seen, "");
+SET(T0_reply, "HTTP/1.1 200 OK\r\nContent-Type: application/json\r\nContent-Length: 65\r\n\r\n{\"choices\":[{\"message\":{\"role\":\"assistant\",\"content\":\"你好\"}}]}");
+LET(hc0_chat_custom_model_temperature, CHAT_COMPLETION(INDEX_SET(INDEX_SET(INDEX_SET(INDEX_SET(INDEX_SET(INDEX_SET(DICT(), "api_key", "sk-test"), "host", "api.example.com"), "model", "deepseek-chat"), "temperature", 0.3), "messages", [INDEX_SET(INDEX_SET(DICT(), "role", "user"), "content", "hi")]), "exchange", T0_exchange)));
+LET(hc0_chatwire_custom_model_temperature, T0_seen);
+// no_choices —— 响应里没有 choices ⇒ ok:FALSE（Python 这里抛 AIAssistanceError）
+SET(T0_seen, "");
+SET(T0_reply, "HTTP/1.1 200 OK\r\nContent-Type: application/json\r\nContent-Length: 10\r\n\r\n{\"id\":\"x\"}");
+LET(hc0_chat_no_choices, CHAT_COMPLETION(INDEX_SET(INDEX_SET(INDEX_SET(INDEX_SET(DICT(), "api_key", "sk-test"), "host", "api.example.com"), "messages", [INDEX_SET(INDEX_SET(DICT(), "role", "user"), "content", "hi")]), "exchange", T0_exchange)));
+// empty_choices —— choices 是空数组 ⇒ ok:FALSE（等价 Python 的 `if not choices`）
+SET(T0_seen, "");
+SET(T0_reply, "HTTP/1.1 200 OK\r\nContent-Type: application/json\r\nContent-Length: 14\r\n\r\n{\"choices\":[]}");
+LET(hc0_chat_empty_choices, CHAT_COMPLETION(INDEX_SET(INDEX_SET(INDEX_SET(INDEX_SET(DICT(), "api_key", "sk-test"), "host", "api.example.com"), "messages", [INDEX_SET(INDEX_SET(DICT(), "role", "user"), "content", "hi")]), "exchange", T0_exchange)));
+// missing_message —— choices[0] 没有 message ⇒ ok:FALSE
+SET(T0_seen, "");
+SET(T0_reply, "HTTP/1.1 200 OK\r\nContent-Type: application/json\r\nContent-Length: 25\r\n\r\n{\"choices\":[{\"index\":0}]}");
+LET(hc0_chat_missing_message, CHAT_COMPLETION(INDEX_SET(INDEX_SET(INDEX_SET(INDEX_SET(DICT(), "api_key", "sk-test"), "host", "api.example.com"), "messages", [INDEX_SET(INDEX_SET(DICT(), "role", "user"), "content", "hi")]), "exchange", T0_exchange)));
+// missing_content —— message 里没有 content ⇒ ok:FALSE（不得静默返回空串）
+SET(T0_seen, "");
+SET(T0_reply, "HTTP/1.1 200 OK\r\nContent-Type: application/json\r\nContent-Length: 46\r\n\r\n{\"choices\":[{\"message\":{\"role\":\"assistant\"}}]}");
+LET(hc0_chat_missing_content, CHAT_COMPLETION(INDEX_SET(INDEX_SET(INDEX_SET(INDEX_SET(DICT(), "api_key", "sk-test"), "host", "api.example.com"), "messages", [INDEX_SET(INDEX_SET(DICT(), "role", "user"), "content", "hi")]), "exchange", T0_exchange)));
+// not_json —— body 不是 JSON ⇒ ok:FALSE（**不得**让 PARSE 的 E0070 中止整个运行）
+SET(T0_seen, "");
+SET(T0_reply, "HTTP/1.1 200 OK\r\nContent-Type: application/json\r\nContent-Length: 8\r\n\r\nnot json");
+LET(hc0_chat_not_json, CHAT_COMPLETION(INDEX_SET(INDEX_SET(INDEX_SET(INDEX_SET(DICT(), "api_key", "sk-test"), "host", "api.example.com"), "messages", [INDEX_SET(INDEX_SET(DICT(), "role", "user"), "content", "hi")]), "exchange", T0_exchange)));
+// json_array —— body 是 JSON 但不是对象 ⇒ ok:FALSE
+SET(T0_seen, "");
+SET(T0_reply, "HTTP/1.1 200 OK\r\nContent-Type: application/json\r\nContent-Length: 2\r\n\r\n[]");
+LET(hc0_chat_json_array, CHAT_COMPLETION(INDEX_SET(INDEX_SET(INDEX_SET(INDEX_SET(DICT(), "api_key", "sk-test"), "host", "api.example.com"), "messages", [INDEX_SET(INDEX_SET(DICT(), "role", "user"), "content", "hi")]), "exchange", T0_exchange)));
+// status_401 —— 后端 401 ⇒ ok:FALSE，status 401（不进入 content 提取）
+SET(T0_seen, "");
+SET(T0_reply, "HTTP/1.1 401 Unauthorized\r\nContent-Type: application/json\r\nContent-Length: 19\r\n\r\n{\"error\":\"bad key\"}");
+LET(hc0_chat_status_401, CHAT_COMPLETION(INDEX_SET(INDEX_SET(INDEX_SET(INDEX_SET(DICT(), "api_key", "sk-test"), "host", "api.example.com"), "messages", [INDEX_SET(INDEX_SET(DICT(), "role", "user"), "content", "hi")]), "exchange", T0_exchange)));
+// no_key —— 未配置 API key ⇒ ok:FALSE（同 Python 的 `raise AIAssistanceError("API key not configured")`）
+SET(T0_seen, "");
+SET(T0_reply, "HTTP/1.1 200 OK\r\nContent-Type: application/json\r\nContent-Length: 65\r\n\r\n{\"choices\":[{\"message\":{\"role\":\"assistant\",\"content\":\"你好\"}}]}");
+LET(hc0_chat_no_key, CHAT_COMPLETION(INDEX_SET(INDEX_SET(INDEX_SET(DICT(), "host", "api.example.com"), "messages", [INDEX_SET(INDEX_SET(DICT(), "role", "user"), "content", "hi")]), "exchange", T0_exchange)));
+
+
+// ok
+TEST("chat/ok/ok", FUN(() ,
+    (ASSERT_EQ(AT_K(hc0_chat_ok, "ok", "?"), TRUE));
+    TRUE));
+TEST("chat/ok/status", FUN(() ,
+    (ASSERT_EQ(AT_K(hc0_chat_ok, "status", -999), 200));
+    TRUE));
+TEST("chat/ok/content", FUN(() ,
+    (ASSERT_EQ(AT_K(hc0_chat_ok, "content", "<missing>"), "你好"));
+    TRUE));
+TEST("chat/ok/wire_body", FUN(() ,
+    // 请求体 = 报文里第一个 CRLFCRLF 之后的全部
+    (ASSERT_EQ(SUB(hc0_chatwire_ok, +(INDEX_OF(hc0_chatwire_ok, "\r\n\r\n"), 4)), "{\"messages\":[{\"content\":\"hi\",\"role\":\"user\"}],\"model\":\"gpt-3.5-turbo\",\"temperature\":0.7}"));
+    TRUE));
+
+// custom_model_temperature
+TEST("chat/custom_model_temperature/ok", FUN(() ,
+    (ASSERT_EQ(AT_K(hc0_chat_custom_model_temperature, "ok", "?"), TRUE));
+    TRUE));
+TEST("chat/custom_model_temperature/status", FUN(() ,
+    (ASSERT_EQ(AT_K(hc0_chat_custom_model_temperature, "status", -999), 200));
+    TRUE));
+TEST("chat/custom_model_temperature/content", FUN(() ,
+    (ASSERT_EQ(AT_K(hc0_chat_custom_model_temperature, "content", "<missing>"), "你好"));
+    TRUE));
+TEST("chat/custom_model_temperature/wire_body", FUN(() ,
+    // 请求体 = 报文里第一个 CRLFCRLF 之后的全部
+    (ASSERT_EQ(SUB(hc0_chatwire_custom_model_temperature, +(INDEX_OF(hc0_chatwire_custom_model_temperature, "\r\n\r\n"), 4)), "{\"messages\":[{\"content\":\"hi\",\"role\":\"user\"}],\"model\":\"deepseek-chat\",\"temperature\":0.3}"));
+    TRUE));
+
+// no_choices
+TEST("chat/no_choices/ok", FUN(() ,
+    (ASSERT_EQ(AT_K(hc0_chat_no_choices, "ok", "?"), FALSE));
+    TRUE));
+TEST("chat/no_choices/status", FUN(() ,
+    (ASSERT_EQ(AT_K(hc0_chat_no_choices, "status", -999), 200));
+    TRUE));
+TEST("chat/no_choices/error/no_choices_array", FUN(() ,
+    (ASSERT(CONTAINS_SUB(AT_K(hc0_chat_no_choices, "error", ""), "no choices array"),
+        "no_choices: error must contain 'no choices array'"));
+    TRUE));
+
+// empty_choices
+TEST("chat/empty_choices/ok", FUN(() ,
+    (ASSERT_EQ(AT_K(hc0_chat_empty_choices, "ok", "?"), FALSE));
+    TRUE));
+TEST("chat/empty_choices/status", FUN(() ,
+    (ASSERT_EQ(AT_K(hc0_chat_empty_choices, "status", -999), 200));
+    TRUE));
+TEST("chat/empty_choices/error/empty_choices", FUN(() ,
+    (ASSERT(CONTAINS_SUB(AT_K(hc0_chat_empty_choices, "error", ""), "empty choices"),
+        "empty_choices: error must contain 'empty choices'"));
+    TRUE));
+
+// missing_message
+TEST("chat/missing_message/ok", FUN(() ,
+    (ASSERT_EQ(AT_K(hc0_chat_missing_message, "ok", "?"), FALSE));
+    TRUE));
+TEST("chat/missing_message/status", FUN(() ,
+    (ASSERT_EQ(AT_K(hc0_chat_missing_message, "status", -999), 200));
+    TRUE));
+TEST("chat/missing_message/error/message_is_not_an_object", FUN(() ,
+    (ASSERT(CONTAINS_SUB(AT_K(hc0_chat_missing_message, "error", ""), "message is not an object"),
+        "missing_message: error must contain 'message is not an object'"));
+    TRUE));
+
+// missing_content
+TEST("chat/missing_content/ok", FUN(() ,
+    (ASSERT_EQ(AT_K(hc0_chat_missing_content, "ok", "?"), FALSE));
+    TRUE));
+TEST("chat/missing_content/status", FUN(() ,
+    (ASSERT_EQ(AT_K(hc0_chat_missing_content, "status", -999), 200));
+    TRUE));
+TEST("chat/missing_content/error/content_is_missing", FUN(() ,
+    (ASSERT(CONTAINS_SUB(AT_K(hc0_chat_missing_content, "error", ""), "content is missing"),
+        "missing_content: error must contain 'content is missing'"));
+    TRUE));
+
+// not_json
+TEST("chat/not_json/ok", FUN(() ,
+    (ASSERT_EQ(AT_K(hc0_chat_not_json, "ok", "?"), FALSE));
+    TRUE));
+TEST("chat/not_json/status", FUN(() ,
+    (ASSERT_EQ(AT_K(hc0_chat_not_json, "status", -999), 200));
+    TRUE));
+TEST("chat/not_json/error/not_valid_JSON", FUN(() ,
+    (ASSERT(CONTAINS_SUB(AT_K(hc0_chat_not_json, "error", ""), "not valid JSON"),
+        "not_json: error must contain 'not valid JSON'"));
+    TRUE));
+
+// json_array
+TEST("chat/json_array/ok", FUN(() ,
+    (ASSERT_EQ(AT_K(hc0_chat_json_array, "ok", "?"), FALSE));
+    TRUE));
+TEST("chat/json_array/status", FUN(() ,
+    (ASSERT_EQ(AT_K(hc0_chat_json_array, "status", -999), 200));
+    TRUE));
+TEST("chat/json_array/error/not_an_object", FUN(() ,
+    (ASSERT(CONTAINS_SUB(AT_K(hc0_chat_json_array, "error", ""), "not an object"),
+        "json_array: error must contain 'not an object'"));
+    TRUE));
+
+// status_401
+TEST("chat/status_401/ok", FUN(() ,
+    (ASSERT_EQ(AT_K(hc0_chat_status_401, "ok", "?"), FALSE));
+    TRUE));
+TEST("chat/status_401/status", FUN(() ,
+    (ASSERT_EQ(AT_K(hc0_chat_status_401, "status", -999), 401));
+    TRUE));
+TEST("chat/status_401/error/HTTP_401", FUN(() ,
+    (ASSERT(CONTAINS_SUB(AT_K(hc0_chat_status_401, "error", ""), "HTTP 401"),
+        "status_401: error must contain 'HTTP 401'"));
+    TRUE));
+
+// no_key
+TEST("chat/no_key/ok", FUN(() ,
+    (ASSERT_EQ(AT_K(hc0_chat_no_key, "ok", "?"), FALSE));
+    TRUE));
+TEST("chat/no_key/status_null", FUN(() ,
+    (ASSERT_EQ(TYPE(AT_K(hc0_chat_no_key, "status", NULL)), "NULL"));
+    TRUE));
+TEST("chat/no_key/error/API_key_not_configured", FUN(() ,
+    (ASSERT(CONTAINS_SUB(AT_K(hc0_chat_no_key, "error", ""), "API key not configured"),
+        "no_key: error must contain 'API key not configured'"));
+    TRUE));
+
+// ── ⑤ 形状契约：三个出参的键序（卡 S5-1 写明了键集合）──────────────
+TEST("shape/parse_keys", FUN(() ,
+    (ASSERT_EQ(JOIN(KEYS(hc0_parse_ok_json), "|"),
+        "ok|status|reason|headers|body|length_mismatch|extra_bytes"));
+    TRUE));
+TEST("shape/success_keys", FUN(() ,
+    (ASSERT_EQ(JOIN(KEYS(hc0_req_post_ok), "|"), "ok|status|headers|body"));
+    TRUE));
+TEST("shape/failure_keys", FUN(() ,
+    (ASSERT_EQ(JOIN(KEYS(hc0_req_post_401), "|"), "ok|status|error"));
+    TRUE));
+TEST("shape/chat_success_keys", FUN(() ,
+    (ASSERT_EQ(JOIN(KEYS(hc0_chat_ok), "|"), "ok|status|content"));
+    TRUE));
+
+// ── 跑测试 + 自己把关退出码 ─────────────────────────────────────
+LET(records, RUN_TESTS());
+PRINT("test_http_client_tls: ", LEN(records), " test(s) run");
+LET MUT(failed, 0);
+FOR(rec, records,
+    (IF(AT_K(rec, "passed", FALSE),
+        PRINT("  PASS ", AT_K(rec, "name", "?")),
+        (SET(failed, +(failed, 1));
+         PRINT("  FAIL ", AT_K(rec, "name", "?"), " :: ", AT_K(rec, "error", ""))))));
+PRINT("test_http_client_tls: failed=", failed);
+IF(>(failed, 0), (PRINT_ERR("test_http_client_tls: FAILED"); PANIC("http_client_tls tests failed")), NULL);
+PRINT("test_http_client_tls: OK");

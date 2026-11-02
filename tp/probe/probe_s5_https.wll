@@ -1,0 +1,20 @@
+// tp/probe/probe_s5_https.wll —— S5-1 探针：夹具要钉的几个值先实测。
+//
+//  ① `STRINGIFY` 对 0.7 / 嵌套数组 的输出形态（CHAT 请求体的期望串要靠它定）
+//  ② `BYTE_LEN` 与 `LEN` 在中文上的差（Content-Length 的口径）
+//  ③ `JSON_VALIDATE` 对空串 / 数组 / 对象的判定
+
+IMPORT("wlwl:std.json", ["STRINGIFY", "JSON_VALIDATE"]);
+IMPORT("wlwl:std.encode", ["BYTE_LEN"]);
+
+LET(p, INDEX_SET(INDEX_SET(INDEX_SET(DICT(), "model", "gpt-3.5-turbo"),
+    "messages", [INDEX_SET(INDEX_SET(DICT(), "role", "user"), "content", "hi")]),
+    "temperature", 0.7));
+PRINT("① payload=", STRINGIFY(p));
+
+PRINT("② LEN(中文)=", LEN("中文"), " BYTE_LEN=", BYTE_LEN("中文"));
+
+PRINT("③ validate emptystr err=", IS_ERR(JSON_VALIDATE("")),
+      " array err=", IS_ERR(JSON_VALIDATE("[]")),
+      " obj err=", IS_ERR(JSON_VALIDATE("{}")),
+      " notjson err=", IS_ERR(JSON_VALIDATE("not json")));

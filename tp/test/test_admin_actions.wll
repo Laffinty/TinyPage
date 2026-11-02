@@ -1,0 +1,879 @@
+// tp/test/test_admin_actions.wll —— 卡 S4-4：文章/独立页 CRUD + 上传 + 主题 + 预览
+//
+// ⚠ 本文件由 tp/test/gen_test_admin_actions.py 生成 —— 请勿手改。
+//
+// 期望值全部来自 tp/test/fixtures/admin_actions_baseline.json
+//   （gen_admin_actions_baseline.py 用**真 Python** action 产出）。
+//
+// ⚠ 与 Python 的已登记差异（D1–D11）见 tp/test/gen_admin_actions.py 的 docstring；
+//   本文件把其中**可观察**的三条也钉住（D3 slug unicode / D1b base64 补位 /
+//   title="" 走不到 slugify），钉的是 WLWL 侧自己的口径。
+//
+// ⚠ RUN_TESTS() 的失败**不影响退出码**（规范明载）⇒ 本文件自己把关。
+IMPORT("wlwl:std.test", ["TEST", "ASSERT", "ASSERT_EQ", "RUN_TESTS", "TEMP_DIR"]);
+IMPORT("wlwl:std.fs", ["MKDIRS", "WRITE_FILE", "WRITE_BYTES", "READ_FILE",
+     "READ_BYTES", "EXISTS", "PATH_JOIN", "FILE_META"]);
+IMPORT("wlwl:std.json", ["PARSE"]);
+IMPORT("wlwl:std.str", ["CAT", "INDEX_OF"]);
+IMPORT("./../lib/admin_actions.wll", ["CREATE_ARTICLE", "SAVE_ARTICLE",
+     "DELETE_ARTICLE", "CREATE_PAGE", "SAVE_PAGE", "DELETE_PAGE",
+     "SET_THEME", "PREVIEW", "REGEN", "UPLOAD_IMAGE"]);
+
+// ── 测试侧工具（顶层名一律 TAA_ 前缀：陷阱 #52 顶层绑定跨模块共享）──
+// // _TAA_ARR_EQ_(a, b) -> BOOLEAN
+     LET(_TAA_ARR_EQ_, FUN((a, b), (
+               // 字节数组逐元素比较（避免依赖 `==` 对 ARRAY 的语义）;
+               IF(||(!=(TYPE(a), "ARRAY"), !=(TYPE(b), "ARRAY")), (
+                    FALSE
+               ), (
+                    LET(na, LEN(a));
+                    LET(nb, LEN(b));
+                    IF(!=(na, nb), (
+                         FALSE
+                    ), (
+                         LET MUT(i, 0);
+                         LET MUT(same, TRUE);
+                         WHILE(&&(same, <(i, na)), (
+                              IF(!=(AT(a, i, -1), AT(b, i, -1)), (
+                                   SET(same, FALSE)
+                              ), (
+                                   NULL
+                              ));
+                              SET(i, +(i, 1))
+                         ));
+                         same
+                    ))
+               ))
+     )));
+
+// // _TAA_DBL_(unit, times) -> STRING
+     LET(_TAA_DBL_, FUN((unit, times), (
+               // 反复自拼 n 次：1 → 2 → 4 → … ⇒ O(n) 步；用来造超长输入;
+               LET MUT(s, unit);
+               LET MUT(i, 0);
+               WHILE(<(i, times), (
+                    SET(s, +(s, s));
+                    SET(i, +(i, 1))
+               ));
+               s
+     )));
+
+// 读文件；不存在时给哨兵（避免 LET 直接绑 ERR ⇒ E0103，陷阱 #25）
+// // _TAA_READ_(p) -> STRING
+     LET(_TAA_READ_, FUN((p), (
+               IF(EXISTS(p), (READ_FILE(p)), ("<missing>"))
+     )));
+
+// // _TAA_STATUS_(msg) -> "400"/"409"/"500"
+     LET(_TAA_STATUS_, FUN((msg), (
+               // 错误文本 → Python 侧会给出的 HTTP 状态码（见生成器 docstring 的对照表）;
+               LET(map, _TAA_STATUS_MAP_);
+               LET MUT(i, 0);
+               LET MUT(done, FALSE);
+               LET MUT(out, "500");
+               WHILE(&&(!done, <(i, LEN(map))), (
+                    LET(row, AT(map, i, []));
+                    LET(pfx, AT(row, 0, ""));
+                    IF(==(INDEX_OF(msg, pfx), 0), (
+                         SET(out, AT(row, 1, "500"));
+                         SET(done, TRUE)
+                    ), (
+                         NULL
+                    ));
+                    SET(i, +(i, 1))
+               ));
+               out
+     )));
+
+// 状态码映射表：**先 409、再 500 专属前缀、最后 400**。
+// ⚠ 顺序有意义：`Invalid filename: x`（500）以 `Invalid filename`（400）开头。
+LET(_TAA_STATUS_MAP_, [
+    ["Page already exists", "409"],
+    ["Invalid filename: ", "500"],
+    ["Title invalid or too long: ", "500"],
+    ["Content validation failed: ", "500"],
+    ["Invalid date format: ", "500"],
+    ["Invalid page filename: ", "500"],
+    ["Missing fields", "400"],
+    ["Invalid filename", "400"],
+    ["Invalid slug", "400"],
+    ["Missing theme name", "400"],
+    ["Theme not found", "400"],
+    ["Missing filename or data", "400"],
+    ["File type not allowed: ", "400"],
+    ["Invalid base64 data", "400"],
+    ["Invalid image format", "400"],
+    ["File too large", "400"]
+]);
+
+// ── 工作区（TEMP_DIR ⇒ 绝不出现机器相关路径）────────────────────
+LET(_TAA_ROOT_, TEMP_DIR());
+LET(_TAA_ART_, PATH_JOIN(_TAA_ROOT_, "articles"));
+LET(_TAA_PG_, PATH_JOIN(_TAA_ROOT_, "pages"));
+LET(_TAA_GST_, PATH_JOIN(_TAA_ROOT_, "guard_static"));
+MKDIRS(_TAA_ART_);
+MKDIRS(_TAA_PG_);
+MKDIRS(_TAA_GST_);
+
+// 201 / 50001 字符的输入：倍增到 ≥ 长度再 SUB 裁切（WLWL 没有 REPEAT 内建）
+LET(_TAA_T201_, SUB(_TAA_DBL_("T", 8), 0, 201));
+LET(_TAA_C50001_, SUB(_TAA_DBL_("x", 16), 0, 50001));
+
+// ── ① slugify：基准 14 例（slugify 不导出 ⇒ 用 CREATE_ARTICLE 的文件名观察）──
+//   日期固定 2026-01-02 ⇒ 文件名 = "2026-01-02-" + slug + ".html"
+LET(_TAA_SL_00_D_, PATH_JOIN(_TAA_ROOT_, "sd_00"));
+MKDIRS(_TAA_SL_00_D_);
+LET(_TAA_SL_00_R_, CREATE_ARTICLE(["article_dir": _TAA_SL_00_D_, "title": "Hello World", "date": "2026-01-02 10:30", "content": "c", "fallback": ""]));
+LET(_TAA_SL_01_D_, PATH_JOIN(_TAA_ROOT_, "sd_01"));
+MKDIRS(_TAA_SL_01_D_);
+LET(_TAA_SL_01_R_, CREATE_ARTICLE(["article_dir": _TAA_SL_01_D_, "title": "中文 标题", "date": "2026-01-02 10:30", "content": "c", "fallback": ""]));
+LET(_TAA_SL_02_D_, PATH_JOIN(_TAA_ROOT_, "sd_02"));
+MKDIRS(_TAA_SL_02_D_);
+LET(_TAA_SL_02_R_, CREATE_ARTICLE(["article_dir": _TAA_SL_02_D_, "title": "a--b", "date": "2026-01-02 10:30", "content": "c", "fallback": ""]));
+LET(_TAA_SL_03_D_, PATH_JOIN(_TAA_ROOT_, "sd_03"));
+MKDIRS(_TAA_SL_03_D_);
+LET(_TAA_SL_03_R_, CREATE_ARTICLE(["article_dir": _TAA_SL_03_D_, "title": "  Trim Me  ", "date": "2026-01-02 10:30", "content": "c", "fallback": ""]));
+LET(_TAA_SL_04_D_, PATH_JOIN(_TAA_ROOT_, "sd_04"));
+MKDIRS(_TAA_SL_04_D_);
+LET(_TAA_SL_04_R_, CREATE_ARTICLE(["article_dir": _TAA_SL_04_D_, "title": "Hello, World! 2026", "date": "2026-01-02 10:30", "content": "c", "fallback": ""]));
+LET(_TAA_SL_05_D_, PATH_JOIN(_TAA_ROOT_, "sd_05"));
+MKDIRS(_TAA_SL_05_D_);
+LET(_TAA_SL_05_R_, CREATE_ARTICLE(["article_dir": _TAA_SL_05_D_, "title": "UPPER CASE", "date": "2026-01-02 10:30", "content": "c", "fallback": ""]));
+LET(_TAA_SL_06_D_, PATH_JOIN(_TAA_ROOT_, "sd_06"));
+MKDIRS(_TAA_SL_06_D_);
+LET(_TAA_SL_06_R_, CREATE_ARTICLE(["article_dir": _TAA_SL_06_D_, "title": "a_b-c", "date": "2026-01-02 10:30", "content": "c", "fallback": ""]));
+LET(_TAA_SL_07_D_, PATH_JOIN(_TAA_ROOT_, "sd_07"));
+MKDIRS(_TAA_SL_07_D_);
+LET(_TAA_SL_07_R_, CREATE_ARTICLE(["article_dir": _TAA_SL_07_D_, "title": "2026-01-02 标题", "date": "2026-01-02 10:30", "content": "c", "fallback": ""]));
+LET(_TAA_SL_08_D_, PATH_JOIN(_TAA_ROOT_, "sd_08"));
+MKDIRS(_TAA_SL_08_D_);
+LET(_TAA_SL_08_R_, CREATE_ARTICLE(["article_dir": _TAA_SL_08_D_, "title": "xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx", "date": "2026-01-02 10:30", "content": "c", "fallback": ""]));
+LET(_TAA_SL_09_D_, PATH_JOIN(_TAA_ROOT_, "sd_09"));
+MKDIRS(_TAA_SL_09_D_);
+LET(_TAA_SL_09_R_, CREATE_ARTICLE(["article_dir": _TAA_SL_09_D_, "title": "yyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyy--z", "date": "2026-01-02 10:30", "content": "c", "fallback": ""]));
+LET(_TAA_SL_10_D_, PATH_JOIN(_TAA_ROOT_, "sd_10"));
+MKDIRS(_TAA_SL_10_D_);
+LET(_TAA_SL_10_R_, CREATE_ARTICLE(["article_dir": _TAA_SL_10_D_, "title": "Ünïcode", "date": "2026-01-02 10:30", "content": "c", "fallback": ""]));
+LET(_TAA_SL_11_D_, PATH_JOIN(_TAA_ROOT_, "sd_11"));
+MKDIRS(_TAA_SL_11_D_);
+LET(_TAA_SL_11_R_, CREATE_ARTICLE(["article_dir": _TAA_SL_11_D_, "title": "", "date": "2026-01-02 10:30", "content": "c", "fallback": "fallback-x"]));
+LET(_TAA_SL_12_D_, PATH_JOIN(_TAA_ROOT_, "sd_12"));
+MKDIRS(_TAA_SL_12_D_);
+LET(_TAA_SL_12_R_, CREATE_ARTICLE(["article_dir": _TAA_SL_12_D_, "title": "!!!", "date": "2026-01-02 10:30", "content": "c", "fallback": "fallback-x"]));
+LET(_TAA_SL_13_D_, PATH_JOIN(_TAA_ROOT_, "sd_13"));
+MKDIRS(_TAA_SL_13_D_);
+LET(_TAA_SL_13_R_, CREATE_ARTICLE(["article_dir": _TAA_SL_13_D_, "title": "---", "date": "2026-01-02 10:30", "content": "c", "fallback": "fallback-x"]));
+
+TEST("slugify/00", FUN(() ,
+    (ASSERT_EQ(AT_K(_TAA_SL_00_R_, "ok", FALSE), TRUE));
+    (ASSERT_EQ(AT_K(_TAA_SL_00_R_, "file", ""), "2026-01-02-hello-world.html"));
+    TRUE));
+TEST("slugify/01", FUN(() ,
+    (ASSERT_EQ(AT_K(_TAA_SL_01_R_, "ok", FALSE), TRUE));
+    (ASSERT_EQ(AT_K(_TAA_SL_01_R_, "file", ""), "2026-01-02-中文-标题.html"));
+    TRUE));
+TEST("slugify/02", FUN(() ,
+    (ASSERT_EQ(AT_K(_TAA_SL_02_R_, "ok", FALSE), TRUE));
+    (ASSERT_EQ(AT_K(_TAA_SL_02_R_, "file", ""), "2026-01-02-a-b.html"));
+    TRUE));
+TEST("slugify/03", FUN(() ,
+    (ASSERT_EQ(AT_K(_TAA_SL_03_R_, "ok", FALSE), TRUE));
+    (ASSERT_EQ(AT_K(_TAA_SL_03_R_, "file", ""), "2026-01-02-trim-me.html"));
+    TRUE));
+TEST("slugify/04", FUN(() ,
+    (ASSERT_EQ(AT_K(_TAA_SL_04_R_, "ok", FALSE), TRUE));
+    (ASSERT_EQ(AT_K(_TAA_SL_04_R_, "file", ""), "2026-01-02-hello-world-2026.html"));
+    TRUE));
+TEST("slugify/05", FUN(() ,
+    (ASSERT_EQ(AT_K(_TAA_SL_05_R_, "ok", FALSE), TRUE));
+    (ASSERT_EQ(AT_K(_TAA_SL_05_R_, "file", ""), "2026-01-02-upper-case.html"));
+    TRUE));
+// 文件名校验不许 `_`（SAFE_FILENAME_PATTERN）⇒ 落盘被拒；错误消息里带出的正是 slug='a_b-c'，等价于断言 slug 本身
+TEST("slugify/06", FUN(() ,
+    (ASSERT_EQ(AT_K(_TAA_SL_06_R_, "ok", TRUE), FALSE));
+    (ASSERT_EQ(AT_K(_TAA_SL_06_R_, "error", ""), "Invalid filename: 2026-01-02-a_b-c.html"));
+    TRUE));
+TEST("slugify/07", FUN(() ,
+    (ASSERT_EQ(AT_K(_TAA_SL_07_R_, "ok", FALSE), TRUE));
+    (ASSERT_EQ(AT_K(_TAA_SL_07_R_, "file", ""), "2026-01-02-2026-01-02-标题.html"));
+    TRUE));
+TEST("slugify/08", FUN(() ,
+    (ASSERT_EQ(AT_K(_TAA_SL_08_R_, "ok", FALSE), TRUE));
+    (ASSERT_EQ(AT_K(_TAA_SL_08_R_, "file", ""), "2026-01-02-xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx.html"));
+    TRUE));
+TEST("slugify/09", FUN(() ,
+    (ASSERT_EQ(AT_K(_TAA_SL_09_R_, "ok", FALSE), TRUE));
+    (ASSERT_EQ(AT_K(_TAA_SL_09_R_, "file", ""), "2026-01-02-yyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyy.html"));
+    TRUE));
+// D3：Python 得 'ünïcode'，WLWL 正则只认 ASCII+CJK ⇒ 断言 WLWL 侧 'n-code'
+TEST("slugify/10", FUN(() ,
+    (ASSERT_EQ(AT_K(_TAA_SL_10_R_, "ok", FALSE), TRUE));
+    (ASSERT_EQ(AT_K(_TAA_SL_10_R_, "file", ""), "2026-01-02-n-code.html"));
+    TRUE));
+// 基准该例 title="" 在**公开面不可达**：CREATE_ARTICLE 先判 Missing fields（与 actions.py:48 同序）⇒ 断言 Missing fields
+TEST("slugify/11", FUN(() ,
+    (ASSERT_EQ(AT_K(_TAA_SL_11_R_, "ok", TRUE), FALSE));
+    (ASSERT_EQ(AT_K(_TAA_SL_11_R_, "error", ""), "Missing fields"));
+    TRUE));
+TEST("slugify/12", FUN(() ,
+    (ASSERT_EQ(AT_K(_TAA_SL_12_R_, "ok", FALSE), TRUE));
+    (ASSERT_EQ(AT_K(_TAA_SL_12_R_, "file", ""), "2026-01-02-fallback-x.html"));
+    TRUE));
+TEST("slugify/13", FUN(() ,
+    (ASSERT_EQ(AT_K(_TAA_SL_13_R_, "ok", FALSE), TRUE));
+    (ASSERT_EQ(AT_K(_TAA_SL_13_R_, "file", ""), "2026-01-02-fallback-x.html"));
+    TRUE));
+// ── ② 文章：create → save → delete ──────────────────────────
+// ⚠ 测试体在 RUN_TESTS() 里才跑（晚于全部顶层 LET）⇒ create 与 save 必须
+//   用**两个目录**，否则 save 覆盖同文件后 create 的断言比的是 save 的产物。
+//   基准里两者共用一条路径、按时间顺序各读一次；这里用 `art_create` /
+//   `art_save` 两个目录复现同一序列（save 目录先 create 再 save）。
+LET(_TAA_ARTD_C_, PATH_JOIN(_TAA_ROOT_, "art_create"));
+LET(_TAA_ARTD_S_, PATH_JOIN(_TAA_ROOT_, "art_save"));
+MKDIRS(_TAA_ARTD_C_);
+MKDIRS(_TAA_ARTD_S_);
+LET(_TAA_ART_C_, CREATE_ARTICLE(["article_dir": _TAA_ARTD_C_, "title": "Hello World", "date": "2026-01-02 10:30", "content": "正文 **粗体**\n\n- 一\n- 二", "tags": "a,b", "category": "tech", "status": "draft"]));
+LET(_TAA_ART_HTML_, PATH_JOIN(_TAA_ARTD_C_, "2026-01-02-hello-world.html"));
+LET(_TAA_ART_MD_, PATH_JOIN(_TAA_ARTD_C_, "2026-01-02-hello-world.md"));
+TEST("article/create_ok", FUN(() ,
+    (ASSERT_EQ(AT_K(_TAA_ART_C_, "ok", FALSE), TRUE));
+    TRUE));
+TEST("article/create_file", FUN(() ,
+    (ASSERT_EQ(AT_K(_TAA_ART_C_, "file", ""), "2026-01-02-hello-world.html"));
+    TRUE));
+// 正文在兄弟 .md 里（skip_html_generation，差异 D5）
+TEST("article/create_md", FUN(() ,
+    (ASSERT_EQ(READ_FILE(_TAA_ART_MD_), "正文 **粗体**\n\n- 一\n- 二"));
+    TRUE));
+// 文章 .html = 7 行 meta 头（基准 create.html）
+TEST("article/create_html", FUN(() ,
+    (ASSERT_EQ(READ_FILE(_TAA_ART_HTML_), "<!-- title: Hello World -->\n<!-- date: 2026-01-02 10:30 -->\n<!-- slug: hello-world -->\n<!-- tags: a,b -->\n<!-- summary:  -->\n<!-- category: tech -->\n<!-- status: draft -->\n"));
+    TRUE));
+// save 目录：先 create 出同一份文件，再 save 覆盖（与基准同起点）
+LET(_TAA_ART_S0_, CREATE_ARTICLE(["article_dir": _TAA_ARTD_S_, "title": "Hello World", "date": "2026-01-02 10:30", "content": "正文 **粗体**\n\n- 一\n- 二", "tags": "a,b", "category": "tech", "status": "draft"]));
+LET(_TAA_ART_S_, SAVE_ARTICLE(["article_dir": _TAA_ARTD_S_, "file": "2026-01-02-hello-world.html", "title": "Hello World v2", "date": "2026-01-03 08:00", "content": "第二版正文", "tags": "x", "category": "misc", "status": "published"]));
+LET(_TAA_ART_SHTML_, PATH_JOIN(_TAA_ARTD_S_, "2026-01-02-hello-world.html"));
+LET(_TAA_ART_SMD_, PATH_JOIN(_TAA_ARTD_S_, "2026-01-02-hello-world.md"));
+// 快照：后面的 delete 会删掉这两个文件，而测试体要晚于全部顶层 LET 才跑
+LET(_TAA_ART_SMD_TXT_, _TAA_READ_(_TAA_ART_SMD_));
+LET(_TAA_ART_SHTML_TXT_, _TAA_READ_(_TAA_ART_SHTML_));
+TEST("article/save_ok", FUN(() ,
+    (ASSERT_EQ(AT_K(_TAA_ART_S_, "ok", FALSE), TRUE));
+    (ASSERT_EQ(AT_K(_TAA_ART_S_, "file", ""), "2026-01-02-hello-world.html"));
+    TRUE));
+TEST("article/save_md", FUN(() ,
+    (ASSERT_EQ(_TAA_ART_SMD_TXT_, "第二版正文"));
+    TRUE));
+// 改标题后 slug 变 hello-world-v2，但**文件名不变** —— 与 Python 同
+TEST("article/save_html", FUN(() ,
+    (ASSERT_EQ(_TAA_ART_SHTML_TXT_, "<!-- title: Hello World v2 -->\n<!-- date: 2026-01-03 08:00 -->\n<!-- slug: hello-world-v2 -->\n<!-- tags: x -->\n<!-- summary:  -->\n<!-- category: misc -->\n<!-- status: published -->\n"));
+    TRUE));
+LET(_TAA_ART_D_, DELETE_ARTICLE(["article_dir": _TAA_ARTD_S_, "file": "2026-01-02-hello-world.html"]));
+TEST("article/delete_ok", FUN(() ,
+    (ASSERT_EQ(AT_K(_TAA_ART_D_, "ok", FALSE), TRUE));
+    (ASSERT_EQ(AT_K(_TAA_ART_D_, "deleted", FALSE), TRUE));
+    TRUE));
+TEST("article/delete_files_gone", FUN(() ,
+    (ASSERT(!EXISTS(_TAA_ART_SHTML_)));
+    (ASSERT(!EXISTS(_TAA_ART_SMD_)));
+    TRUE));
+// 基准 backup_left == []（备份必须清干净）
+TEST("article/delete_no_backup_left", FUN(() ,
+    (ASSERT(!EXISTS(CAT(_TAA_ART_SHTML_, ".backup"))));
+    (ASSERT(!EXISTS(CAT(_TAA_ART_SMD_, ".backup"))));
+    TRUE));
+LET(_TAA_ART_DM_, DELETE_ARTICLE(["article_dir": _TAA_ARTD_S_, "file": "2026-01-02-nope.html"]));
+// Python: `if path.is_file()` 不成立 ⇒ 什么都不做、仍重定向（actions.py:102）
+TEST("article/delete_missing_ok", FUN(() ,
+    (ASSERT_EQ(AT_K(_TAA_ART_DM_, "ok", FALSE), TRUE));
+    (ASSERT_EQ(AT_K(_TAA_ART_DM_, "deleted", TRUE), FALSE));
+    TRUE));
+
+// ── ③ 删除失败 ⇒ 回滚（卡点名守卫 ③）────────────────────────────
+// Python 侧靠 monkeypatch `shutil.copy2` 第二次调用抛 OSError 造失败；
+// WLWL 没有注入点 ⇒ 用**同义的失败源**：把备份目标 `<file>.html.backup`
+// 先造成一个**目录** ⇒ COPY 必然失败（Python 的 copy2 到目录同样抛）。
+// 断言的可观察结果与基准一致：失败 + 文章与 .md 都还在、内容未变。
+LET(_TAA_RB_, PATH_JOIN(_TAA_ROOT_, "rollback"));
+MKDIRS(_TAA_RB_);
+LET(_TAA_RB_HTML_, PATH_JOIN(_TAA_RB_, "2026-02-03-rollback.html"));
+LET(_TAA_RB_MD_, PATH_JOIN(_TAA_RB_, "2026-02-03-rollback.md"));
+WRITE_FILE(_TAA_RB_HTML_, "<!-- title: R -->\n");
+WRITE_FILE(_TAA_RB_MD_, "回滚正文");
+MKDIRS(CAT(_TAA_RB_HTML_, ".backup"));
+LET(_TAA_RB_R_, DELETE_ARTICLE(["article_dir": _TAA_RB_, "file": "2026-02-03-rollback.html"]));
+TEST("guard/delete_failure_reports_error", FUN(() ,
+    (ASSERT_EQ(AT_K(_TAA_RB_R_, "ok", TRUE), FALSE));
+    (ASSERT_EQ(_TAA_STATUS_(AT_K(_TAA_RB_R_, "error", "")), "500"));
+    TRUE));
+// 基准 html_still_there == True 且内容未变
+TEST("guard/delete_failure_html_kept", FUN(() ,
+    (ASSERT(EXISTS(_TAA_RB_HTML_)));
+    (ASSERT_EQ(READ_FILE(_TAA_RB_HTML_), "<!-- title: R -->\n"));
+    TRUE));
+// 基准 md_still_there == True 且内容未变
+TEST("guard/delete_failure_md_kept", FUN(() ,
+    (ASSERT(EXISTS(_TAA_RB_MD_)));
+    (ASSERT_EQ(READ_FILE(_TAA_RB_MD_), "回滚正文"));
+    TRUE));
+
+// ── ④ 重名创建：改用 `<date>-<slug>-<suffix>.html`（差异 D2）────
+LET(_TAA_COL_, PATH_JOIN(_TAA_ROOT_, "collision"));
+MKDIRS(_TAA_COL_);
+WRITE_FILE(PATH_JOIN(_TAA_COL_, "2026-01-02-hello-world.html"), "<!-- title: old -->\n");
+LET(_TAA_COL_R_, CREATE_ARTICLE(["article_dir": _TAA_COL_, "title": "Hello World", "date": "2026-01-02 10:30", "content": "正文 **粗体**\n\n- 一\n- 二", "tags": "a,b", "category": "tech", "status": "draft", "suffix": "AbC123"]));
+// 基准 names_after 里新文件是 2026-01-02-hello-world-AbC123.html
+TEST("article/collision_new_name", FUN(() ,
+    (ASSERT_EQ(AT_K(_TAA_COL_R_, "ok", FALSE), TRUE));
+    (ASSERT_EQ(AT_K(_TAA_COL_R_, "file", ""), "2026-01-02-hello-world-AbC123.html"));
+    TRUE));
+// 旧文件必须原样保留（不能被覆盖）
+TEST("article/collision_both_exist", FUN(() ,
+    (ASSERT(EXISTS(PATH_JOIN(_TAA_COL_, "2026-01-02-hello-world-AbC123.html"))));
+    (ASSERT(EXISTS(PATH_JOIN(_TAA_COL_, "2026-01-02-hello-world.html"))));
+    (ASSERT_EQ(READ_FILE(PATH_JOIN(_TAA_COL_, "2026-01-02-hello-world.html")), "<!-- title: old -->\n"));
+    TRUE));
+
+// ── ⑤ 独立页：create → save（改 slug）→ delete ────────────────
+// ⚠ 同 ②：create 与 save 用两个目录（save 会删掉旧 slug 的文件）。
+LET(_TAA_PGD_C_, PATH_JOIN(_TAA_ROOT_, "pg_create"));
+LET(_TAA_PGD_S_, PATH_JOIN(_TAA_ROOT_, "pg_save"));
+MKDIRS(_TAA_PGD_C_);
+MKDIRS(_TAA_PGD_S_);
+LET(_TAA_PG_C_, CREATE_PAGE(["standalone_dir": _TAA_PGD_C_, "title": "关于", "slug": "about", "content": "# 关于\n\n你好"]));
+LET(_TAA_PG_OLD_, PATH_JOIN(_TAA_PGD_C_, "about.html"));
+LET(_TAA_PG_OLDM_, PATH_JOIN(_TAA_PGD_C_, "about.md"));
+TEST("page/create_ok", FUN(() ,
+    (ASSERT_EQ(AT_K(_TAA_PG_C_, "ok", FALSE), TRUE));
+    (ASSERT_EQ(AT_K(_TAA_PG_C_, "file", ""), "about.html"));
+    TRUE));
+TEST("page/create_md", FUN(() ,
+    (ASSERT_EQ(READ_FILE(_TAA_PG_OLDM_), "# 关于\n\n你好"));
+    TRUE));
+// D5：整页渲染交给 REGEN ⇒ 只剩 title/summary 两行 meta 头
+TEST("page/create_html", FUN(() ,
+    (ASSERT_EQ(READ_FILE(_TAA_PG_OLD_), "<!-- title: 关于 -->\n<!-- summary:  -->\n"));
+    TRUE));
+// save 目录：先 create 出 about.html，再 save 成 contact.html
+LET(_TAA_PG_C0_, CREATE_PAGE(["standalone_dir": _TAA_PGD_S_, "title": "关于", "slug": "about", "content": "# 关于\n\n你好"]));
+LET(_TAA_PG_OLD2_, PATH_JOIN(_TAA_PGD_S_, "about.html"));
+LET(_TAA_PG_OLD2M_, PATH_JOIN(_TAA_PGD_S_, "about.md"));
+LET(_TAA_PG_S_, SAVE_PAGE(["standalone_dir": _TAA_PGD_S_, "file": "about.html", "title": "联系", "slug": "contact", "content": "联系正文"]));
+LET(_TAA_PG_NEW_, PATH_JOIN(_TAA_PGD_S_, "contact.html"));
+LET(_TAA_PG_NEWM_, PATH_JOIN(_TAA_PGD_S_, "contact.md"));
+// 快照（后面的 delete 会删掉这两个文件；测试体跑得更晚）
+LET(_TAA_PG_NEWM_TXT_, _TAA_READ_(_TAA_PG_NEWM_));
+LET(_TAA_PG_NEW_TXT_, _TAA_READ_(_TAA_PG_NEW_));
+TEST("page/save_ok", FUN(() ,
+    (ASSERT_EQ(AT_K(_TAA_PG_S_, "ok", FALSE), TRUE));
+    (ASSERT_EQ(AT_K(_TAA_PG_S_, "file", ""), "contact.html"));
+    TRUE));
+// 基准 save.left == [contact.html, contact.md] ⇒ about.* 必须消失（守卫⑦）
+TEST("page/save_old_removed", FUN(() ,
+    (ASSERT(!EXISTS(_TAA_PG_OLD2_)));
+    (ASSERT(!EXISTS(_TAA_PG_OLD2M_)));
+    TRUE));
+TEST("page/save_new_content", FUN(() ,
+    (ASSERT_EQ(_TAA_PG_NEWM_TXT_, "联系正文"));
+    (ASSERT_EQ(_TAA_PG_NEW_TXT_, "<!-- title: 联系 -->\n<!-- summary:  -->\n"));
+    TRUE));
+LET(_TAA_PG_D_, DELETE_PAGE(["standalone_dir": _TAA_PGD_S_, "file": "contact.html"]));
+TEST("page/delete_ok", FUN(() ,
+    (ASSERT_EQ(AT_K(_TAA_PG_D_, "ok", FALSE), TRUE));
+    (ASSERT_EQ(AT_K(_TAA_PG_D_, "deleted", FALSE), TRUE));
+    TRUE));
+// 基准 delete.left == []
+TEST("page/delete_files_gone", FUN(() ,
+    (ASSERT(!EXISTS(_TAA_PG_NEW_)));
+    (ASSERT(!EXISTS(_TAA_PG_NEWM_)));
+    TRUE));
+
+// ── ⑥ 上传：13 例逐字节对照（D8：year/month 显式钉成 2026-11）──
+LET(_TAA_UP_00_ST_, PATH_JOIN(_TAA_ROOT_, "up_00"));
+MKDIRS(_TAA_UP_00_ST_);
+LET(_TAA_UP_00_R_, UPLOAD_IMAGE(["static_dir": _TAA_UP_00_ST_, "filename": "a.png", "data": "iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mP8z8DwHwAFAAH/q842iQAAAABJRU5ErkJggg==", "year": 2026, "month": 11]));
+LET(_TAA_UP_01_ST_, PATH_JOIN(_TAA_ROOT_, "up_01"));
+MKDIRS(_TAA_UP_01_ST_);
+LET(_TAA_UP_01_R_, UPLOAD_IMAGE(["static_dir": _TAA_UP_01_ST_, "filename": "b.jpg", "data": "/9j/4AAQSkZJRgABAQEAYABgAAD/2wBDAAgGBgcGBQgHBwcJCQgKDBQNDAsLDBkSEw8UHRofHh0aHBwgJC4nICIsIxwcKDcpLDAxNDQ0Hyc5PTgyPC4zNDL/wAALCAABAAEBAREA/8QAFAABAAAAAAAAAAAAAAAAAAAACf/EABQQAQAAAAAAAAAAAAAAAAAAAAD/2gAIAQEAAD8AVN//2Q==", "year": 2026, "month": 11]));
+LET(_TAA_UP_02_ST_, PATH_JOIN(_TAA_ROOT_, "up_02"));
+MKDIRS(_TAA_UP_02_ST_);
+LET(_TAA_UP_02_R_, UPLOAD_IMAGE(["static_dir": _TAA_UP_02_ST_, "filename": "c.gif", "data": "R0lGODlhAQABAIAAAAAAAP///yH5BAEAAAAALAAAAAABAAEAAAIBRAA7", "year": 2026, "month": 11]));
+LET(_TAA_UP_03_ST_, PATH_JOIN(_TAA_ROOT_, "up_03"));
+MKDIRS(_TAA_UP_03_ST_);
+LET(_TAA_UP_03_R_, UPLOAD_IMAGE(["static_dir": _TAA_UP_03_ST_, "filename": "d.webp", "data": "UklGRhQAAABXRUJQVlA4IAAAAAAAAAAA", "year": 2026, "month": 11]));
+LET(_TAA_UP_04_ST_, PATH_JOIN(_TAA_ROOT_, "up_04"));
+MKDIRS(_TAA_UP_04_ST_);
+LET(_TAA_UP_04_R_, UPLOAD_IMAGE(["static_dir": _TAA_UP_04_ST_, "filename": "e.jpeg", "data": "/9j/4AAQSkZJRgABAQEAYABgAAD/2wBDAAgGBgcGBQgHBwcJCQgKDBQNDAsLDBkSEw8UHRofHh0aHBwgJC4nICIsIxwcKDcpLDAxNDQ0Hyc5PTgyPC4zNDL/wAALCAABAAEBAREA/8QAFAABAAAAAAAAAAAAAAAAAAAACf/EABQQAQAAAAAAAAAAAAAAAAAAAAD/2gAIAQEAAD8AVN//2Q==", "year": 2026, "month": 11]));
+LET(_TAA_UP_05_ST_, PATH_JOIN(_TAA_ROOT_, "up_05"));
+MKDIRS(_TAA_UP_05_ST_);
+LET(_TAA_UP_05_R_, UPLOAD_IMAGE(["static_dir": _TAA_UP_05_ST_, "filename": "f.webp", "data": "UklGRgAAAAAAAAAAAAAAAA==", "year": 2026, "month": 11]));
+LET(_TAA_UP_06_ST_, PATH_JOIN(_TAA_ROOT_, "up_06"));
+MKDIRS(_TAA_UP_06_ST_);
+LET(_TAA_UP_06_R_, UPLOAD_IMAGE(["static_dir": _TAA_UP_06_ST_, "filename": "g.php", "data": "iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mP8z8DwHwAFAAH/q842iQAAAABJRU5ErkJggg==", "year": 2026, "month": 11]));
+LET(_TAA_UP_07_ST_, PATH_JOIN(_TAA_ROOT_, "up_07"));
+MKDIRS(_TAA_UP_07_ST_);
+LET(_TAA_UP_07_R_, UPLOAD_IMAGE(["static_dir": _TAA_UP_07_ST_, "filename": "h.html", "data": "iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mP8z8DwHwAFAAH/q842iQAAAABJRU5ErkJggg==", "year": 2026, "month": 11]));
+LET(_TAA_UP_08_ST_, PATH_JOIN(_TAA_ROOT_, "up_08"));
+MKDIRS(_TAA_UP_08_ST_);
+LET(_TAA_UP_08_R_, UPLOAD_IMAGE(["static_dir": _TAA_UP_08_ST_, "filename": "i.png", "data": "PD9waHAgZWNobyAxOyA/Pg==", "year": 2026, "month": 11]));
+LET(_TAA_UP_09_ST_, PATH_JOIN(_TAA_ROOT_, "up_09"));
+MKDIRS(_TAA_UP_09_ST_);
+LET(_TAA_UP_09_R_, UPLOAD_IMAGE(["static_dir": _TAA_UP_09_ST_, "filename": "j.png", "data": "data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mP8z8DwHwAFAAH/q842iQAAAABJRU5ErkJggg==", "year": 2026, "month": 11]));
+LET(_TAA_UP_10_ST_, PATH_JOIN(_TAA_ROOT_, "up_10"));
+MKDIRS(_TAA_UP_10_ST_);
+LET(_TAA_UP_10_R_, UPLOAD_IMAGE(["static_dir": _TAA_UP_10_ST_, "filename": "k.png", "data": "AAAAA", "year": 2026, "month": 11]));
+LET(_TAA_UP_11_ST_, PATH_JOIN(_TAA_ROOT_, "up_11"));
+MKDIRS(_TAA_UP_11_ST_);
+LET(_TAA_UP_11_R_, UPLOAD_IMAGE(["static_dir": _TAA_UP_11_ST_, "filename": "l.png", "data": "QQ", "year": 2026, "month": 11]));
+LET(_TAA_UP_12_ST_, PATH_JOIN(_TAA_ROOT_, "up_12"));
+MKDIRS(_TAA_UP_12_ST_);
+MKDIRS(PATH_JOIN(_TAA_UP_12_ST_, "images/2026-11"));
+WRITE_BYTES(PATH_JOIN(_TAA_UP_12_ST_, "images/2026-11/same.png"), [137, 80, 78, 71, 13, 10, 26, 10, 0, 0, 0, 13, 73, 72, 68, 82, 0, 0, 0, 1, 0, 0, 0, 1, 8, 6, 0, 0, 0, 31, 21, 196, 137, 0, 0, 0, 13, 73, 68, 65, 84, 120, 218, 99, 252, 207, 192, 240, 31, 0, 5, 0, 1, 255, 171, 206, 54, 137, 0, 0, 0, 0, 73, 69, 78, 68, 174, 66, 96, 130]);
+LET(_TAA_UP_12_R_, UPLOAD_IMAGE(["static_dir": _TAA_UP_12_ST_, "filename": "same.png", "data": "iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mP8z8DwHwAFAAH/q842iQAAAABJRU5ErkJgggAA", "year": 2026, "month": 11]));
+TEST("upload/png_ok_ok", FUN(() ,
+    (ASSERT_EQ(AT_K(_TAA_UP_00_R_, "ok", FALSE), TRUE));
+    (ASSERT_EQ(AT_K(_TAA_UP_00_R_, "url", ""), "/static/images/2026-11/a.png"));
+    TRUE));
+// 落盘路径 = static/images/2026-11/a.png（70 字节）
+TEST("upload/png_ok_file", FUN(() ,
+    (ASSERT(EXISTS(PATH_JOIN(_TAA_UP_00_ST_, "images/2026-11/a.png"))));
+    (ASSERT(&&(EXISTS(PATH_JOIN(_TAA_UP_00_ST_, "images/2026-11/a.png")), ==(AT_K(FILE_META(PATH_JOIN(_TAA_UP_00_ST_, "images/2026-11/a.png")), "size", -1), 70))));
+    TRUE));
+// 逐字节对照基准的 bytes
+TEST("upload/png_ok_bytes", FUN(() ,
+    (ASSERT(&&(EXISTS(PATH_JOIN(_TAA_UP_00_ST_, "images/2026-11/a.png")), _TAA_ARR_EQ_(READ_BYTES(PATH_JOIN(_TAA_UP_00_ST_, "images/2026-11/a.png")), [137, 80, 78, 71, 13, 10, 26, 10, 0, 0, 0, 13, 73, 72, 68, 82, 0, 0, 0, 1, 0, 0, 0, 1, 8, 6, 0, 0, 0, 31, 21, 196, 137, 0, 0, 0, 13, 73, 68, 65, 84, 120, 218, 99, 252, 207, 192, 240, 31, 0, 5, 0, 1, 255, 171, 206, 54, 137, 0, 0, 0, 0, 73, 69, 78, 68, 174, 66, 96, 130]))));
+    TRUE));
+TEST("upload/jpeg_ok_ok", FUN(() ,
+    (ASSERT_EQ(AT_K(_TAA_UP_01_R_, "ok", FALSE), TRUE));
+    (ASSERT_EQ(AT_K(_TAA_UP_01_R_, "url", ""), "/static/images/2026-11/b.jpg"));
+    TRUE));
+// 落盘路径 = static/images/2026-11/b.jpg（160 字节）
+TEST("upload/jpeg_ok_file", FUN(() ,
+    (ASSERT(EXISTS(PATH_JOIN(_TAA_UP_01_ST_, "images/2026-11/b.jpg"))));
+    (ASSERT(&&(EXISTS(PATH_JOIN(_TAA_UP_01_ST_, "images/2026-11/b.jpg")), ==(AT_K(FILE_META(PATH_JOIN(_TAA_UP_01_ST_, "images/2026-11/b.jpg")), "size", -1), 160))));
+    TRUE));
+// 逐字节对照基准的 bytes
+TEST("upload/jpeg_ok_bytes", FUN(() ,
+    (ASSERT(&&(EXISTS(PATH_JOIN(_TAA_UP_01_ST_, "images/2026-11/b.jpg")), _TAA_ARR_EQ_(READ_BYTES(PATH_JOIN(_TAA_UP_01_ST_, "images/2026-11/b.jpg")), [255, 216, 255, 224, 0, 16, 74, 70, 73, 70, 0, 1, 1, 1, 0, 96, 0, 96, 0, 0, 255, 219, 0, 67, 0, 8, 6, 6, 7, 6, 5, 8, 7, 7, 7, 9, 9, 8, 10, 12, 20, 13, 12, 11, 11, 12, 25, 18, 19, 15, 20, 29, 26, 31, 30, 29, 26, 28, 28, 32, 36, 46, 39, 32, 34, 44, 35, 28, 28, 40, 55, 41, 44, 48, 49, 52, 52, 52, 31, 39, 57, 61, 56, 50, 60, 46, 51, 52, 50, 255, 192, 0, 11, 8, 0, 1, 0, 1, 1, 1, 17, 0, 255, 196, 0, 20, 0, 1, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 9, 255, 196, 0, 20, 16, 1, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 255, 218, 0, 8, 1, 1, 0, 0, 63, 0, 84, 223, 255, 217]))));
+    TRUE));
+TEST("upload/gif_ok_ok", FUN(() ,
+    (ASSERT_EQ(AT_K(_TAA_UP_02_R_, "ok", FALSE), TRUE));
+    (ASSERT_EQ(AT_K(_TAA_UP_02_R_, "url", ""), "/static/images/2026-11/c.gif"));
+    TRUE));
+// 落盘路径 = static/images/2026-11/c.gif（42 字节）
+TEST("upload/gif_ok_file", FUN(() ,
+    (ASSERT(EXISTS(PATH_JOIN(_TAA_UP_02_ST_, "images/2026-11/c.gif"))));
+    (ASSERT(&&(EXISTS(PATH_JOIN(_TAA_UP_02_ST_, "images/2026-11/c.gif")), ==(AT_K(FILE_META(PATH_JOIN(_TAA_UP_02_ST_, "images/2026-11/c.gif")), "size", -1), 42))));
+    TRUE));
+// 逐字节对照基准的 bytes
+TEST("upload/gif_ok_bytes", FUN(() ,
+    (ASSERT(&&(EXISTS(PATH_JOIN(_TAA_UP_02_ST_, "images/2026-11/c.gif")), _TAA_ARR_EQ_(READ_BYTES(PATH_JOIN(_TAA_UP_02_ST_, "images/2026-11/c.gif")), [71, 73, 70, 56, 57, 97, 1, 0, 1, 0, 128, 0, 0, 0, 0, 0, 255, 255, 255, 33, 249, 4, 1, 0, 0, 0, 0, 44, 0, 0, 0, 0, 1, 0, 1, 0, 0, 2, 1, 68, 0, 59]))));
+    TRUE));
+TEST("upload/webp_ok_ok", FUN(() ,
+    (ASSERT_EQ(AT_K(_TAA_UP_03_R_, "ok", FALSE), TRUE));
+    (ASSERT_EQ(AT_K(_TAA_UP_03_R_, "url", ""), "/static/images/2026-11/d.webp"));
+    TRUE));
+// 落盘路径 = static/images/2026-11/d.webp（24 字节）
+TEST("upload/webp_ok_file", FUN(() ,
+    (ASSERT(EXISTS(PATH_JOIN(_TAA_UP_03_ST_, "images/2026-11/d.webp"))));
+    (ASSERT(&&(EXISTS(PATH_JOIN(_TAA_UP_03_ST_, "images/2026-11/d.webp")), ==(AT_K(FILE_META(PATH_JOIN(_TAA_UP_03_ST_, "images/2026-11/d.webp")), "size", -1), 24))));
+    TRUE));
+// 逐字节对照基准的 bytes
+TEST("upload/webp_ok_bytes", FUN(() ,
+    (ASSERT(&&(EXISTS(PATH_JOIN(_TAA_UP_03_ST_, "images/2026-11/d.webp")), _TAA_ARR_EQ_(READ_BYTES(PATH_JOIN(_TAA_UP_03_ST_, "images/2026-11/d.webp")), [82, 73, 70, 70, 20, 0, 0, 0, 87, 69, 66, 80, 86, 80, 56, 32, 0, 0, 0, 0, 0, 0, 0, 0]))));
+    TRUE));
+// 基准 files == []（拒了就不能落盘）
+TEST("upload/jpeg_ext_rejected_error", FUN(() ,
+    (ASSERT_EQ(AT_K(_TAA_UP_04_R_, "ok", TRUE), FALSE));
+    (ASSERT_EQ(_TAA_STATUS_(AT_K(_TAA_UP_04_R_, "error", "")), "400"));
+    (ASSERT_EQ(AT_K(_TAA_UP_04_R_, "error", ""), "Invalid image format"));
+    TRUE));
+TEST("upload/jpeg_ext_rejected_not_written", FUN(() ,
+    (ASSERT(!EXISTS(PATH_JOIN(_TAA_UP_04_ST_, "images/2026-11/e.jpeg"))));
+    TRUE));
+TEST("upload/webp_riff_only_ok", FUN(() ,
+    (ASSERT_EQ(AT_K(_TAA_UP_05_R_, "ok", FALSE), TRUE));
+    (ASSERT_EQ(AT_K(_TAA_UP_05_R_, "url", ""), "/static/images/2026-11/f.webp"));
+    TRUE));
+// 落盘路径 = static/images/2026-11/f.webp（16 字节）
+TEST("upload/webp_riff_only_file", FUN(() ,
+    (ASSERT(EXISTS(PATH_JOIN(_TAA_UP_05_ST_, "images/2026-11/f.webp"))));
+    (ASSERT(&&(EXISTS(PATH_JOIN(_TAA_UP_05_ST_, "images/2026-11/f.webp")), ==(AT_K(FILE_META(PATH_JOIN(_TAA_UP_05_ST_, "images/2026-11/f.webp")), "size", -1), 16))));
+    TRUE));
+// 逐字节对照基准的 bytes
+TEST("upload/webp_riff_only_bytes", FUN(() ,
+    (ASSERT(&&(EXISTS(PATH_JOIN(_TAA_UP_05_ST_, "images/2026-11/f.webp")), _TAA_ARR_EQ_(READ_BYTES(PATH_JOIN(_TAA_UP_05_ST_, "images/2026-11/f.webp")), [82, 73, 70, 70, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0]))));
+    TRUE));
+// 基准 files == []（拒了就不能落盘）
+TEST("upload/php_ext_rejected_error", FUN(() ,
+    (ASSERT_EQ(AT_K(_TAA_UP_06_R_, "ok", TRUE), FALSE));
+    (ASSERT_EQ(_TAA_STATUS_(AT_K(_TAA_UP_06_R_, "error", "")), "400"));
+    (ASSERT_EQ(AT_K(_TAA_UP_06_R_, "error", ""), "File type not allowed: .php"));
+    TRUE));
+TEST("upload/php_ext_rejected_not_written", FUN(() ,
+    (ASSERT(!EXISTS(PATH_JOIN(_TAA_UP_06_ST_, "images/2026-11/g.php"))));
+    TRUE));
+// 基准 files == []（拒了就不能落盘）
+TEST("upload/html_ext_rejected_error", FUN(() ,
+    (ASSERT_EQ(AT_K(_TAA_UP_07_R_, "ok", TRUE), FALSE));
+    (ASSERT_EQ(_TAA_STATUS_(AT_K(_TAA_UP_07_R_, "error", "")), "400"));
+    (ASSERT_EQ(AT_K(_TAA_UP_07_R_, "error", ""), "File type not allowed: .html"));
+    TRUE));
+TEST("upload/html_ext_rejected_not_written", FUN(() ,
+    (ASSERT(!EXISTS(PATH_JOIN(_TAA_UP_07_ST_, "images/2026-11/h.html"))));
+    TRUE));
+// 基准 files == []（拒了就不能落盘）
+TEST("upload/php_as_png_error", FUN(() ,
+    (ASSERT_EQ(AT_K(_TAA_UP_08_R_, "ok", TRUE), FALSE));
+    (ASSERT_EQ(_TAA_STATUS_(AT_K(_TAA_UP_08_R_, "error", "")), "400"));
+    (ASSERT_EQ(AT_K(_TAA_UP_08_R_, "error", ""), "Invalid image format"));
+    TRUE));
+TEST("upload/php_as_png_not_written", FUN(() ,
+    (ASSERT(!EXISTS(PATH_JOIN(_TAA_UP_08_ST_, "images/2026-11/i.png"))));
+    TRUE));
+TEST("upload/data_url_ok", FUN(() ,
+    (ASSERT_EQ(AT_K(_TAA_UP_09_R_, "ok", FALSE), TRUE));
+    (ASSERT_EQ(AT_K(_TAA_UP_09_R_, "url", ""), "/static/images/2026-11/j.png"));
+    TRUE));
+// 落盘路径 = static/images/2026-11/j.png（70 字节）
+TEST("upload/data_url_file", FUN(() ,
+    (ASSERT(EXISTS(PATH_JOIN(_TAA_UP_09_ST_, "images/2026-11/j.png"))));
+    (ASSERT(&&(EXISTS(PATH_JOIN(_TAA_UP_09_ST_, "images/2026-11/j.png")), ==(AT_K(FILE_META(PATH_JOIN(_TAA_UP_09_ST_, "images/2026-11/j.png")), "size", -1), 70))));
+    TRUE));
+// 逐字节对照基准的 bytes
+TEST("upload/data_url_bytes", FUN(() ,
+    (ASSERT(&&(EXISTS(PATH_JOIN(_TAA_UP_09_ST_, "images/2026-11/j.png")), _TAA_ARR_EQ_(READ_BYTES(PATH_JOIN(_TAA_UP_09_ST_, "images/2026-11/j.png")), [137, 80, 78, 71, 13, 10, 26, 10, 0, 0, 0, 13, 73, 72, 68, 82, 0, 0, 0, 1, 0, 0, 0, 1, 8, 6, 0, 0, 0, 31, 21, 196, 137, 0, 0, 0, 13, 73, 68, 65, 84, 120, 218, 99, 252, 207, 192, 240, 31, 0, 5, 0, 1, 255, 171, 206, 54, 137, 0, 0, 0, 0, 73, 69, 78, 68, 174, 66, 96, 130]))));
+    TRUE));
+// 基准 files == []（拒了就不能落盘）
+TEST("upload/bad_base64_len1_error", FUN(() ,
+    (ASSERT_EQ(AT_K(_TAA_UP_10_R_, "ok", TRUE), FALSE));
+    (ASSERT_EQ(_TAA_STATUS_(AT_K(_TAA_UP_10_R_, "error", "")), "400"));
+    (ASSERT_EQ(AT_K(_TAA_UP_10_R_, "error", ""), "Invalid base64 data"));
+    TRUE));
+TEST("upload/bad_base64_len1_not_written", FUN(() ,
+    (ASSERT(!EXISTS(PATH_JOIN(_TAA_UP_10_ST_, "images/2026-11/k.png"))));
+    TRUE));
+// 基准 files == []（拒了就不能落盘）
+TEST("upload/bad_base64_nopad_error", FUN(() ,
+    (ASSERT_EQ(AT_K(_TAA_UP_11_R_, "ok", TRUE), FALSE));
+    (ASSERT_EQ(_TAA_STATUS_(AT_K(_TAA_UP_11_R_, "error", "")), "400"));
+    (ASSERT_EQ(AT_K(_TAA_UP_11_R_, "error", ""), "Invalid base64 data"));
+    TRUE));
+TEST("upload/bad_base64_nopad_not_written", FUN(() ,
+    (ASSERT(!EXISTS(PATH_JOIN(_TAA_UP_11_ST_, "images/2026-11/l.png"))));
+    TRUE));
+TEST("upload/collision_ok", FUN(() ,
+    (ASSERT_EQ(AT_K(_TAA_UP_12_R_, "ok", FALSE), TRUE));
+    (ASSERT_EQ(AT_K(_TAA_UP_12_R_, "url", ""), "/static/images/2026-11/same-1.png"));
+    TRUE));
+// 落盘路径 = static/images/2026-11/same-1.png（72 字节）
+TEST("upload/collision_file", FUN(() ,
+    (ASSERT(EXISTS(PATH_JOIN(_TAA_UP_12_ST_, "images/2026-11/same-1.png"))));
+    (ASSERT(&&(EXISTS(PATH_JOIN(_TAA_UP_12_ST_, "images/2026-11/same-1.png")), ==(AT_K(FILE_META(PATH_JOIN(_TAA_UP_12_ST_, "images/2026-11/same-1.png")), "size", -1), 72))));
+    TRUE));
+// 逐字节对照基准的 bytes
+TEST("upload/collision_bytes", FUN(() ,
+    (ASSERT(&&(EXISTS(PATH_JOIN(_TAA_UP_12_ST_, "images/2026-11/same-1.png")), _TAA_ARR_EQ_(READ_BYTES(PATH_JOIN(_TAA_UP_12_ST_, "images/2026-11/same-1.png")), [137, 80, 78, 71, 13, 10, 26, 10, 0, 0, 0, 13, 73, 72, 68, 82, 0, 0, 0, 1, 0, 0, 0, 1, 8, 6, 0, 0, 0, 31, 21, 196, 137, 0, 0, 0, 13, 73, 68, 65, 84, 120, 218, 99, 252, 207, 192, 240, 31, 0, 5, 0, 1, 255, 171, 206, 54, 137, 0, 0, 0, 0, 73, 69, 78, 68, 174, 66, 96, 130, 0, 0]))));
+    TRUE));
+
+// ── 已登记差异 D1b：base64 尾部多一个 "="（Python 宽容、本模块拒）────
+// 基准 deviations.b64_lenient_pad：Python 把 "AAAA=" 解成 3 字节，
+// 本模块要求「= 只在结尾且补位后恰好补齐一组」⇒ 报 Invalid base64 data。
+// 两种口径下都过不了 magic bytes，对外差别只在错误码。
+LET(_TAA_DEV_PAD_D_, PATH_JOIN(_TAA_ROOT_, "dev_pad"));
+MKDIRS(_TAA_DEV_PAD_D_);
+LET(_TAA_DEV_PAD_, UPLOAD_IMAGE(["filename": "p.png", "data": "AAAA=", "static_dir": _TAA_DEV_PAD_D_, "year": 2026, "month": 11]));
+// Python 侧 base64.b64decode('AAAA=') == b'\x00\x00\x00'（3 字节）；这里钉 WLWL 口径
+TEST("deviation/b64_lenient_pad", FUN(() ,
+    (ASSERT_EQ(AT_K(_TAA_DEV_PAD_, "ok", TRUE), FALSE));
+    (ASSERT_EQ(AT_K(_TAA_DEV_PAD_, "error", ""), "Invalid base64 data"));
+    TRUE));
+
+// ── ⑦ 主题：SET_THEME 只做「选中 + 落 config」；重建交给 REGEN ─────
+LET(_TAA_THEMES_, PATH_JOIN(_TAA_ROOT_, "themes"));
+LET(_TAA_MANIFEST_, PATH_JOIN(_TAA_THEMES_, "default/manifest.json"));
+MKDIRS(PATH_JOIN(_TAA_THEMES_, "default"));
+WRITE_FILE(_TAA_MANIFEST_, "{}");
+// ① 全新：目录里没有 config.json
+LET(_TAA_CFG1_, PATH_JOIN(_TAA_ROOT_, "cfg_fresh"));
+MKDIRS(_TAA_CFG1_);
+LET(_TAA_CFG1_F_, PATH_JOIN(_TAA_CFG1_, "config.json"));
+LET(_TAA_T1_, SET_THEME(["theme": "default", "themes_dir": _TAA_THEMES_, "config_dir": _TAA_CFG1_]));
+TEST("theme/set_ok", FUN(() ,
+    (ASSERT_EQ(AT_K(_TAA_T1_, "ok", FALSE), TRUE));
+    (ASSERT_EQ(AT_K(_TAA_T1_, "theme", ""), "default"));
+    (ASSERT_EQ(AT_K(_TAA_T1_, "persisted", FALSE), TRUE));
+    TRUE));
+// 基准 fresh_config = {"theme_name":"default"}（D6：WLWL 紧凑+排序，按语义比）
+TEST("theme/fresh_config", FUN(() ,
+    (ASSERT(EXISTS(_TAA_CFG1_F_)));
+    (ASSERT_EQ(AT_K(PARSE(READ_FILE(_TAA_CFG1_F_)), "theme_name", ""), "default"));
+    TRUE));
+// ② 已有 config.json（含 locale）⇒ 合并，其余键保留
+LET(_TAA_CFG2_, PATH_JOIN(_TAA_ROOT_, "cfg_merge"));
+MKDIRS(_TAA_CFG2_);
+LET(_TAA_CFG2_F_, PATH_JOIN(_TAA_CFG2_, "config.json"));
+WRITE_FILE(_TAA_CFG2_F_, "{\"locale\": \"zh\"}");
+LET(_TAA_T2_, SET_THEME(["theme": "default", "themes_dir": _TAA_THEMES_, "config_dir": _TAA_CFG2_]));
+// 基准 merged_config = {"locale":"zh","theme_name":"default"}
+TEST("theme/merged_config", FUN(() ,
+    (ASSERT_EQ(AT_K(_TAA_T2_, "persisted", FALSE), TRUE));
+    (ASSERT_EQ(AT_K(PARSE(READ_FILE(_TAA_CFG2_F_)), "theme_name", ""), "default"));
+    (ASSERT_EQ(AT_K(PARSE(READ_FILE(_TAA_CFG2_F_)), "locale", ""), "zh"));
+    TRUE));
+// ③ 现有 config.json 不是合法 JSON ⇒ Python 抛 JSONDecodeError ⇒ 只 warning、不写
+LET(_TAA_CFG3_, PATH_JOIN(_TAA_ROOT_, "cfg_broken"));
+MKDIRS(_TAA_CFG3_);
+LET(_TAA_CFG3_F_, PATH_JOIN(_TAA_CFG3_, "config.json"));
+WRITE_FILE(_TAA_CFG3_F_, "{oops");
+LET(_TAA_T3_, SET_THEME(["theme": "default", "themes_dir": _TAA_THEMES_, "config_dir": _TAA_CFG3_]));
+// 读失败/解析失败 ⇒ set_theme 仍成功，但不持久化（actions.py:367）
+TEST("theme/broken_config_not_overwritten", FUN(() ,
+    (ASSERT_EQ(AT_K(_TAA_T3_, "ok", FALSE), TRUE));
+    (ASSERT_EQ(AT_K(_TAA_T3_, "persisted", TRUE), FALSE));
+    (ASSERT_EQ(READ_FILE(_TAA_CFG3_F_), "{oops"));
+    TRUE));
+
+// ── ⑧ 预览（只做 Markdown 渲染）+ 重建（只回报「该重建了」）──────
+LET(_TAA_PV_00_R_, PREVIEW(["content": "# 标题\n\n正文 **粗** 与 `code`\n"]));
+LET(_TAA_PV_01_R_, PREVIEW(["content": "- a\n- b\n"]));
+LET(_TAA_PV_02_R_, PREVIEW(["content": "段落一\n\n段落二\n"]));
+LET(_TAA_PV_03_R_, PREVIEW(["content": ""]));
+// 输入 '# 标题'
+TEST("preview/00", FUN(() ,
+    (ASSERT_EQ(AT_K(_TAA_PV_00_R_, "ok", FALSE), TRUE));
+    (ASSERT_EQ(AT_K(_TAA_PV_00_R_, "html", ""), "<h1>标题</h1>\n<p>正文 <strong>粗</strong> 与 <code>code</code></p>\n"));
+    TRUE));
+// 输入 '- a'
+TEST("preview/01", FUN(() ,
+    (ASSERT_EQ(AT_K(_TAA_PV_01_R_, "ok", FALSE), TRUE));
+    (ASSERT_EQ(AT_K(_TAA_PV_01_R_, "html", ""), "<ul>\n<li>a</li>\n<li>b</li>\n</ul>\n"));
+    TRUE));
+// 输入 '段落一'
+TEST("preview/02", FUN(() ,
+    (ASSERT_EQ(AT_K(_TAA_PV_02_R_, "ok", FALSE), TRUE));
+    (ASSERT_EQ(AT_K(_TAA_PV_02_R_, "html", ""), "<p>段落一</p>\n<p>段落二</p>\n"));
+    TRUE));
+// 输入 '<empty>'
+TEST("preview/03", FUN(() ,
+    (ASSERT_EQ(AT_K(_TAA_PV_03_R_, "ok", FALSE), TRUE));
+    (ASSERT_EQ(AT_K(_TAA_PV_03_R_, "html", ""), "<p class=\"preview-placeholder\">（无内容）</p>"));
+    TRUE));
+LET(_TAA_REGEN_, REGEN(DICT()));
+// 全站构建在 tp/bin/build.wll::BUILD，本模块只回报「该重建了」
+TEST("regen/ok", FUN(() ,
+    (ASSERT_EQ(AT_K(_TAA_REGEN_, "ok", FALSE), TRUE));
+    (ASSERT_EQ(AT_K(_TAA_REGEN_, "regen", FALSE), TRUE));
+    TRUE));
+
+// ── ⑨ 错误路径：20 例（消息逐字 + 状态码映射）───────────────────
+LET(_TAA_ERR_, PATH_JOIN(_TAA_ROOT_, "err"));
+MKDIRS(_TAA_ERR_);
+WRITE_FILE(PATH_JOIN(_TAA_ERR_, "dup.html"), "<!-- title: d -->\n");
+LET(_TAA_E00_R_, CREATE_ARTICLE(["article_dir": _TAA_ERR_, "title": "", "date": "2026-01-02 10:30", "content": "c"]));
+LET(_TAA_E01_R_, CREATE_ARTICLE(["article_dir": _TAA_ERR_, "title": "T", "date": "", "content": "c"]));
+LET(_TAA_E02_R_, CREATE_ARTICLE(["article_dir": _TAA_ERR_, "title": "T", "date": "abcdefghij", "content": "c"]));
+LET(_TAA_E03_R_, CREATE_ARTICLE(["article_dir": _TAA_ERR_, "title": _TAA_T201_, "date": "2026-01-02 10:30", "content": "c"]));
+LET(_TAA_E04_R_, CREATE_ARTICLE(["article_dir": _TAA_ERR_, "title": "T", "date": "2026-01-02 10:30", "content": _TAA_C50001_]));
+LET(_TAA_E05_R_, SAVE_ARTICLE(["article_dir": _TAA_ERR_, "file": "2026-01-02-t.html", "title": "T", "date": "2026-13-01 10:00", "content": "c"]));
+LET(_TAA_E06_R_, SAVE_ARTICLE(["article_dir": _TAA_ERR_, "file": "", "title": "T", "date": "2026-01-02 10:30", "content": "c"]));
+LET(_TAA_E07_R_, SAVE_ARTICLE(["article_dir": _TAA_ERR_, "file": "bad.html", "title": "T", "date": "2026-01-02 10:30", "content": "c"]));
+LET(_TAA_E08_R_, DELETE_ARTICLE(["article_dir": _TAA_ERR_, "file": "/etc/passwd"]));
+LET(_TAA_E09_R_, CREATE_PAGE(["standalone_dir": _TAA_ERR_, "title": "T", "slug": "", "content": "c"]));
+LET(_TAA_E10_R_, CREATE_PAGE(["standalone_dir": _TAA_ERR_, "title": "T", "slug": "a/b", "content": "c"]));
+LET(_TAA_E11_R_, CREATE_PAGE(["standalone_dir": _TAA_ERR_, "title": "T", "slug": "dup", "content": "c"]));
+LET(_TAA_E12_R_, SAVE_PAGE(["standalone_dir": _TAA_ERR_, "file": "a b.html", "title": "T", "slug": "s", "content": "c"]));
+LET(_TAA_E13_R_, DELETE_PAGE(["standalone_dir": _TAA_ERR_, "file": "x.txt"]));
+LET(_TAA_E14_R_, SET_THEME(["theme": "", "themes_dir": _TAA_THEMES_, "config_dir": _TAA_ERR_]));
+LET(_TAA_E15_R_, SET_THEME(["theme": "nope", "themes_dir": _TAA_THEMES_, "config_dir": _TAA_ERR_]));
+LET(_TAA_E16_R_, UPLOAD_IMAGE(["filename": "", "data": "x", "static_dir": _TAA_ERR_]));
+LET(_TAA_E17_R_, UPLOAD_IMAGE(["filename": "shell.php", "data": "PD9waHA=", "static_dir": _TAA_ERR_, "year": 2026, "month": 11]));
+LET(_TAA_E18_R_, UPLOAD_IMAGE(["filename": "a.png", "data": "AAAAA", "static_dir": _TAA_ERR_, "year": 2026, "month": 11]));
+LET(_TAA_E19_R_, UPLOAD_IMAGE(["filename": "a.png", "data": "PD9waHAgZWNobyAxOyA/Pg==", "static_dir": _TAA_ERR_, "year": 2026, "month": 11]));
+
+// 基准 want_status = 400 Bad Request
+TEST("errors/create_missing_title", FUN(() ,
+    (ASSERT_EQ(AT_K(_TAA_E00_R_, "ok", TRUE), FALSE));
+    (ASSERT_EQ(AT_K(_TAA_E00_R_, "error", ""), "Missing fields"));
+    (ASSERT_EQ(_TAA_STATUS_(AT_K(_TAA_E00_R_, "error", "")), "400"));
+    TRUE));
+// 基准 want_status = 400 Bad Request
+TEST("errors/create_missing_date", FUN(() ,
+    (ASSERT_EQ(AT_K(_TAA_E01_R_, "ok", TRUE), FALSE));
+    (ASSERT_EQ(AT_K(_TAA_E01_R_, "error", ""), "Missing fields"));
+    (ASSERT_EQ(_TAA_STATUS_(AT_K(_TAA_E01_R_, "error", "")), "400"));
+    TRUE));
+// 基准诱因是 content.write_article("bad-name.html")，该入口 WLWL 未导出；这里用等价诱因（日期前 10 位不是日期 ⇒ 拼出的文件名非法）打同一条校验分支，消息模板 `Invalid filename: <fname>` 逐字断言；基准 want_status = None（ValueError ⇒ WSGI 兜成 500）
+TEST("errors/write_invalid_filename", FUN(() ,
+    (ASSERT_EQ(AT_K(_TAA_E02_R_, "ok", TRUE), FALSE));
+    (ASSERT_EQ(AT_K(_TAA_E02_R_, "error", ""), "Invalid filename: abcdefghij-t.html"));
+    (ASSERT_EQ(_TAA_STATUS_(AT_K(_TAA_E02_R_, "error", "")), "500"));
+    TRUE));
+// 校验顺序：文件名 → 标题 → 正文 → 日期；基准 want_status = None（ValueError ⇒ WSGI 兜成 500）
+TEST("errors/write_title_201", FUN(() ,
+    (ASSERT_EQ(AT_K(_TAA_E03_R_, "ok", TRUE), FALSE));
+    (ASSERT_EQ(AT_K(_TAA_E03_R_, "error", ""), "Title invalid or too long: 201"));
+    (ASSERT_EQ(_TAA_STATUS_(AT_K(_TAA_E03_R_, "error", "")), "500"));
+    TRUE));
+// 基准 want_status = None（ValueError ⇒ WSGI 兜成 500）
+TEST("errors/write_content_50001", FUN(() ,
+    (ASSERT_EQ(AT_K(_TAA_E04_R_, "ok", TRUE), FALSE));
+    (ASSERT_EQ(AT_K(_TAA_E04_R_, "error", ""), "Content validation failed: length=50001"));
+    (ASSERT_EQ(_TAA_STATUS_(AT_K(_TAA_E04_R_, "error", "")), "500"));
+    TRUE));
+// 基准是 write_article("2026-01-02-t.html", date="2026-13-01 10:00")：文件名合法、日期非法。CREATE_ARTICLE 的文件名由 date[:10] 拼出，2026-13 会先被文件名校验拦掉 ⇒ 改用 SAVE_ARTICLE 传显式 file 复现同一条分支；基准 want_status = None（ValueError ⇒ WSGI 兜成 500）
+TEST("errors/write_bad_date", FUN(() ,
+    (ASSERT_EQ(AT_K(_TAA_E05_R_, "ok", TRUE), FALSE));
+    (ASSERT_EQ(AT_K(_TAA_E05_R_, "error", ""), "Invalid date format: 2026-13-01 10:00"));
+    (ASSERT_EQ(_TAA_STATUS_(AT_K(_TAA_E05_R_, "error", "")), "500"));
+    TRUE));
+// 基准 want_status = 400 Bad Request
+TEST("errors/save_missing_file", FUN(() ,
+    (ASSERT_EQ(AT_K(_TAA_E06_R_, "ok", TRUE), FALSE));
+    (ASSERT_EQ(AT_K(_TAA_E06_R_, "error", ""), "Missing fields"));
+    (ASSERT_EQ(_TAA_STATUS_(AT_K(_TAA_E06_R_, "error", "")), "400"));
+    TRUE));
+// 基准 want_status = 400 Bad Request
+TEST("errors/save_invalid_filename", FUN(() ,
+    (ASSERT_EQ(AT_K(_TAA_E07_R_, "ok", TRUE), FALSE));
+    (ASSERT_EQ(AT_K(_TAA_E07_R_, "error", ""), "Invalid filename"));
+    (ASSERT_EQ(_TAA_STATUS_(AT_K(_TAA_E07_R_, "error", "")), "400"));
+    TRUE));
+// 基准 want_status = 400 Bad Request
+TEST("errors/delete_invalid_filename", FUN(() ,
+    (ASSERT_EQ(AT_K(_TAA_E08_R_, "ok", TRUE), FALSE));
+    (ASSERT_EQ(AT_K(_TAA_E08_R_, "error", ""), "Invalid filename"));
+    (ASSERT_EQ(_TAA_STATUS_(AT_K(_TAA_E08_R_, "error", "")), "400"));
+    TRUE));
+// 基准 want_status = 400 Bad Request
+TEST("errors/page_missing_slug", FUN(() ,
+    (ASSERT_EQ(AT_K(_TAA_E09_R_, "ok", TRUE), FALSE));
+    (ASSERT_EQ(AT_K(_TAA_E09_R_, "error", ""), "Missing fields"));
+    (ASSERT_EQ(_TAA_STATUS_(AT_K(_TAA_E09_R_, "error", "")), "400"));
+    TRUE));
+// 基准 want_status = 400 Bad Request
+TEST("errors/page_invalid_slug", FUN(() ,
+    (ASSERT_EQ(AT_K(_TAA_E10_R_, "ok", TRUE), FALSE));
+    (ASSERT_EQ(AT_K(_TAA_E10_R_, "error", ""), "Invalid slug"));
+    (ASSERT_EQ(_TAA_STATUS_(AT_K(_TAA_E10_R_, "error", "")), "400"));
+    TRUE));
+// dup.html 已存在 ⇒ 409；基准 want_status = 409 Conflict
+TEST("errors/page_exists", FUN(() ,
+    (ASSERT_EQ(AT_K(_TAA_E11_R_, "ok", TRUE), FALSE));
+    (ASSERT_EQ(AT_K(_TAA_E11_R_, "error", ""), "Page already exists"));
+    (ASSERT_EQ(_TAA_STATUS_(AT_K(_TAA_E11_R_, "error", "")), "409"));
+    TRUE));
+// 基准 want_status = 400 Bad Request
+TEST("errors/save_page_invalid_filename", FUN(() ,
+    (ASSERT_EQ(AT_K(_TAA_E12_R_, "ok", TRUE), FALSE));
+    (ASSERT_EQ(AT_K(_TAA_E12_R_, "error", ""), "Invalid filename"));
+    (ASSERT_EQ(_TAA_STATUS_(AT_K(_TAA_E12_R_, "error", "")), "400"));
+    TRUE));
+// 基准 want_status = 400 Bad Request
+TEST("errors/delete_page_invalid_filename", FUN(() ,
+    (ASSERT_EQ(AT_K(_TAA_E13_R_, "ok", TRUE), FALSE));
+    (ASSERT_EQ(AT_K(_TAA_E13_R_, "error", ""), "Invalid filename"));
+    (ASSERT_EQ(_TAA_STATUS_(AT_K(_TAA_E13_R_, "error", "")), "400"));
+    TRUE));
+// 基准 want_status = 400 Bad Request
+TEST("errors/theme_missing_name", FUN(() ,
+    (ASSERT_EQ(AT_K(_TAA_E14_R_, "ok", TRUE), FALSE));
+    (ASSERT_EQ(AT_K(_TAA_E14_R_, "error", ""), "Missing theme name"));
+    (ASSERT_EQ(_TAA_STATUS_(AT_K(_TAA_E14_R_, "error", "")), "400"));
+    TRUE));
+// 基准 want_status = 400 Bad Request
+TEST("errors/theme_not_found", FUN(() ,
+    (ASSERT_EQ(AT_K(_TAA_E15_R_, "ok", TRUE), FALSE));
+    (ASSERT_EQ(AT_K(_TAA_E15_R_, "error", ""), "Theme not found"));
+    (ASSERT_EQ(_TAA_STATUS_(AT_K(_TAA_E15_R_, "error", "")), "400"));
+    TRUE));
+// 基准 want_status = 400 Bad Request
+TEST("errors/upload_missing", FUN(() ,
+    (ASSERT_EQ(AT_K(_TAA_E16_R_, "ok", TRUE), FALSE));
+    (ASSERT_EQ(AT_K(_TAA_E16_R_, "error", ""), "Missing filename or data"));
+    (ASSERT_EQ(_TAA_STATUS_(AT_K(_TAA_E16_R_, "error", "")), "400"));
+    TRUE));
+// 内容本身合法也无用 ⇒ 扩展名白名单先拦；基准 want_status = 400 Bad Request
+TEST("errors/upload_bad_ext", FUN(() ,
+    (ASSERT_EQ(AT_K(_TAA_E17_R_, "ok", TRUE), FALSE));
+    (ASSERT_EQ(AT_K(_TAA_E17_R_, "error", ""), "File type not allowed: .php"));
+    (ASSERT_EQ(_TAA_STATUS_(AT_K(_TAA_E17_R_, "error", "")), "400"));
+    TRUE));
+// 长度 % 4 == 1（Python 同样报错）；基准 want_status = 400 Bad Request
+TEST("errors/upload_bad_b64", FUN(() ,
+    (ASSERT_EQ(AT_K(_TAA_E18_R_, "ok", TRUE), FALSE));
+    (ASSERT_EQ(AT_K(_TAA_E18_R_, "error", ""), "Invalid base64 data"));
+    (ASSERT_EQ(_TAA_STATUS_(AT_K(_TAA_E18_R_, "error", "")), "400"));
+    TRUE));
+// 内容 = `<?php echo 1; ?>`（与基准同一份 base64）；基准 want_status = 400 Bad Request
+TEST("errors/upload_wrong_magic", FUN(() ,
+    (ASSERT_EQ(AT_K(_TAA_E19_R_, "ok", TRUE), FALSE));
+    (ASSERT_EQ(AT_K(_TAA_E19_R_, "error", ""), "Invalid image format"));
+    (ASSERT_EQ(_TAA_STATUS_(AT_K(_TAA_E19_R_, "error", "")), "400"));
+    TRUE));
+
+// ── ⑩ 反向守卫（卡点名 ①②③ + 补 ④⑤⑥⑦）──────────────────────
+// ① 扩展名白名单：.php / .html 即使内容是合法 PNG 也必须拒
+LET(_TAA_G_PHP_, UPLOAD_IMAGE(["filename": "x.php", "data": "iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mP8z8DwHwAFAAH/q842iQAAAABJRU5ErkJggg==", "static_dir": _TAA_GST_, "year": 2026, "month": 11]));
+LET(_TAA_G_HTML_, UPLOAD_IMAGE(["filename": "x.html", "data": "iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mP8z8DwHwAFAAH/q842iQAAAABJRU5ErkJggg==", "static_dir": _TAA_GST_, "year": 2026, "month": 11]));
+// 内容 = 合法 1×1 PNG 的 base64
+TEST("guard/upload_php_rejected", FUN(() ,
+    (ASSERT_EQ(AT_K(_TAA_G_PHP_, "ok", TRUE), FALSE));
+    (ASSERT_EQ(AT_K(_TAA_G_PHP_, "error", ""), "File type not allowed: .php"));
+    TRUE));
+TEST("guard/upload_html_rejected", FUN(() ,
+    (ASSERT_EQ(AT_K(_TAA_G_HTML_, "ok", TRUE), FALSE));
+    (ASSERT_EQ(AT_K(_TAA_G_HTML_, "error", ""), "File type not allowed: .html"));
+    TRUE));
+TEST("guard/upload_php_html_not_on_disk", FUN(() ,
+    (ASSERT(!EXISTS(PATH_JOIN(_TAA_GST_, "images/2026-11/x.php"))));
+    (ASSERT(!EXISTS(PATH_JOIN(_TAA_GST_, "images/2026-11/x.html"))));
+    TRUE));
+// ② 扩展名合法但内容不是图片 ⇒ magic bytes 必须拒
+LET(_TAA_G_MAGIC_, UPLOAD_IMAGE(["filename": "shell.png", "data": "PD9waHAgc3lzdGVtKCRfR0VUW2NdKTsgPz4=", "static_dir": _TAA_GST_, "year": 2026, "month": 11]));
+// data = base64("<?php system($_GET[c]); ?>")
+TEST("guard/upload_php_as_png_rejected", FUN(() ,
+    (ASSERT_EQ(AT_K(_TAA_G_MAGIC_, "ok", TRUE), FALSE));
+    (ASSERT_EQ(AT_K(_TAA_G_MAGIC_, "error", ""), "Invalid image format"));
+    (ASSERT(!EXISTS(PATH_JOIN(_TAA_GST_, "images/2026-11/shell.png"))));
+    TRUE));
+// ③（见上：guard/delete_failure_*）
+// ④ 删除文件名带 `..` ⇒ 拒，且目录外文件不受影响
+WRITE_FILE(PATH_JOIN(_TAA_ROOT_, "outside.txt"), "keep");
+LET(_TAA_G_TRAV_, DELETE_ARTICLE(["article_dir": _TAA_ART_, "file": "../outside.txt"]));
+TEST("guard/delete_traversal_rejected", FUN(() ,
+    (ASSERT_EQ(AT_K(_TAA_G_TRAV_, "ok", TRUE), FALSE));
+    (ASSERT(EXISTS(PATH_JOIN(_TAA_ROOT_, "outside.txt"))));
+    (ASSERT_EQ(READ_FILE(PATH_JOIN(_TAA_ROOT_, "outside.txt")), "keep"));
+    TRUE));
+// ⑤ 上传文件名带 `..` ⇒ 净化后仍含 `..` ⇒ 拒，且不落盘
+LET(_TAA_G_UPTRAV_, UPLOAD_IMAGE(["filename": "../x.png", "data": "iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mP8z8DwHwAFAAH/q842iQAAAABJRU5ErkJggg==", "static_dir": _TAA_GST_, "year": 2026, "month": 11]));
+// 净化把 `/` 换成 `_` ⇒ ".._x.png"；`..` 仍在 ⇒ 拒
+TEST("guard/upload_traversal_rejected", FUN(() ,
+    (ASSERT_EQ(AT_K(_TAA_G_UPTRAV_, "ok", TRUE), FALSE));
+    (ASSERT_EQ(AT_K(_TAA_G_UPTRAV_, "error", ""), "Invalid filename"));
+    (ASSERT(!EXISTS(PATH_JOIN(_TAA_ROOT_, "x.png"))));
+    (ASSERT(!EXISTS(PATH_JOIN(_TAA_GST_, "images/2026-11/.._x.png"))));
+    TRUE));
+// ⑥ 独立页 slug 带 `../` ⇒ 拒，且目录外无文件
+LET(_TAA_G_SLUG_, CREATE_PAGE(["standalone_dir": _TAA_PG_, "title": "T", "slug": "../evil", "content": "c"]));
+TEST("guard/page_slug_traversal_rejected", FUN(() ,
+    (ASSERT_EQ(AT_K(_TAA_G_SLUG_, "ok", TRUE), FALSE));
+    (ASSERT_EQ(AT_K(_TAA_G_SLUG_, "error", ""), "Invalid slug"));
+    (ASSERT(!EXISTS(PATH_JOIN(_TAA_ROOT_, "evil.html"))));
+    TRUE));
+// ⑦ SAVE_PAGE 改 slug ⇒ 旧文件必须消失 —— 见 page/save_old_removed
+
+// ── 跑测试 ────────────────────────────────────────────────────
+LET(records, RUN_TESTS());
+PRINT("test_admin_actions: ", LEN(records), " test(s) run");
+
+LET MUT(failed, 0);
+FOR(rec, records,
+    (IF(AT_K(rec, "passed", FALSE),
+        PRINT("  PASS ", AT_K(rec, "name", "?")),
+        (SET(failed, +(failed, 1));
+         PRINT("  FAIL ", AT_K(rec, "name", "?"))))));
+PRINT("test_admin_actions: failed=", failed);
+IF(>(failed, 0), (PRINT_ERR("test_admin_actions: FAILED"); PANIC("admin_actions tests failed")), NULL);
+PRINT("test_admin_actions: OK");
