@@ -1,47 +1,110 @@
-version: '3.8'
+# TinyPage —— 纯 WLWL 部署栈（无 Python、无 nginx）
+#
+# ⚠ 本文件由 S6-1 卡产出，**尚未在真 Docker 上起过栈**（本机没有 docker）。
+#   已验证：三个入口在本机直跑 + curl 的状态码（见计划书 S6-1 的实测段）。
+#   未验证：镜像构建、Windows 容器的端口发布与卷挂载行为。
+#
+# 三个服务（对齐计划书 §3.1 的三进程）：
+#   public —— 443，TLS 终止在 WLWL 里（`tls.LISTEN`）
+#   admin  —— 8081，**只绑回环**（`serve_admin.wll` 见到非 127.0.0.1 就 PANIC）
+#   build  —— 按需一次性构建，不常驻（默认不启动，用 `--profile build`）
+#
+# ── 关于 80 端口 ─────────────────────────────────────────────────────
+# 计划书 S6-1 原写「public（443/80）」。本文件**不发布 80**，理由：
+#   · WLWL 的两个服务入口是**两个进程**（`serve_tls.wll` / `serve_public.wll`），
+#     同进程不能双 `*_SERVE`；
+#   · nginx 当年在 80 上做的是 **301 到 443**，而本项目**没有重定向入口**；
+#     ⇒ 在 80 上直接发内容等于把整站降级成明文，比 nginx 更差。
+# 要恢复 80，必须先补一个「只回 301」的入口（不在 S6 范围）。
+
+name: tinypage
 
 services:
-  tinypage:
+  public:
     build:
       context: .
       dockerfile: Dockerfile
-    container_name: tinypage
+    image: tinypage:wlwl
+    container_name: tinypage-public
     restart: unless-stopped
     ports:
-      - "8080:8080"
-      - "8081:8081"
+      - '443:443'
     environment:
-      - ADMIN_USER=${ADMIN_USER:-admin}
-      - ADMIN_PASS=${ADMIN_PASS:-}
-      - SITE_TITLE=${SITE_TITLE:-My TinyPage Site}
-      - SITE_URL=${SITE_URL:-}
-      - STATIC_HOST=0.0.0.0
-      - STATIC_PORT=8080
-      - ADMIN_PORT=8081
+      TP_ROOT: 'C:\app\pages'
+      TP_HOST: '0.0.0.0'
+      TP_PORT: '443'
+      TP_CERT: 'C:\app\certs\fullchain.pem'
+      TP_KEY: 'C:\app\certs\privkey.pem'
     volumes:
-      - ./pages:/app/pages
-      - ./themes:/app/themes
-      - ./static:/app/static
-      - ./config.py:/app/config.py:ro
+      # 产物目录：由 build 服务写、public 只读
+      - ./pages:C:\app\pages
+      - ./themes:C:\app\themes
+      # 证书与私钥：**只挂不烤**，绝不进镜像
+      - ./certs:C:\app\certs:ro
+    # 扩展路径必须绝对；SHA-256 与 Dockerfile 的 ARG 同源
+    command:
+      - wlwl.exe
+      - run
+      - --ext
+      - 'C:\opt\wlwl\lib\wlwl_tls.dll'
+      - --ext-sha256
+      - '202379c21f2c2950635442fce895d71383a9e100e2eac65a2fd0e1da42e3599b'
+      - 'tp\bin\serve_tls.wll'
     healthcheck:
-      test: ["CMD", "python", "-c", "import urllib.request; urllib.request.urlopen('http://localhost:8080')"]
+      test: ['CMD', 'curl.exe', '-kfsS', '-o', 'NUL', 'https://127.0.0.1/index.html']
       interval: 30s
       timeout: 10s
       retries: 3
       start_period: 10s
 
-  nginx:
-    image: nginx:alpine
-    container_name: tinypage-nginx
+  admin:
+    image: tinypage:wlwl
+    container_name: tinypage-admin
     restart: unless-stopped
-    ports:
-      - "80:80"
-      - "443:443"
-    volumes:
-      - ./nginx.conf:/etc/nginx/conf.d/default.conf:ro
-      - ./pages:/usr/share/nginx/html:ro
     depends_on:
-      - tinypage
+      - public
+    ports:
+      # ⚠ `serve_admin.wll` 见到 TP_ADMIN_HOST != 127.0.0.1 就 PANIC
+      #   ⇒ 容器内只能绑回环，宿主侧也只能发布到回环（D2：后台不暴露公网）。
+      - '127.0.0.1:8081:8081'
+    environment:
+      TP_ROOT: 'C:\app\pages'
+      TP_THEMES_DIR: 'C:\app\themes'
+      TP_ADMIN_HOST: '127.0.0.1'
+      TP_ADMIN_PORT: '8081'
+      TP_ADMIN_USER: ${ADMIN_USER:-admin}
+      TP_ADMIN_PASS: ${ADMIN_PASS:-}
+      # AI 助手：不配 key 就是关闭状态（对齐 Python 的降级口径）
+      TP_AI_ENABLED: ${TP_AI_ENABLED:-false}
+      TP_AI_API_KEY: ${TP_AI_API_KEY:-}
+      TP_AI_MODEL: ${TP_AI_MODEL:-gpt-3.5-turbo}
+      TP_AI_PROVIDER: ${TP_AI_PROVIDER:-openai}
+    volumes:
+      # 后台要**写** pages/（建文章、上传图片、触发重建）
+      - ./pages:C:\app\pages
+      - ./themes:C:\app\themes
+      - ./admin_templates:C:\app\admin_templates
+    command: ['wlwl.exe', 'run', 'tp\bin\serve_admin.wll']
+    healthcheck:
+      test: ['CMD', 'curl.exe', '-fsS', '-o', 'NUL', 'http://127.0.0.1:8081/login']
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 10s
+
+  # 一次性构建：docker compose --profile build run --rm build
+  build:
+    image: tinypage:wlwl
+    profiles: ['build']
+    environment:
+      TP_ROOT: 'C:\app\pages'
+    volumes:
+      - ./pages:C:\app\pages
+      - ./themes:C:\app\themes
+      - ./admin_templates:C:\app\admin_templates
+      - ./static_inject:C:\app\static_inject
+    # build.wll 的脚本模式按 ARGS() 判定，root 固定为 "."（WORKDIR = C:\app）
+    command: ['wlwl.exe', 'run', 'tp\bin\build.wll']
 
 networks:
   default:

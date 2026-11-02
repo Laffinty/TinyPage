@@ -1501,7 +1501,40 @@ TinyPage/
 ### S6 部署与切换
 
 
-#### 卡 S6-1：Docker 改造
+#### 卡 S6-1：Docker 改造 —— ✅ 已交付，**镜像构建未实测**
+
+**已交付（2026-11-02）**：`Dockerfile`（Windows servercore + 构建上下文里的 `wlwl-runtime/`）、
+`docker-compose.yml`（`public` / `admin` / `build` 三服务）、`.dockerignore`。
+
+**已实测**：
+
+- ⚠ **本机没有 docker** ⇒ 卡片原文的两条验收（`docker compose config` 通过、起栈后
+  `curl -k https://localhost/` 200）**都没跑**，这是本卡唯一未验项。
+- 容器要用的**运行时契约**已在本机直跑三个入口验证（不是 Docker）：
+  - `TP_ROOT` / `TP_HOST` / `TP_PORT` → `serve_public.wll`：`/index.html` **200**、`POST` **405**；
+  - `TP_ADMIN_HOST` / `TP_ADMIN_PORT` / `TP_ADMIN_PASS` → `serve_admin.wll`：
+    `/login` **200**、`/` **302**（未登录）；两个进程 stderr 均为空。
+- 扩展 SHA-256 **三处一致**（`Dockerfile` 的 `ARG` / compose 命令行 / 真 `wlwl_tls.dll`
+  的 `Get-FileHash`）= `202379c2…e3599b`。
+- 反向守卫：三个部署文件里 `python` / `nginx` **只出现在注释与 `.dockerignore` 排除项**，
+  没有任何可执行引用；compose 服务清单实测 = `public` / `admin` / `build`，**无 `nginx`**。
+- **为什么只能 Windows 容器**：编译器只有 `x86_64-pc-windows-msvc` 产物（无 linux/musl）；
+  且 `wlwl.exe` 的导入表含 **`VCRUNTIME140.dll`**（二进制内实测到该导入名）⇒ nanoserver
+  不带它，用 **servercore**。
+
+**与卡片原文的两处偏差（附理由）**：
+
+1. **不发布 80**（原文 `public（443/80）`）。两个服务入口是**两个进程**
+   （`serve_tls.wll` / `serve_public.wll`，同进程不能双 `*_SERVE`），而 nginx 在 80 上
+   做的是 **301 到 443**；本项目**没有重定向入口** ⇒ 在 80 上直接发内容等于把整站降级成
+   明文，比 nginx 更差。要恢复 80 必须先补一个「只回 301」的入口（不在 S6 范围）。
+2. **admin 发布到 `127.0.0.1:8081`**，不是原文的「仅 127.0.0.1 暴露给 public 容器」。
+   `serve_admin.wll` 见到 `TP_ADMIN_HOST != 127.0.0.1` 就 **PANIC** ⇒ 它只能绑回环，
+   跨容器访问结构上不可能。这与 D2（后台不暴露公网）一致。
+
+**未验项（要有 docker 才能关）**：① 镜像能否构建；② 起栈后
+`curl -k https://localhost/index.html` 是否 200；③ Windows 容器的 `127.0.0.1:8081:8081`
+是否真按回环绑定（对应门禁 G8）。
 
 - **依赖**：S3-2、S4-4
 - **交付物**：新 `Dockerfile`（基于 WLWL 运行时镜像，含 `wlwl.exe`/`lib/`/`wlwl-skill`）
@@ -1513,6 +1546,27 @@ TinyPage/
 - **非目标**：不做自动证书签发（已裁决外部签发）
 
 #### 卡 S6-2：Python 组件清退
+
+> ⚠ **2026-11-02 动手前核实到两处冲突 ⇒ 未删任何文件，等裁决。**
+>
+> **冲突 A：删 `tinypage/` 会废掉逐字节对照能力。**
+> `tp/test/` 下 **81 个生成器里有 22 个 `import tinypage`**
+> （`Select-String -Path tp\test\*.py -Pattern 'from tinypage|import tinypage'` ⇒ 22 个文件命中），
+> 它们靠「**调用真 Python 函数**取期望值」产出 `tp/test/fixtures/*.json`。
+> 删掉 `tinypage/` ⇒ 这 22 份基准**再也无法再生**，只能冻结成静态 JSON；以后改任何
+> 一个 `.wll` 都没有对照基准了。（生成器用 `sys.path.insert(0, REPO_ROOT)` 定位包，
+> 所以 `pyproject.toml` 的删除**不**影响它们；`tinypage/` 本身的删除才致命。）
+>
+> **冲突 B：门禁 G1「无 Python 残留」与 D7 自相矛盾。**
+> G1 的命令是 `git ls-files | Select-String '\.py$'` → **无输出**；但 D7 规定
+> `.wll` 一律由 **Python 生成器**产出，仓库里现有 **81 个 `tp/test/gen_*.py`**
+> ⇒ G1 按字面**永远不可能绿**。它的本意（D5「不留需要 Python 才能执行的组件」）
+> 应当读作「**运行期**不需要 Python」。
+>
+> **建议方案（待裁决）**：删**运行入口**、留**基准参考** ——
+> 删 `tiny_page.py`、`pyproject.toml`、`nginx.conf`、`scripts/git-hooks/*.py`、旧 Dockerfile/compose；
+> **保留** `tinypage/` 与 `tests/`（删掉 CLI 入口后没有任何办法用它们跑站 ⇒ D5 成立），
+> 并把 G1 改写成「**运行期**零 Python：`tp/` 与 `Dockerfile` 里没有 python」。
 
 - **依赖**：S6-1
 - **交付物**：删除 `tinypage/`、`tests/`、`scripts/git-hooks/*.py`、`tiny_page.py`、

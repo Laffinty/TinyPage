@@ -1,5 +1,6 @@
 .git
 .github
+.scratch
 __pycache__
 *.pyc
 *.pyo
@@ -14,5 +15,18 @@ docs/
 *.md
 !README.md
 scripts/
-.venv
-venv
+
+# ── S6：镜像里只该有「跑站点需要的东西」────────────────────────────
+# Python 实现与 Python 测试一律不进构建上下文（S6-2 语义：运行期零 Python）
+tinypage/
+tests/
+tp/test/
+tp/probe/
+pyproject.toml
+
+# 证书与私钥**绝不进镜像**（由 compose 挂载）
+certs/
+*.pem
+*.key
+*.crt
+*.pfx
