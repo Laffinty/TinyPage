@@ -1,0 +1,1154 @@
+// tp/test/test_http_util.wll —— admin 路由/表单/响应的脱网测试（卡 S4-3）
+//
+// ⚠ 本文件由 tp/test/gen_test_http_util.py 生成 —— 请勿手改。
+//
+// 被测：tp/lib/http_util.wll 的 MATCH_ROUTE / PARSE_FORM / BUILD_RESPONSE 族。
+// 基准：tp/test/fixtures/http_util_baseline.json
+//   · 每条期望都带出处（app.py / responses.py / actions.py 行号）
+//   · 生成期已与**真 Python** 对拍（AdminApp 分发 / parse_qs / responses.py）
+//
+// 本文件是**脱网**的：被测模块不碰 socket、不 import tls。
+//
+// ⚠ RUN_TESTS() 的失败**不影响退出码**（规范明载）⇒ 本文件自己把关。
+IMPORT("wlwl:std.test", ["TEST", "ASSERT", "ASSERT_EQ", "RUN_TESTS"]);
+IMPORT("wlwl:std.str", ["JOIN", "CAT"]);
+IMPORT("./../lib/http_util.wll", ["PARSE_FORM", "FORM_FIELD", "FORM_TOO_LARGE",
+    "MAX_POST_SIZE", "MATCH_ROUTE", "COOKIE_VALUE", "HEADER_VALUE", "STATUS_LINE",
+    "BUILD_RESPONSE", "TEXT_ERROR_RESPONSE", "JSON_ERROR_RESPONSE", "JSON_RESPONSE",
+    "HTML_RESPONSE", "REDIRECT", "RATE_LIMIT_RESPONSE", "STATIC_RESPONSE"]);
+
+// ── 预计算响应与路由判定（⚠ LET 不能放进 TEST 的 FUN 体）──────────
+// resp_error_404 —— error_response：Content-Type text/plain + 5 安全头（admin/responses.py:23-28）
+LET(resp_error_404, TEXT_ERROR_RESPONSE(404, "Not Found"));
+// resp_error_405 —— 方法不符的身体串是 "Method not allowed"（app.py:163,178）（admin/app.py:163,178）
+LET(resp_error_405, TEXT_ERROR_RESPONSE(405, "Method not allowed"));
+// resp_error_403 —— CSRF 失败的 text/plain 形态（app.py:260）（admin/app.py:258-260）
+LET(resp_error_403, TEXT_ERROR_RESPONSE(403, "CSRF validation failed"));
+// resp_redirect_login —— redirect_response：Location + 5 安全头，body 空（admin/responses.py:17-20）
+LET(resp_redirect_login, REDIRECT(INDEX_SET(DICT(), "location", "/login")));
+// resp_json_error_403 —— CSRF 豁免路径的 JSON 403（app.py:255-257）（admin/app.py:253-257）
+LET(resp_json_error_403, JSON_ERROR_RESPONSE(403, "CSRF validation failed"));
+// resp_html_csrf —— html_response：Content-Type → 5 安全头 → CSRF cookie → CSP（admin/responses.py:39-55）
+LET(resp_html_csrf, HTML_RESPONSE(INDEX_SET(INDEX_SET(DICT(), "body", "<b>x</b>"), "csrf_token", "TESTTOKEN0123456789")));
+// resp_html_no_csrf —— 无 csrf_token ⇒ 不发 Set-Cookie（app.py:49-51）（admin/responses.py:49-51）
+LET(resp_html_no_csrf, HTML_RESPONSE(INDEX_SET(DICT(), "body", "<b>x</b>")));
+// resp_login_page —— 登录页头序：Content-Type → CSRF cookie → CSP → 5 安全头（与 html_response 相反，逐字照 app.py:231-235）（admin/app.py:226-237）
+LET(resp_login_page, HTML_RESPONSE(INDEX_SET(INDEX_SET(INDEX_SET(DICT(), "body", "LOGIN"), "csrf_token", "TESTTOKEN0123456789"), "security_last", TRUE)));
+// resp_redirect_theme —— set_theme 成功后 302 /theme（actions.py:365）（admin/actions.py:365）
+LET(resp_redirect_theme, REDIRECT(INDEX_SET(DICT(), "location", "/theme")));
+// resp_rate_limit —— app.py 内联构造的 429（无独立函数可对拍）（admin/app.py:132-140）
+LET(resp_rate_limit, RATE_LIMIT_RESPONSE(INDEX_SET(DICT(), "retry_after", 42)));
+// resp_static_asset —— 注入的 CSS/JS：**显式**给 Content-Length，缓存 3600s，免会话（admin/app.py:142-152）
+LET(resp_static_asset, STATIC_RESPONSE(INDEX_SET(INDEX_SET(DICT(), "content_type", "text/css"), "body", "body{}")));
+
+// route_get_login_anon —— 未登录也能进登录页（app.py:154-158）
+LET(route_get_login_anon, MATCH_ROUTE(INDEX_SET(INDEX_SET(DICT(), "method", "GET"), "path", "/login")));
+// route_get_root_anon —— 未登录访问 / ⇒ 302 到 /login（app.py:169-171，卡 S4-3 反向守卫）
+LET(route_get_root_anon, MATCH_ROUTE(INDEX_SET(INDEX_SET(DICT(), "method", "GET"), "path", "/")));
+// route_put_root_anon —— **会话检查先于 method**：未登录 PUT 也先 302（app.py:168-171）
+LET(route_put_root_anon, MATCH_ROUTE(INDEX_SET(INDEX_SET(DICT(), "method", "PUT"), "path", "/")));
+// route_get_protected_404_anon —— 未登录的 404 路径同样先 302（顺序证据）
+LET(route_get_protected_404_anon, MATCH_ROUTE(INDEX_SET(INDEX_SET(DICT(), "method", "GET"), "path", "/nope")));
+// route_post_login_anon_no_csrf —— ⚠ /login 的 CSRF 失败是 **302 /login?error=1**（actions.py:388-389），不是 403
+LET(route_post_login_anon_no_csrf, MATCH_ROUTE(INDEX_SET(INDEX_SET(DICT(), "method", "POST"), "path", "/login")));
+// route_post_create_sess_no_csrf —— 有会话 + 缺 CSRF ⇒ 403 text/plain（app.py:258-260）
+LET(route_post_create_sess_no_csrf, MATCH_ROUTE(INDEX_SET(INDEX_SET(DICT(), "method", "POST"), "path", "/create")));
+// route_post_upload_sess_no_csrf —— CSRF 豁免路径的失败是 **JSON** 403（app.py:253-257）
+LET(route_post_upload_sess_no_csrf, MATCH_ROUTE(INDEX_SET(INDEX_SET(DICT(), "method", "POST"), "path", "/upload")));
+// route_post_upload_sess_csrf —— 合法 CSRF 后进入 upload 动作 ⇒ 缺字段 400 JSON（actions.py:200-201）
+LET(route_post_upload_sess_csrf, MATCH_ROUTE(INDEX_SET(INDEX_SET(DICT(), "method", "POST"), "path", "/upload")));
+// route_post_create_sess_csrf —— 合法 CSRF 后进入 create 动作 ⇒ 缺字段 400 text/plain（actions.py:48-49）
+LET(route_post_create_sess_csrf, MATCH_ROUTE(INDEX_SET(INDEX_SET(DICT(), "method", "POST"), "path", "/create")));
+// route_post_unknown_sess —— 404 早于 CSRF 校验（app.py:242-244）
+LET(route_post_unknown_sess, MATCH_ROUTE(INDEX_SET(INDEX_SET(DICT(), "method", "POST"), "path", "/nope")));
+// route_put_unknown_sess —— 有会话后 method 不符 ⇒ 405（app.py:178）
+LET(route_put_unknown_sess, MATCH_ROUTE(INDEX_SET(INDEX_SET(DICT(), "method", "PUT"), "path", "/nope")));
+// route_get_unknown_sess —— 有会话 GET 未命中 ⇒ 404（app.py:186-188）
+LET(route_get_unknown_sess, MATCH_ROUTE(INDEX_SET(INDEX_SET(DICT(), "method", "GET"), "path", "/nope")));
+// route_get_logout_anon —— GET /logout ⇒ 405（app.py:163，落在 /login /logout 分支里）
+LET(route_get_logout_anon, MATCH_ROUTE(INDEX_SET(INDEX_SET(DICT(), "method", "GET"), "path", "/logout")));
+
+// form_empty —— 空体 ⇒ 空字典
+LET(form_empty, PARSE_FORM(INDEX_SET(INDEX_SET(DICT(), "body", ""), "content_type", "application/x-www-form-urlencoded")));
+// form_basic —— 两个字段
+LET(form_basic, PARSE_FORM(INDEX_SET(INDEX_SET(DICT(), "body", "a=1&b=2"), "content_type", "application/x-www-form-urlencoded")));
+// form_multi —— 同名多值 ⇒ ARRAY（parse_qs 的 list）
+LET(form_multi, PARSE_FORM(INDEX_SET(INDEX_SET(DICT(), "body", "a=1&b=2&a=3"), "content_type", "application/x-www-form-urlencoded")));
+// form_plus_and_percent —— `+` → 空格；percent-decode UTF-8
+LET(form_plus_and_percent, PARSE_FORM(INDEX_SET(INDEX_SET(DICT(), "body", "x=hello+world&k=%E4%B8%AD"), "content_type", "application/x-www-form-urlencoded")));
+// form_blank_dropped —— 空值剔除（keep_blank_values=False 缺省）
+LET(form_blank_dropped, PARSE_FORM(INDEX_SET(INDEX_SET(DICT(), "body", "a=&a=1"), "content_type", "application/x-www-form-urlencoded")));
+// form_blank_only —— 只有空值 ⇒ 该键整体消失
+LET(form_blank_only, PARSE_FORM(INDEX_SET(INDEX_SET(DICT(), "body", "a="), "content_type", "application/x-www-form-urlencoded")));
+// form_no_value —— 无 `=` 的键 ⇒ 空值 ⇒ 剔除（Python 同）
+LET(form_no_value, PARSE_FORM(INDEX_SET(INDEX_SET(DICT(), "body", "bare"), "content_type", "application/x-www-form-urlencoded")));
+// form_empty_key —— 空键保留（parse_qs 也保留）
+LET(form_empty_key, PARSE_FORM(INDEX_SET(INDEX_SET(DICT(), "body", "=1"), "content_type", "application/x-www-form-urlencoded")));
+// form_semicolon_literal —— `;` 不是分隔符（Python 3.13 的缺省 separator="&"）
+LET(form_semicolon_literal, PARSE_FORM(INDEX_SET(INDEX_SET(DICT(), "body", "a=1;b=2"), "content_type", "application/x-www-form-urlencoded")));
+// form_double_amp —— 连续 `&` 跳过空段
+LET(form_double_amp, PARSE_FORM(INDEX_SET(INDEX_SET(DICT(), "body", "a=1&&b=2"), "content_type", "application/x-www-form-urlencoded")));
+// form_csrf_shape —— csrf_token 就是普通字段
+LET(form_csrf_shape, PARSE_FORM(INDEX_SET(INDEX_SET(DICT(), "body", "csrf_token=abc&t=1"), "content_type", "application/x-www-form-urlencoded")));
+// form_bad_percent —— 非法 percent ⇒ **空表单**（Python 原样保留 %ZZ，D-HU-3）
+LET(form_bad_percent, PARSE_FORM(INDEX_SET(INDEX_SET(DICT(), "body", "a=%ZZ"), "content_type", "application/x-www-form-urlencoded")));
+// form_multipart_rejected —— 非 urlencoded ⇒ **空表单**（Python 不判这个头，D-HU-2）
+LET(form_multipart_rejected, PARSE_FORM(INDEX_SET(INDEX_SET(DICT(), "body", "a=1"), "content_type", "multipart/form-data; boundary=x")));
+// form_no_ct_header —— 无 Content-Type ⇒ 按 urlencoded 处理
+LET(form_no_ct_header, PARSE_FORM(INDEX_SET(INDEX_SET(DICT(), "body", "a=1"), "content_type", "")));
+
+// ── 路由表逐条（app.py:60-87）：路径 → 路由名 / status ─────────────
+LET(tr_get_, MATCH_ROUTE(INDEX_SET(INDEX_SET(DICT(), "method", "GET"), "path", "/")));
+TEST("table/GET/get_/route", FUN(() ,
+    (ASSERT_EQ(AT_K(tr_get_, "route", "<missing>"), "dashboard"));
+    TRUE));
+TEST("table/GET/get_/status", FUN(() ,
+    (ASSERT_EQ(AT_K(tr_get_, "status", -1), 200));
+    TRUE));
+LET(tr_get_dashboard, MATCH_ROUTE(INDEX_SET(INDEX_SET(DICT(), "method", "GET"), "path", "/dashboard")));
+TEST("table/GET/get_dashboard/route", FUN(() ,
+    (ASSERT_EQ(AT_K(tr_get_dashboard, "route", "<missing>"), "dashboard"));
+    TRUE));
+TEST("table/GET/get_dashboard/status", FUN(() ,
+    (ASSERT_EQ(AT_K(tr_get_dashboard, "status", -1), 200));
+    TRUE));
+LET(tr_get_pages, MATCH_ROUTE(INDEX_SET(INDEX_SET(DICT(), "method", "GET"), "path", "/pages")));
+TEST("table/GET/get_pages/route", FUN(() ,
+    (ASSERT_EQ(AT_K(tr_get_pages, "route", "<missing>"), "pages_dashboard"));
+    TRUE));
+TEST("table/GET/get_pages/status", FUN(() ,
+    (ASSERT_EQ(AT_K(tr_get_pages, "status", -1), 200));
+    TRUE));
+LET(tr_get_new, MATCH_ROUTE(INDEX_SET(INDEX_SET(DICT(), "method", "GET"), "path", "/new")));
+TEST("table/GET/get_new/route", FUN(() ,
+    (ASSERT_EQ(AT_K(tr_get_new, "route", "<missing>"), "new_article"));
+    TRUE));
+TEST("table/GET/get_new/status", FUN(() ,
+    (ASSERT_EQ(AT_K(tr_get_new, "status", -1), 200));
+    TRUE));
+LET(tr_get_new_page, MATCH_ROUTE(INDEX_SET(INDEX_SET(DICT(), "method", "GET"), "path", "/new-page")));
+TEST("table/GET/get_new_page/route", FUN(() ,
+    (ASSERT_EQ(AT_K(tr_get_new_page, "route", "<missing>"), "new_page"));
+    TRUE));
+TEST("table/GET/get_new_page/status", FUN(() ,
+    (ASSERT_EQ(AT_K(tr_get_new_page, "status", -1), 200));
+    TRUE));
+LET(tr_get_edit, MATCH_ROUTE(INDEX_SET(INDEX_SET(DICT(), "method", "GET"), "path", "/edit")));
+TEST("table/GET/get_edit/route", FUN(() ,
+    (ASSERT_EQ(AT_K(tr_get_edit, "route", "<missing>"), "edit_article"));
+    TRUE));
+TEST("table/GET/get_edit/status", FUN(() ,
+    (ASSERT_EQ(AT_K(tr_get_edit, "status", -1), 200));
+    TRUE));
+LET(tr_get_edit_page, MATCH_ROUTE(INDEX_SET(INDEX_SET(DICT(), "method", "GET"), "path", "/edit-page")));
+TEST("table/GET/get_edit_page/route", FUN(() ,
+    (ASSERT_EQ(AT_K(tr_get_edit_page, "route", "<missing>"), "edit_page"));
+    TRUE));
+TEST("table/GET/get_edit_page/status", FUN(() ,
+    (ASSERT_EQ(AT_K(tr_get_edit_page, "status", -1), 200));
+    TRUE));
+LET(tr_get_theme, MATCH_ROUTE(INDEX_SET(INDEX_SET(DICT(), "method", "GET"), "path", "/theme")));
+TEST("table/GET/get_theme/route", FUN(() ,
+    (ASSERT_EQ(AT_K(tr_get_theme, "route", "<missing>"), "theme"));
+    TRUE));
+TEST("table/GET/get_theme/status", FUN(() ,
+    (ASSERT_EQ(AT_K(tr_get_theme, "status", -1), 200));
+    TRUE));
+LET(tr_get_login, MATCH_ROUTE(INDEX_SET(INDEX_SET(DICT(), "method", "GET"), "path", "/login")));
+TEST("table/GET/get_login/route", FUN(() ,
+    (ASSERT_EQ(AT_K(tr_get_login, "route", "<missing>"), "login"));
+    TRUE));
+TEST("table/GET/get_login/status", FUN(() ,
+    (ASSERT_EQ(AT_K(tr_get_login, "status", -1), 200));
+    TRUE));
+LET(tr_post_upload, MATCH_ROUTE(INDEX_SET(INDEX_SET(DICT(), "method", "POST"), "path", "/upload")));
+TEST("table/POST/post_upload/route", FUN(() ,
+    (ASSERT_EQ(AT_K(tr_post_upload, "route", "<missing>"), "upload_image"));
+    TRUE));
+TEST("table/POST/post_upload/status", FUN(() ,
+    (ASSERT_EQ(AT_K(tr_post_upload, "status", -1), 200));
+    TRUE));
+LET(tr_post_create, MATCH_ROUTE(INDEX_SET(INDEX_SET(DICT(), "method", "POST"), "path", "/create")));
+TEST("table/POST/post_create/route", FUN(() ,
+    (ASSERT_EQ(AT_K(tr_post_create, "route", "<missing>"), "create_article"));
+    TRUE));
+TEST("table/POST/post_create/status", FUN(() ,
+    (ASSERT_EQ(AT_K(tr_post_create, "status", -1), 200));
+    TRUE));
+LET(tr_post_create_page, MATCH_ROUTE(INDEX_SET(INDEX_SET(DICT(), "method", "POST"), "path", "/create-page")));
+TEST("table/POST/post_create_page/route", FUN(() ,
+    (ASSERT_EQ(AT_K(tr_post_create_page, "route", "<missing>"), "create_page"));
+    TRUE));
+TEST("table/POST/post_create_page/status", FUN(() ,
+    (ASSERT_EQ(AT_K(tr_post_create_page, "status", -1), 200));
+    TRUE));
+LET(tr_post_save, MATCH_ROUTE(INDEX_SET(INDEX_SET(DICT(), "method", "POST"), "path", "/save")));
+TEST("table/POST/post_save/route", FUN(() ,
+    (ASSERT_EQ(AT_K(tr_post_save, "route", "<missing>"), "save_article"));
+    TRUE));
+TEST("table/POST/post_save/status", FUN(() ,
+    (ASSERT_EQ(AT_K(tr_post_save, "status", -1), 200));
+    TRUE));
+LET(tr_post_save_page, MATCH_ROUTE(INDEX_SET(INDEX_SET(DICT(), "method", "POST"), "path", "/save-page")));
+TEST("table/POST/post_save_page/route", FUN(() ,
+    (ASSERT_EQ(AT_K(tr_post_save_page, "route", "<missing>"), "save_page"));
+    TRUE));
+TEST("table/POST/post_save_page/status", FUN(() ,
+    (ASSERT_EQ(AT_K(tr_post_save_page, "status", -1), 200));
+    TRUE));
+LET(tr_post_delete, MATCH_ROUTE(INDEX_SET(INDEX_SET(DICT(), "method", "POST"), "path", "/delete")));
+TEST("table/POST/post_delete/route", FUN(() ,
+    (ASSERT_EQ(AT_K(tr_post_delete, "route", "<missing>"), "delete_article"));
+    TRUE));
+TEST("table/POST/post_delete/status", FUN(() ,
+    (ASSERT_EQ(AT_K(tr_post_delete, "status", -1), 200));
+    TRUE));
+LET(tr_post_delete_page, MATCH_ROUTE(INDEX_SET(INDEX_SET(DICT(), "method", "POST"), "path", "/delete-page")));
+TEST("table/POST/post_delete_page/route", FUN(() ,
+    (ASSERT_EQ(AT_K(tr_post_delete_page, "route", "<missing>"), "delete_page"));
+    TRUE));
+TEST("table/POST/post_delete_page/status", FUN(() ,
+    (ASSERT_EQ(AT_K(tr_post_delete_page, "status", -1), 200));
+    TRUE));
+LET(tr_post_regen, MATCH_ROUTE(INDEX_SET(INDEX_SET(DICT(), "method", "POST"), "path", "/regen")));
+TEST("table/POST/post_regen/route", FUN(() ,
+    (ASSERT_EQ(AT_K(tr_post_regen, "route", "<missing>"), "regenerate"));
+    TRUE));
+TEST("table/POST/post_regen/status", FUN(() ,
+    (ASSERT_EQ(AT_K(tr_post_regen, "status", -1), 200));
+    TRUE));
+LET(tr_post_preview, MATCH_ROUTE(INDEX_SET(INDEX_SET(DICT(), "method", "POST"), "path", "/preview")));
+TEST("table/POST/post_preview/route", FUN(() ,
+    (ASSERT_EQ(AT_K(tr_post_preview, "route", "<missing>"), "live_preview"));
+    TRUE));
+TEST("table/POST/post_preview/status", FUN(() ,
+    (ASSERT_EQ(AT_K(tr_post_preview, "status", -1), 200));
+    TRUE));
+LET(tr_post_set_theme, MATCH_ROUTE(INDEX_SET(INDEX_SET(DICT(), "method", "POST"), "path", "/set-theme")));
+TEST("table/POST/post_set_theme/route", FUN(() ,
+    (ASSERT_EQ(AT_K(tr_post_set_theme, "route", "<missing>"), "set_theme"));
+    TRUE));
+TEST("table/POST/post_set_theme/status", FUN(() ,
+    (ASSERT_EQ(AT_K(tr_post_set_theme, "status", -1), 200));
+    TRUE));
+LET(tr_post_ai_assist, MATCH_ROUTE(INDEX_SET(INDEX_SET(DICT(), "method", "POST"), "path", "/ai-assist")));
+TEST("table/POST/post_ai_assist/route", FUN(() ,
+    (ASSERT_EQ(AT_K(tr_post_ai_assist, "route", "<missing>"), "ai_assist"));
+    TRUE));
+TEST("table/POST/post_ai_assist/status", FUN(() ,
+    (ASSERT_EQ(AT_K(tr_post_ai_assist, "status", -1), 200));
+    TRUE));
+LET(tr_post_translate, MATCH_ROUTE(INDEX_SET(INDEX_SET(DICT(), "method", "POST"), "path", "/translate")));
+TEST("table/POST/post_translate/route", FUN(() ,
+    (ASSERT_EQ(AT_K(tr_post_translate, "route", "<missing>"), "translate_article"));
+    TRUE));
+TEST("table/POST/post_translate/status", FUN(() ,
+    (ASSERT_EQ(AT_K(tr_post_translate, "status", -1), 200));
+    TRUE));
+LET(tr_post_login, MATCH_ROUTE(INDEX_SET(INDEX_SET(DICT(), "method", "POST"), "path", "/login")));
+TEST("table/POST/post_login/route", FUN(() ,
+    (ASSERT_EQ(AT_K(tr_post_login, "route", "<missing>"), "login_handler"));
+    TRUE));
+TEST("table/POST/post_login/status", FUN(() ,
+    (ASSERT_EQ(AT_K(tr_post_login, "status", -1), 200));
+    TRUE));
+LET(tr_post_logout, MATCH_ROUTE(INDEX_SET(INDEX_SET(DICT(), "method", "POST"), "path", "/logout")));
+TEST("table/POST/post_logout/route", FUN(() ,
+    (ASSERT_EQ(AT_K(tr_post_logout, "route", "<missing>"), "logout_handler"));
+    TRUE));
+TEST("table/POST/post_logout/status", FUN(() ,
+    (ASSERT_EQ(AT_K(tr_post_logout, "status", -1), 200));
+    TRUE));
+
+// ── 分发用例（13 条）：status / route / kind / requires_session / csrf_exempt
+//   ⚠ 这批用例的期望值与**真 Python 的 AdminApp 实测**生成期对过拍
+// get_login_anon —— 未登录也能进登录页（app.py:154-158）
+TEST("match/get_login_anon/status", FUN(() ,
+    (ASSERT_EQ(AT_K(route_get_login_anon, "status", -1), 200));
+    TRUE));
+TEST("match/get_login_anon/route", FUN(() ,
+    (ASSERT_EQ(AT_K(route_get_login_anon, "route", "<missing>"), "login"));
+    TRUE));
+TEST("match/get_login_anon/kind", FUN(() ,
+    (ASSERT_EQ(AT_K(route_get_login_anon, "kind", "<missing>"), "login"));
+    TRUE));
+TEST("match/get_login_anon/requires_session", FUN(() ,
+    (ASSERT_EQ(AT_K(route_get_login_anon, "requires_session", "<missing>"), FALSE));
+    TRUE));
+TEST("match/get_login_anon/csrf_exempt", FUN(() ,
+    (ASSERT_EQ(AT_K(route_get_login_anon, "csrf_exempt", "<missing>"), FALSE));
+    TRUE));
+// get_root_anon —— 未登录访问 / ⇒ 302 到 /login（app.py:169-171，卡 S4-3 反向守卫）
+TEST("match/get_root_anon/status", FUN(() ,
+    (ASSERT_EQ(AT_K(route_get_root_anon, "status", -1), 200));
+    TRUE));
+TEST("match/get_root_anon/route", FUN(() ,
+    (ASSERT_EQ(AT_K(route_get_root_anon, "route", "<missing>"), "dashboard"));
+    TRUE));
+TEST("match/get_root_anon/kind", FUN(() ,
+    (ASSERT_EQ(AT_K(route_get_root_anon, "kind", "<missing>"), "get"));
+    TRUE));
+TEST("match/get_root_anon/requires_session", FUN(() ,
+    (ASSERT_EQ(AT_K(route_get_root_anon, "requires_session", "<missing>"), TRUE));
+    TRUE));
+TEST("match/get_root_anon/csrf_exempt", FUN(() ,
+    (ASSERT_EQ(AT_K(route_get_root_anon, "csrf_exempt", "<missing>"), FALSE));
+    TRUE));
+// put_root_anon —— **会话检查先于 method**：未登录 PUT 也先 302（app.py:168-171）
+TEST("match/put_root_anon/status", FUN(() ,
+    (ASSERT_EQ(AT_K(route_put_root_anon, "status", -1), 405));
+    TRUE));
+TEST("match/put_root_anon/route", FUN(() ,
+    (ASSERT_EQ(AT_K(route_put_root_anon, "route", "<missing>"), ""));
+    TRUE));
+TEST("match/put_root_anon/kind", FUN(() ,
+    (ASSERT_EQ(AT_K(route_put_root_anon, "kind", "<missing>"), ""));
+    TRUE));
+TEST("match/put_root_anon/requires_session", FUN(() ,
+    (ASSERT_EQ(AT_K(route_put_root_anon, "requires_session", "<missing>"), TRUE));
+    TRUE));
+TEST("match/put_root_anon/csrf_exempt", FUN(() ,
+    (ASSERT_EQ(AT_K(route_put_root_anon, "csrf_exempt", "<missing>"), FALSE));
+    TRUE));
+// get_protected_404_anon —— 未登录的 404 路径同样先 302（顺序证据）
+TEST("match/get_protected_404_anon/status", FUN(() ,
+    (ASSERT_EQ(AT_K(route_get_protected_404_anon, "status", -1), 404));
+    TRUE));
+TEST("match/get_protected_404_anon/route", FUN(() ,
+    (ASSERT_EQ(AT_K(route_get_protected_404_anon, "route", "<missing>"), ""));
+    TRUE));
+TEST("match/get_protected_404_anon/kind", FUN(() ,
+    (ASSERT_EQ(AT_K(route_get_protected_404_anon, "kind", "<missing>"), ""));
+    TRUE));
+TEST("match/get_protected_404_anon/requires_session", FUN(() ,
+    (ASSERT_EQ(AT_K(route_get_protected_404_anon, "requires_session", "<missing>"), TRUE));
+    TRUE));
+TEST("match/get_protected_404_anon/csrf_exempt", FUN(() ,
+    (ASSERT_EQ(AT_K(route_get_protected_404_anon, "csrf_exempt", "<missing>"), FALSE));
+    TRUE));
+// post_login_anon_no_csrf —— ⚠ /login 的 CSRF 失败是 **302 /login?error=1**（actions.py:388-389），不是 403
+TEST("match/post_login_anon_no_csrf/status", FUN(() ,
+    (ASSERT_EQ(AT_K(route_post_login_anon_no_csrf, "status", -1), 200));
+    TRUE));
+TEST("match/post_login_anon_no_csrf/route", FUN(() ,
+    (ASSERT_EQ(AT_K(route_post_login_anon_no_csrf, "route", "<missing>"), "login_handler"));
+    TRUE));
+TEST("match/post_login_anon_no_csrf/kind", FUN(() ,
+    (ASSERT_EQ(AT_K(route_post_login_anon_no_csrf, "kind", "<missing>"), "login_post"));
+    TRUE));
+TEST("match/post_login_anon_no_csrf/requires_session", FUN(() ,
+    (ASSERT_EQ(AT_K(route_post_login_anon_no_csrf, "requires_session", "<missing>"), FALSE));
+    TRUE));
+TEST("match/post_login_anon_no_csrf/csrf_exempt", FUN(() ,
+    (ASSERT_EQ(AT_K(route_post_login_anon_no_csrf, "csrf_exempt", "<missing>"), FALSE));
+    TRUE));
+// post_create_sess_no_csrf —— 有会话 + 缺 CSRF ⇒ 403 text/plain（app.py:258-260）
+TEST("match/post_create_sess_no_csrf/status", FUN(() ,
+    (ASSERT_EQ(AT_K(route_post_create_sess_no_csrf, "status", -1), 200));
+    TRUE));
+TEST("match/post_create_sess_no_csrf/route", FUN(() ,
+    (ASSERT_EQ(AT_K(route_post_create_sess_no_csrf, "route", "<missing>"), "create_article"));
+    TRUE));
+TEST("match/post_create_sess_no_csrf/kind", FUN(() ,
+    (ASSERT_EQ(AT_K(route_post_create_sess_no_csrf, "kind", "<missing>"), "post"));
+    TRUE));
+TEST("match/post_create_sess_no_csrf/requires_session", FUN(() ,
+    (ASSERT_EQ(AT_K(route_post_create_sess_no_csrf, "requires_session", "<missing>"), TRUE));
+    TRUE));
+TEST("match/post_create_sess_no_csrf/csrf_exempt", FUN(() ,
+    (ASSERT_EQ(AT_K(route_post_create_sess_no_csrf, "csrf_exempt", "<missing>"), FALSE));
+    TRUE));
+// post_upload_sess_no_csrf —— CSRF 豁免路径的失败是 **JSON** 403（app.py:253-257）
+TEST("match/post_upload_sess_no_csrf/status", FUN(() ,
+    (ASSERT_EQ(AT_K(route_post_upload_sess_no_csrf, "status", -1), 200));
+    TRUE));
+TEST("match/post_upload_sess_no_csrf/route", FUN(() ,
+    (ASSERT_EQ(AT_K(route_post_upload_sess_no_csrf, "route", "<missing>"), "upload_image"));
+    TRUE));
+TEST("match/post_upload_sess_no_csrf/kind", FUN(() ,
+    (ASSERT_EQ(AT_K(route_post_upload_sess_no_csrf, "kind", "<missing>"), "post"));
+    TRUE));
+TEST("match/post_upload_sess_no_csrf/requires_session", FUN(() ,
+    (ASSERT_EQ(AT_K(route_post_upload_sess_no_csrf, "requires_session", "<missing>"), TRUE));
+    TRUE));
+TEST("match/post_upload_sess_no_csrf/csrf_exempt", FUN(() ,
+    (ASSERT_EQ(AT_K(route_post_upload_sess_no_csrf, "csrf_exempt", "<missing>"), TRUE));
+    TRUE));
+// post_upload_sess_csrf —— 合法 CSRF 后进入 upload 动作 ⇒ 缺字段 400 JSON（actions.py:200-201）
+TEST("match/post_upload_sess_csrf/status", FUN(() ,
+    (ASSERT_EQ(AT_K(route_post_upload_sess_csrf, "status", -1), 200));
+    TRUE));
+TEST("match/post_upload_sess_csrf/route", FUN(() ,
+    (ASSERT_EQ(AT_K(route_post_upload_sess_csrf, "route", "<missing>"), "upload_image"));
+    TRUE));
+TEST("match/post_upload_sess_csrf/kind", FUN(() ,
+    (ASSERT_EQ(AT_K(route_post_upload_sess_csrf, "kind", "<missing>"), "post"));
+    TRUE));
+TEST("match/post_upload_sess_csrf/requires_session", FUN(() ,
+    (ASSERT_EQ(AT_K(route_post_upload_sess_csrf, "requires_session", "<missing>"), TRUE));
+    TRUE));
+TEST("match/post_upload_sess_csrf/csrf_exempt", FUN(() ,
+    (ASSERT_EQ(AT_K(route_post_upload_sess_csrf, "csrf_exempt", "<missing>"), TRUE));
+    TRUE));
+// post_create_sess_csrf —— 合法 CSRF 后进入 create 动作 ⇒ 缺字段 400 text/plain（actions.py:48-49）
+TEST("match/post_create_sess_csrf/status", FUN(() ,
+    (ASSERT_EQ(AT_K(route_post_create_sess_csrf, "status", -1), 200));
+    TRUE));
+TEST("match/post_create_sess_csrf/route", FUN(() ,
+    (ASSERT_EQ(AT_K(route_post_create_sess_csrf, "route", "<missing>"), "create_article"));
+    TRUE));
+TEST("match/post_create_sess_csrf/kind", FUN(() ,
+    (ASSERT_EQ(AT_K(route_post_create_sess_csrf, "kind", "<missing>"), "post"));
+    TRUE));
+TEST("match/post_create_sess_csrf/requires_session", FUN(() ,
+    (ASSERT_EQ(AT_K(route_post_create_sess_csrf, "requires_session", "<missing>"), TRUE));
+    TRUE));
+TEST("match/post_create_sess_csrf/csrf_exempt", FUN(() ,
+    (ASSERT_EQ(AT_K(route_post_create_sess_csrf, "csrf_exempt", "<missing>"), FALSE));
+    TRUE));
+// post_unknown_sess —— 404 早于 CSRF 校验（app.py:242-244）
+TEST("match/post_unknown_sess/status", FUN(() ,
+    (ASSERT_EQ(AT_K(route_post_unknown_sess, "status", -1), 404));
+    TRUE));
+TEST("match/post_unknown_sess/route", FUN(() ,
+    (ASSERT_EQ(AT_K(route_post_unknown_sess, "route", "<missing>"), ""));
+    TRUE));
+TEST("match/post_unknown_sess/kind", FUN(() ,
+    (ASSERT_EQ(AT_K(route_post_unknown_sess, "kind", "<missing>"), ""));
+    TRUE));
+TEST("match/post_unknown_sess/requires_session", FUN(() ,
+    (ASSERT_EQ(AT_K(route_post_unknown_sess, "requires_session", "<missing>"), TRUE));
+    TRUE));
+TEST("match/post_unknown_sess/csrf_exempt", FUN(() ,
+    (ASSERT_EQ(AT_K(route_post_unknown_sess, "csrf_exempt", "<missing>"), FALSE));
+    TRUE));
+// put_unknown_sess —— 有会话后 method 不符 ⇒ 405（app.py:178）
+TEST("match/put_unknown_sess/status", FUN(() ,
+    (ASSERT_EQ(AT_K(route_put_unknown_sess, "status", -1), 405));
+    TRUE));
+TEST("match/put_unknown_sess/route", FUN(() ,
+    (ASSERT_EQ(AT_K(route_put_unknown_sess, "route", "<missing>"), ""));
+    TRUE));
+TEST("match/put_unknown_sess/kind", FUN(() ,
+    (ASSERT_EQ(AT_K(route_put_unknown_sess, "kind", "<missing>"), ""));
+    TRUE));
+TEST("match/put_unknown_sess/requires_session", FUN(() ,
+    (ASSERT_EQ(AT_K(route_put_unknown_sess, "requires_session", "<missing>"), TRUE));
+    TRUE));
+TEST("match/put_unknown_sess/csrf_exempt", FUN(() ,
+    (ASSERT_EQ(AT_K(route_put_unknown_sess, "csrf_exempt", "<missing>"), FALSE));
+    TRUE));
+// get_unknown_sess —— 有会话 GET 未命中 ⇒ 404（app.py:186-188）
+TEST("match/get_unknown_sess/status", FUN(() ,
+    (ASSERT_EQ(AT_K(route_get_unknown_sess, "status", -1), 404));
+    TRUE));
+TEST("match/get_unknown_sess/route", FUN(() ,
+    (ASSERT_EQ(AT_K(route_get_unknown_sess, "route", "<missing>"), ""));
+    TRUE));
+TEST("match/get_unknown_sess/kind", FUN(() ,
+    (ASSERT_EQ(AT_K(route_get_unknown_sess, "kind", "<missing>"), ""));
+    TRUE));
+TEST("match/get_unknown_sess/requires_session", FUN(() ,
+    (ASSERT_EQ(AT_K(route_get_unknown_sess, "requires_session", "<missing>"), TRUE));
+    TRUE));
+TEST("match/get_unknown_sess/csrf_exempt", FUN(() ,
+    (ASSERT_EQ(AT_K(route_get_unknown_sess, "csrf_exempt", "<missing>"), FALSE));
+    TRUE));
+// get_logout_anon —— GET /logout ⇒ 405（app.py:163，落在 /login /logout 分支里）
+TEST("match/get_logout_anon/status", FUN(() ,
+    (ASSERT_EQ(AT_K(route_get_logout_anon, "status", -1), 405));
+    TRUE));
+TEST("match/get_logout_anon/route", FUN(() ,
+    (ASSERT_EQ(AT_K(route_get_logout_anon, "route", "<missing>"), ""));
+    TRUE));
+TEST("match/get_logout_anon/kind", FUN(() ,
+    (ASSERT_EQ(AT_K(route_get_logout_anon, "kind", "<missing>"), ""));
+    TRUE));
+TEST("match/get_logout_anon/requires_session", FUN(() ,
+    (ASSERT_EQ(AT_K(route_get_logout_anon, "requires_session", "<missing>"), FALSE));
+    TRUE));
+TEST("match/get_logout_anon/csrf_exempt", FUN(() ,
+    (ASSERT_EQ(AT_K(route_get_logout_anon, "csrf_exempt", "<missing>"), FALSE));
+    TRUE));
+
+// ── 表单用例：键序 / 键数 / 每个键的值（多值用 "|" 拼）──────────────
+// empty —— 空体 ⇒ 空字典（admin/app.py:322-323（CONTENT_LENGTH<=0 ⇒ {}））
+TEST("form/empty/keys", FUN(() ,
+    (ASSERT_EQ(JOIN(KEYS(form_empty), "|"), ""));
+    TRUE));
+TEST("form/empty/count", FUN(() ,
+    (ASSERT_EQ(LEN(KEYS(form_empty)), 0));
+    TRUE));
+// basic —— 两个字段（admin/app.py:317-329）
+TEST("form/basic/keys", FUN(() ,
+    (ASSERT_EQ(JOIN(KEYS(form_basic), "|"), "a|b"));
+    TRUE));
+TEST("form/basic/count", FUN(() ,
+    (ASSERT_EQ(LEN(KEYS(form_basic)), 2));
+    TRUE));
+TEST("form/basic/a", FUN(() ,
+    (ASSERT_EQ(AT_K(form_basic, "a", "<missing>"), "1"));
+    TRUE));
+TEST("form/basic/b", FUN(() ,
+    (ASSERT_EQ(AT_K(form_basic, "b", "<missing>"), "2"));
+    TRUE));
+// multi —— 同名多值 ⇒ ARRAY（parse_qs 的 list）（security.py:53 + app.py:247（post_data.get(k,[""])[0] 取第一个））
+TEST("form/multi/keys", FUN(() ,
+    (ASSERT_EQ(JOIN(KEYS(form_multi), "|"), "a|b"));
+    TRUE));
+TEST("form/multi/count", FUN(() ,
+    (ASSERT_EQ(LEN(KEYS(form_multi)), 2));
+    TRUE));
+TEST("form/multi/a", FUN(() ,
+    (ASSERT_EQ(JOIN(AT_K(form_multi, "a", []), "|"), "1|3"));
+    TRUE));
+TEST("form/multi/b", FUN(() ,
+    (ASSERT_EQ(AT_K(form_multi, "b", "<missing>"), "2"));
+    TRUE));
+// plus_and_percent —— `+` → 空格；percent-decode UTF-8（urllib.parse.parse_qs）
+TEST("form/plus_and_percent/keys", FUN(() ,
+    (ASSERT_EQ(JOIN(KEYS(form_plus_and_percent), "|"), "x|k"));
+    TRUE));
+TEST("form/plus_and_percent/count", FUN(() ,
+    (ASSERT_EQ(LEN(KEYS(form_plus_and_percent)), 2));
+    TRUE));
+TEST("form/plus_and_percent/x", FUN(() ,
+    (ASSERT_EQ(AT_K(form_plus_and_percent, "x", "<missing>"), "hello world"));
+    TRUE));
+TEST("form/plus_and_percent/k", FUN(() ,
+    (ASSERT_EQ(AT_K(form_plus_and_percent, "k", "<missing>"), "中"));
+    TRUE));
+// blank_dropped —— 空值剔除（keep_blank_values=False 缺省）（D-HU-4）
+TEST("form/blank_dropped/keys", FUN(() ,
+    (ASSERT_EQ(JOIN(KEYS(form_blank_dropped), "|"), "a"));
+    TRUE));
+TEST("form/blank_dropped/count", FUN(() ,
+    (ASSERT_EQ(LEN(KEYS(form_blank_dropped)), 1));
+    TRUE));
+TEST("form/blank_dropped/a", FUN(() ,
+    (ASSERT_EQ(AT_K(form_blank_dropped, "a", "<missing>"), "1"));
+    TRUE));
+// blank_only —— 只有空值 ⇒ 该键整体消失（D-HU-4）
+TEST("form/blank_only/keys", FUN(() ,
+    (ASSERT_EQ(JOIN(KEYS(form_blank_only), "|"), ""));
+    TRUE));
+TEST("form/blank_only/count", FUN(() ,
+    (ASSERT_EQ(LEN(KEYS(form_blank_only)), 0));
+    TRUE));
+// no_value —— 无 `=` 的键 ⇒ 空值 ⇒ 剔除（Python 同）（D-HU-4）
+TEST("form/no_value/keys", FUN(() ,
+    (ASSERT_EQ(JOIN(KEYS(form_no_value), "|"), ""));
+    TRUE));
+TEST("form/no_value/count", FUN(() ,
+    (ASSERT_EQ(LEN(KEYS(form_no_value)), 0));
+    TRUE));
+// empty_key —— 空键保留（parse_qs 也保留）（urllib.parse.parse_qs）
+TEST("form/empty_key/keys", FUN(() ,
+    (ASSERT_EQ(JOIN(KEYS(form_empty_key), "|"), ""));
+    TRUE));
+TEST("form/empty_key/count", FUN(() ,
+    (ASSERT_EQ(LEN(KEYS(form_empty_key)), 1));
+    TRUE));
+TEST("form/empty_key/<empty>", FUN(() ,
+    (ASSERT_EQ(AT_K(form_empty_key, "", "<missing>"), "1"));
+    TRUE));
+// semicolon_literal —— `;` 不是分隔符（Python 3.13 的缺省 separator="&"）（urllib.parse.parse_qs(separator="&")）
+TEST("form/semicolon_literal/keys", FUN(() ,
+    (ASSERT_EQ(JOIN(KEYS(form_semicolon_literal), "|"), "a"));
+    TRUE));
+TEST("form/semicolon_literal/count", FUN(() ,
+    (ASSERT_EQ(LEN(KEYS(form_semicolon_literal)), 1));
+    TRUE));
+TEST("form/semicolon_literal/a", FUN(() ,
+    (ASSERT_EQ(AT_K(form_semicolon_literal, "a", "<missing>"), "1;b=2"));
+    TRUE));
+// double_amp —— 连续 `&` 跳过空段（urllib.parse.parse_qs）
+TEST("form/double_amp/keys", FUN(() ,
+    (ASSERT_EQ(JOIN(KEYS(form_double_amp), "|"), "a|b"));
+    TRUE));
+TEST("form/double_amp/count", FUN(() ,
+    (ASSERT_EQ(LEN(KEYS(form_double_amp)), 2));
+    TRUE));
+TEST("form/double_amp/a", FUN(() ,
+    (ASSERT_EQ(AT_K(form_double_amp, "a", "<missing>"), "1"));
+    TRUE));
+TEST("form/double_amp/b", FUN(() ,
+    (ASSERT_EQ(AT_K(form_double_amp, "b", "<missing>"), "2"));
+    TRUE));
+// csrf_shape —— csrf_token 就是普通字段（admin/app.py:247）
+TEST("form/csrf_shape/keys", FUN(() ,
+    (ASSERT_EQ(JOIN(KEYS(form_csrf_shape), "|"), "csrf_token|t"));
+    TRUE));
+TEST("form/csrf_shape/count", FUN(() ,
+    (ASSERT_EQ(LEN(KEYS(form_csrf_shape)), 2));
+    TRUE));
+TEST("form/csrf_shape/csrf_token", FUN(() ,
+    (ASSERT_EQ(AT_K(form_csrf_shape, "csrf_token", "<missing>"), "abc"));
+    TRUE));
+TEST("form/csrf_shape/t", FUN(() ,
+    (ASSERT_EQ(AT_K(form_csrf_shape, "t", "<missing>"), "1"));
+    TRUE));
+// bad_percent —— 非法 percent ⇒ **空表单**（Python 原样保留 %ZZ，D-HU-3）（D-HU-3）
+TEST("form/bad_percent/keys", FUN(() ,
+    (ASSERT_EQ(JOIN(KEYS(form_bad_percent), "|"), ""));
+    TRUE));
+TEST("form/bad_percent/count", FUN(() ,
+    (ASSERT_EQ(LEN(KEYS(form_bad_percent)), 0));
+    TRUE));
+// multipart_rejected —— 非 urlencoded ⇒ **空表单**（Python 不判这个头，D-HU-2）（D-HU-2）
+TEST("form/multipart_rejected/keys", FUN(() ,
+    (ASSERT_EQ(JOIN(KEYS(form_multipart_rejected), "|"), ""));
+    TRUE));
+TEST("form/multipart_rejected/count", FUN(() ,
+    (ASSERT_EQ(LEN(KEYS(form_multipart_rejected)), 0));
+    TRUE));
+// no_ct_header —— 无 Content-Type ⇒ 按 urlencoded 处理（D-HU-2）
+TEST("form/no_ct_header/keys", FUN(() ,
+    (ASSERT_EQ(JOIN(KEYS(form_no_ct_header), "|"), "a"));
+    TRUE));
+TEST("form/no_ct_header/count", FUN(() ,
+    (ASSERT_EQ(LEN(KEYS(form_no_ct_header)), 1));
+    TRUE));
+TEST("form/no_ct_header/a", FUN(() ,
+    (ASSERT_EQ(AT_K(form_no_ct_header, "a", "<missing>"), "1"));
+    TRUE));
+
+// ── 请求体上限（app.py:58 / :324：判据是 `>` 不是 `>=`）─────────────
+TEST("size/max_post_size_bytes", FUN(() ,
+    (ASSERT_EQ(MAX_POST_SIZE(), 10485760));
+    TRUE));
+TEST("size/max_post_size_is_10mb", FUN(() ,
+    (ASSERT_EQ(MAX_POST_SIZE(), *(10, 1048576)));
+    TRUE));
+// exactly_max —— body 字节数 == 阈值 ⇒ **不算超**（判据是 `>`）
+TEST("size/exactly_max", FUN(() ,
+    (ASSERT_EQ(FORM_TOO_LARGE(INDEX_SET(INDEX_SET(DICT(), "body", "abcde"), "max_bytes", 5)), FALSE));
+    TRUE));
+// one_over_max —— body 字节数 == 阈值+1 ⇒ 超
+TEST("size/one_over_max", FUN(() ,
+    (ASSERT_EQ(FORM_TOO_LARGE(INDEX_SET(INDEX_SET(DICT(), "body", "abcde"), "max_bytes", 4)), TRUE));
+    TRUE));
+// 缺省阈值就是 10MB（短体在缺省阈值下不可能超）
+TEST("size/default_threshold_is_max", FUN(() ,
+    (ASSERT_EQ(FORM_TOO_LARGE(INDEX_SET(DICT(), "body", "abcde")), FALSE));
+    TRUE));
+
+// ── 响应用例：status / 头序 / 每个头的值 / body ────────────────────
+
+// error_404 —— error_response：Content-Type text/plain + 5 安全头（admin/responses.py:23-28）
+TEST("resp/error_404/status", FUN(() ,
+    (ASSERT_EQ(AT_K(resp_error_404, "status", -1), 404));
+    TRUE));
+TEST("resp/error_404/status_line", FUN(() ,
+    (ASSERT_EQ(STATUS_LINE(AT_K(resp_error_404, "status", -1)), "404 Not Found"));
+    TRUE));
+TEST("resp/error_404/header_order", FUN(() ,
+    (ASSERT_EQ(JOIN(KEYS(AT_K(resp_error_404, "headers", DICT())), "|"), "Content-Type|X-Content-Type-Options|X-Frame-Options|Referrer-Policy|Cross-Origin-Opener-Policy|Permissions-Policy"));
+    TRUE));
+TEST("resp/error_404/header_count", FUN(() ,
+    (ASSERT_EQ(LEN(KEYS(AT_K(resp_error_404, "headers", DICT()))), 6));
+    TRUE));
+TEST("resp/error_404/header/Content-Type", FUN(() ,
+    (ASSERT_EQ(AT_K(AT_K(resp_error_404, "headers", DICT()), "Content-Type", "<missing>"), "text/plain"));
+    TRUE));
+TEST("resp/error_404/header/X-Content-Type-Options", FUN(() ,
+    (ASSERT_EQ(AT_K(AT_K(resp_error_404, "headers", DICT()), "X-Content-Type-Options", "<missing>"), "nosniff"));
+    TRUE));
+TEST("resp/error_404/header/X-Frame-Options", FUN(() ,
+    (ASSERT_EQ(AT_K(AT_K(resp_error_404, "headers", DICT()), "X-Frame-Options", "<missing>"), "DENY"));
+    TRUE));
+TEST("resp/error_404/header/Referrer-Policy", FUN(() ,
+    (ASSERT_EQ(AT_K(AT_K(resp_error_404, "headers", DICT()), "Referrer-Policy", "<missing>"), "no-referrer"));
+    TRUE));
+TEST("resp/error_404/header/Cross-Origin-Opener-Policy", FUN(() ,
+    (ASSERT_EQ(AT_K(AT_K(resp_error_404, "headers", DICT()), "Cross-Origin-Opener-Policy", "<missing>"), "same-origin"));
+    TRUE));
+TEST("resp/error_404/header/Permissions-Policy", FUN(() ,
+    (ASSERT_EQ(AT_K(AT_K(resp_error_404, "headers", DICT()), "Permissions-Policy", "<missing>"), "accelerometer=(), camera=(), geolocation=(), gyroscope=(), magnetometer=(), microphone=(), payment=(), usb=()"));
+    TRUE));
+TEST("resp/error_404/body", FUN(() ,
+    (ASSERT_EQ(AT_K(resp_error_404, "body", "<missing>"), "Not Found"));
+    TRUE));
+
+// error_405 —— 方法不符的身体串是 "Method not allowed"（app.py:163,178）（admin/app.py:163,178）
+TEST("resp/error_405/status", FUN(() ,
+    (ASSERT_EQ(AT_K(resp_error_405, "status", -1), 405));
+    TRUE));
+TEST("resp/error_405/status_line", FUN(() ,
+    (ASSERT_EQ(STATUS_LINE(AT_K(resp_error_405, "status", -1)), "405 Method Not Allowed"));
+    TRUE));
+TEST("resp/error_405/header_order", FUN(() ,
+    (ASSERT_EQ(JOIN(KEYS(AT_K(resp_error_405, "headers", DICT())), "|"), "Content-Type|X-Content-Type-Options|X-Frame-Options|Referrer-Policy|Cross-Origin-Opener-Policy|Permissions-Policy"));
+    TRUE));
+TEST("resp/error_405/header_count", FUN(() ,
+    (ASSERT_EQ(LEN(KEYS(AT_K(resp_error_405, "headers", DICT()))), 6));
+    TRUE));
+TEST("resp/error_405/header/Content-Type", FUN(() ,
+    (ASSERT_EQ(AT_K(AT_K(resp_error_405, "headers", DICT()), "Content-Type", "<missing>"), "text/plain"));
+    TRUE));
+TEST("resp/error_405/header/X-Content-Type-Options", FUN(() ,
+    (ASSERT_EQ(AT_K(AT_K(resp_error_405, "headers", DICT()), "X-Content-Type-Options", "<missing>"), "nosniff"));
+    TRUE));
+TEST("resp/error_405/header/X-Frame-Options", FUN(() ,
+    (ASSERT_EQ(AT_K(AT_K(resp_error_405, "headers", DICT()), "X-Frame-Options", "<missing>"), "DENY"));
+    TRUE));
+TEST("resp/error_405/header/Referrer-Policy", FUN(() ,
+    (ASSERT_EQ(AT_K(AT_K(resp_error_405, "headers", DICT()), "Referrer-Policy", "<missing>"), "no-referrer"));
+    TRUE));
+TEST("resp/error_405/header/Cross-Origin-Opener-Policy", FUN(() ,
+    (ASSERT_EQ(AT_K(AT_K(resp_error_405, "headers", DICT()), "Cross-Origin-Opener-Policy", "<missing>"), "same-origin"));
+    TRUE));
+TEST("resp/error_405/header/Permissions-Policy", FUN(() ,
+    (ASSERT_EQ(AT_K(AT_K(resp_error_405, "headers", DICT()), "Permissions-Policy", "<missing>"), "accelerometer=(), camera=(), geolocation=(), gyroscope=(), magnetometer=(), microphone=(), payment=(), usb=()"));
+    TRUE));
+TEST("resp/error_405/body", FUN(() ,
+    (ASSERT_EQ(AT_K(resp_error_405, "body", "<missing>"), "Method not allowed"));
+    TRUE));
+
+// error_403 —— CSRF 失败的 text/plain 形态（app.py:260）（admin/app.py:258-260）
+TEST("resp/error_403/status", FUN(() ,
+    (ASSERT_EQ(AT_K(resp_error_403, "status", -1), 403));
+    TRUE));
+TEST("resp/error_403/status_line", FUN(() ,
+    (ASSERT_EQ(STATUS_LINE(AT_K(resp_error_403, "status", -1)), "403 Forbidden"));
+    TRUE));
+TEST("resp/error_403/header_order", FUN(() ,
+    (ASSERT_EQ(JOIN(KEYS(AT_K(resp_error_403, "headers", DICT())), "|"), "Content-Type|X-Content-Type-Options|X-Frame-Options|Referrer-Policy|Cross-Origin-Opener-Policy|Permissions-Policy"));
+    TRUE));
+TEST("resp/error_403/header_count", FUN(() ,
+    (ASSERT_EQ(LEN(KEYS(AT_K(resp_error_403, "headers", DICT()))), 6));
+    TRUE));
+TEST("resp/error_403/header/Content-Type", FUN(() ,
+    (ASSERT_EQ(AT_K(AT_K(resp_error_403, "headers", DICT()), "Content-Type", "<missing>"), "text/plain"));
+    TRUE));
+TEST("resp/error_403/header/X-Content-Type-Options", FUN(() ,
+    (ASSERT_EQ(AT_K(AT_K(resp_error_403, "headers", DICT()), "X-Content-Type-Options", "<missing>"), "nosniff"));
+    TRUE));
+TEST("resp/error_403/header/X-Frame-Options", FUN(() ,
+    (ASSERT_EQ(AT_K(AT_K(resp_error_403, "headers", DICT()), "X-Frame-Options", "<missing>"), "DENY"));
+    TRUE));
+TEST("resp/error_403/header/Referrer-Policy", FUN(() ,
+    (ASSERT_EQ(AT_K(AT_K(resp_error_403, "headers", DICT()), "Referrer-Policy", "<missing>"), "no-referrer"));
+    TRUE));
+TEST("resp/error_403/header/Cross-Origin-Opener-Policy", FUN(() ,
+    (ASSERT_EQ(AT_K(AT_K(resp_error_403, "headers", DICT()), "Cross-Origin-Opener-Policy", "<missing>"), "same-origin"));
+    TRUE));
+TEST("resp/error_403/header/Permissions-Policy", FUN(() ,
+    (ASSERT_EQ(AT_K(AT_K(resp_error_403, "headers", DICT()), "Permissions-Policy", "<missing>"), "accelerometer=(), camera=(), geolocation=(), gyroscope=(), magnetometer=(), microphone=(), payment=(), usb=()"));
+    TRUE));
+TEST("resp/error_403/body", FUN(() ,
+    (ASSERT_EQ(AT_K(resp_error_403, "body", "<missing>"), "CSRF validation failed"));
+    TRUE));
+
+// redirect_login —— redirect_response：Location + 5 安全头，body 空（admin/responses.py:17-20）
+TEST("resp/redirect_login/status", FUN(() ,
+    (ASSERT_EQ(AT_K(resp_redirect_login, "status", -1), 302));
+    TRUE));
+TEST("resp/redirect_login/status_line", FUN(() ,
+    (ASSERT_EQ(STATUS_LINE(AT_K(resp_redirect_login, "status", -1)), "302 Found"));
+    TRUE));
+TEST("resp/redirect_login/header_order", FUN(() ,
+    (ASSERT_EQ(JOIN(KEYS(AT_K(resp_redirect_login, "headers", DICT())), "|"), "Location|X-Content-Type-Options|X-Frame-Options|Referrer-Policy|Cross-Origin-Opener-Policy|Permissions-Policy"));
+    TRUE));
+TEST("resp/redirect_login/header_count", FUN(() ,
+    (ASSERT_EQ(LEN(KEYS(AT_K(resp_redirect_login, "headers", DICT()))), 6));
+    TRUE));
+TEST("resp/redirect_login/header/Location", FUN(() ,
+    (ASSERT_EQ(AT_K(AT_K(resp_redirect_login, "headers", DICT()), "Location", "<missing>"), "/login"));
+    TRUE));
+TEST("resp/redirect_login/header/X-Content-Type-Options", FUN(() ,
+    (ASSERT_EQ(AT_K(AT_K(resp_redirect_login, "headers", DICT()), "X-Content-Type-Options", "<missing>"), "nosniff"));
+    TRUE));
+TEST("resp/redirect_login/header/X-Frame-Options", FUN(() ,
+    (ASSERT_EQ(AT_K(AT_K(resp_redirect_login, "headers", DICT()), "X-Frame-Options", "<missing>"), "DENY"));
+    TRUE));
+TEST("resp/redirect_login/header/Referrer-Policy", FUN(() ,
+    (ASSERT_EQ(AT_K(AT_K(resp_redirect_login, "headers", DICT()), "Referrer-Policy", "<missing>"), "no-referrer"));
+    TRUE));
+TEST("resp/redirect_login/header/Cross-Origin-Opener-Policy", FUN(() ,
+    (ASSERT_EQ(AT_K(AT_K(resp_redirect_login, "headers", DICT()), "Cross-Origin-Opener-Policy", "<missing>"), "same-origin"));
+    TRUE));
+TEST("resp/redirect_login/header/Permissions-Policy", FUN(() ,
+    (ASSERT_EQ(AT_K(AT_K(resp_redirect_login, "headers", DICT()), "Permissions-Policy", "<missing>"), "accelerometer=(), camera=(), geolocation=(), gyroscope=(), magnetometer=(), microphone=(), payment=(), usb=()"));
+    TRUE));
+TEST("resp/redirect_login/body", FUN(() ,
+    (ASSERT_EQ(AT_K(resp_redirect_login, "body", "<missing>"), ""));
+    TRUE));
+
+// json_error_403 —— CSRF 豁免路径的 JSON 403（app.py:255-257）（admin/app.py:253-257）
+TEST("resp/json_error_403/status", FUN(() ,
+    (ASSERT_EQ(AT_K(resp_json_error_403, "status", -1), 403));
+    TRUE));
+TEST("resp/json_error_403/status_line", FUN(() ,
+    (ASSERT_EQ(STATUS_LINE(AT_K(resp_json_error_403, "status", -1)), "403 Forbidden"));
+    TRUE));
+TEST("resp/json_error_403/header_order", FUN(() ,
+    (ASSERT_EQ(JOIN(KEYS(AT_K(resp_json_error_403, "headers", DICT())), "|"), "Content-Type|X-Content-Type-Options|X-Frame-Options|Referrer-Policy|Cross-Origin-Opener-Policy|Permissions-Policy"));
+    TRUE));
+TEST("resp/json_error_403/header_count", FUN(() ,
+    (ASSERT_EQ(LEN(KEYS(AT_K(resp_json_error_403, "headers", DICT()))), 6));
+    TRUE));
+TEST("resp/json_error_403/header/Content-Type", FUN(() ,
+    (ASSERT_EQ(AT_K(AT_K(resp_json_error_403, "headers", DICT()), "Content-Type", "<missing>"), "application/json"));
+    TRUE));
+TEST("resp/json_error_403/header/X-Content-Type-Options", FUN(() ,
+    (ASSERT_EQ(AT_K(AT_K(resp_json_error_403, "headers", DICT()), "X-Content-Type-Options", "<missing>"), "nosniff"));
+    TRUE));
+TEST("resp/json_error_403/header/X-Frame-Options", FUN(() ,
+    (ASSERT_EQ(AT_K(AT_K(resp_json_error_403, "headers", DICT()), "X-Frame-Options", "<missing>"), "DENY"));
+    TRUE));
+TEST("resp/json_error_403/header/Referrer-Policy", FUN(() ,
+    (ASSERT_EQ(AT_K(AT_K(resp_json_error_403, "headers", DICT()), "Referrer-Policy", "<missing>"), "no-referrer"));
+    TRUE));
+TEST("resp/json_error_403/header/Cross-Origin-Opener-Policy", FUN(() ,
+    (ASSERT_EQ(AT_K(AT_K(resp_json_error_403, "headers", DICT()), "Cross-Origin-Opener-Policy", "<missing>"), "same-origin"));
+    TRUE));
+TEST("resp/json_error_403/header/Permissions-Policy", FUN(() ,
+    (ASSERT_EQ(AT_K(AT_K(resp_json_error_403, "headers", DICT()), "Permissions-Policy", "<missing>"), "accelerometer=(), camera=(), geolocation=(), gyroscope=(), magnetometer=(), microphone=(), payment=(), usb=()"));
+    TRUE));
+TEST("resp/json_error_403/body", FUN(() ,
+    (ASSERT_EQ(AT_K(resp_json_error_403, "body", "<missing>"), "{\"success\": false, \"error\": \"CSRF validation failed\"}"));
+    TRUE));
+
+// html_csrf —— html_response：Content-Type → 5 安全头 → CSRF cookie → CSP（admin/responses.py:39-55）
+TEST("resp/html_csrf/status", FUN(() ,
+    (ASSERT_EQ(AT_K(resp_html_csrf, "status", -1), 200));
+    TRUE));
+TEST("resp/html_csrf/status_line", FUN(() ,
+    (ASSERT_EQ(STATUS_LINE(AT_K(resp_html_csrf, "status", -1)), "200 OK"));
+    TRUE));
+TEST("resp/html_csrf/header_order", FUN(() ,
+    (ASSERT_EQ(JOIN(KEYS(AT_K(resp_html_csrf, "headers", DICT())), "|"), "Content-Type|X-Content-Type-Options|X-Frame-Options|Referrer-Policy|Cross-Origin-Opener-Policy|Permissions-Policy|Set-Cookie|Content-Security-Policy"));
+    TRUE));
+TEST("resp/html_csrf/header_count", FUN(() ,
+    (ASSERT_EQ(LEN(KEYS(AT_K(resp_html_csrf, "headers", DICT()))), 8));
+    TRUE));
+TEST("resp/html_csrf/header/Content-Type", FUN(() ,
+    (ASSERT_EQ(AT_K(AT_K(resp_html_csrf, "headers", DICT()), "Content-Type", "<missing>"), "text/html; charset=utf-8"));
+    TRUE));
+TEST("resp/html_csrf/header/X-Content-Type-Options", FUN(() ,
+    (ASSERT_EQ(AT_K(AT_K(resp_html_csrf, "headers", DICT()), "X-Content-Type-Options", "<missing>"), "nosniff"));
+    TRUE));
+TEST("resp/html_csrf/header/X-Frame-Options", FUN(() ,
+    (ASSERT_EQ(AT_K(AT_K(resp_html_csrf, "headers", DICT()), "X-Frame-Options", "<missing>"), "DENY"));
+    TRUE));
+TEST("resp/html_csrf/header/Referrer-Policy", FUN(() ,
+    (ASSERT_EQ(AT_K(AT_K(resp_html_csrf, "headers", DICT()), "Referrer-Policy", "<missing>"), "no-referrer"));
+    TRUE));
+TEST("resp/html_csrf/header/Cross-Origin-Opener-Policy", FUN(() ,
+    (ASSERT_EQ(AT_K(AT_K(resp_html_csrf, "headers", DICT()), "Cross-Origin-Opener-Policy", "<missing>"), "same-origin"));
+    TRUE));
+TEST("resp/html_csrf/header/Permissions-Policy", FUN(() ,
+    (ASSERT_EQ(AT_K(AT_K(resp_html_csrf, "headers", DICT()), "Permissions-Policy", "<missing>"), "accelerometer=(), camera=(), geolocation=(), gyroscope=(), magnetometer=(), microphone=(), payment=(), usb=()"));
+    TRUE));
+TEST("resp/html_csrf/header/Set-Cookie", FUN(() ,
+    (ASSERT_EQ(AT_K(AT_K(resp_html_csrf, "headers", DICT()), "Set-Cookie", "<missing>"), "csrf_token=TESTTOKEN0123456789; Path=/; HttpOnly; SameSite=Strict"));
+    TRUE));
+TEST("resp/html_csrf/header/Content-Security-Policy", FUN(() ,
+    (ASSERT_EQ(AT_K(AT_K(resp_html_csrf, "headers", DICT()), "Content-Security-Policy", "<missing>"), "default-src 'self'; style-src 'self' 'unsafe-inline'; img-src 'self' data: https:; font-src 'self'; script-src 'self' 'unsafe-inline'; connect-src 'self'; frame-ancestors 'none'; base-uri 'self';"));
+    TRUE));
+TEST("resp/html_csrf/body", FUN(() ,
+    (ASSERT_EQ(AT_K(resp_html_csrf, "body", "<missing>"), "<b>x</b>"));
+    TRUE));
+
+// html_no_csrf —— 无 csrf_token ⇒ 不发 Set-Cookie（app.py:49-51）（admin/responses.py:49-51）
+TEST("resp/html_no_csrf/status", FUN(() ,
+    (ASSERT_EQ(AT_K(resp_html_no_csrf, "status", -1), 200));
+    TRUE));
+TEST("resp/html_no_csrf/status_line", FUN(() ,
+    (ASSERT_EQ(STATUS_LINE(AT_K(resp_html_no_csrf, "status", -1)), "200 OK"));
+    TRUE));
+TEST("resp/html_no_csrf/header_order", FUN(() ,
+    (ASSERT_EQ(JOIN(KEYS(AT_K(resp_html_no_csrf, "headers", DICT())), "|"), "Content-Type|X-Content-Type-Options|X-Frame-Options|Referrer-Policy|Cross-Origin-Opener-Policy|Permissions-Policy|Content-Security-Policy"));
+    TRUE));
+TEST("resp/html_no_csrf/header_count", FUN(() ,
+    (ASSERT_EQ(LEN(KEYS(AT_K(resp_html_no_csrf, "headers", DICT()))), 7));
+    TRUE));
+TEST("resp/html_no_csrf/header/Content-Type", FUN(() ,
+    (ASSERT_EQ(AT_K(AT_K(resp_html_no_csrf, "headers", DICT()), "Content-Type", "<missing>"), "text/html; charset=utf-8"));
+    TRUE));
+TEST("resp/html_no_csrf/header/X-Content-Type-Options", FUN(() ,
+    (ASSERT_EQ(AT_K(AT_K(resp_html_no_csrf, "headers", DICT()), "X-Content-Type-Options", "<missing>"), "nosniff"));
+    TRUE));
+TEST("resp/html_no_csrf/header/X-Frame-Options", FUN(() ,
+    (ASSERT_EQ(AT_K(AT_K(resp_html_no_csrf, "headers", DICT()), "X-Frame-Options", "<missing>"), "DENY"));
+    TRUE));
+TEST("resp/html_no_csrf/header/Referrer-Policy", FUN(() ,
+    (ASSERT_EQ(AT_K(AT_K(resp_html_no_csrf, "headers", DICT()), "Referrer-Policy", "<missing>"), "no-referrer"));
+    TRUE));
+TEST("resp/html_no_csrf/header/Cross-Origin-Opener-Policy", FUN(() ,
+    (ASSERT_EQ(AT_K(AT_K(resp_html_no_csrf, "headers", DICT()), "Cross-Origin-Opener-Policy", "<missing>"), "same-origin"));
+    TRUE));
+TEST("resp/html_no_csrf/header/Permissions-Policy", FUN(() ,
+    (ASSERT_EQ(AT_K(AT_K(resp_html_no_csrf, "headers", DICT()), "Permissions-Policy", "<missing>"), "accelerometer=(), camera=(), geolocation=(), gyroscope=(), magnetometer=(), microphone=(), payment=(), usb=()"));
+    TRUE));
+TEST("resp/html_no_csrf/header/Content-Security-Policy", FUN(() ,
+    (ASSERT_EQ(AT_K(AT_K(resp_html_no_csrf, "headers", DICT()), "Content-Security-Policy", "<missing>"), "default-src 'self'; style-src 'self' 'unsafe-inline'; img-src 'self' data: https:; font-src 'self'; script-src 'self' 'unsafe-inline'; connect-src 'self'; frame-ancestors 'none'; base-uri 'self';"));
+    TRUE));
+TEST("resp/html_no_csrf/body", FUN(() ,
+    (ASSERT_EQ(AT_K(resp_html_no_csrf, "body", "<missing>"), "<b>x</b>"));
+    TRUE));
+
+// login_page —— 登录页头序：Content-Type → CSRF cookie → CSP → 5 安全头（与 html_response 相反，逐字照 app.py:231-235）（admin/app.py:226-237）
+TEST("resp/login_page/status", FUN(() ,
+    (ASSERT_EQ(AT_K(resp_login_page, "status", -1), 200));
+    TRUE));
+TEST("resp/login_page/status_line", FUN(() ,
+    (ASSERT_EQ(STATUS_LINE(AT_K(resp_login_page, "status", -1)), "200 OK"));
+    TRUE));
+TEST("resp/login_page/header_order", FUN(() ,
+    (ASSERT_EQ(JOIN(KEYS(AT_K(resp_login_page, "headers", DICT())), "|"), "Content-Type|Set-Cookie|Content-Security-Policy|X-Content-Type-Options|X-Frame-Options|Referrer-Policy|Cross-Origin-Opener-Policy|Permissions-Policy"));
+    TRUE));
+TEST("resp/login_page/header_count", FUN(() ,
+    (ASSERT_EQ(LEN(KEYS(AT_K(resp_login_page, "headers", DICT()))), 8));
+    TRUE));
+TEST("resp/login_page/header/Content-Type", FUN(() ,
+    (ASSERT_EQ(AT_K(AT_K(resp_login_page, "headers", DICT()), "Content-Type", "<missing>"), "text/html; charset=utf-8"));
+    TRUE));
+TEST("resp/login_page/header/Set-Cookie", FUN(() ,
+    (ASSERT_EQ(AT_K(AT_K(resp_login_page, "headers", DICT()), "Set-Cookie", "<missing>"), "csrf_token=TESTTOKEN0123456789; Path=/; HttpOnly; SameSite=Strict"));
+    TRUE));
+TEST("resp/login_page/header/Content-Security-Policy", FUN(() ,
+    (ASSERT_EQ(AT_K(AT_K(resp_login_page, "headers", DICT()), "Content-Security-Policy", "<missing>"), "default-src 'self'; style-src 'self' 'unsafe-inline'; img-src 'self' data: https:; font-src 'self'; script-src 'self' 'unsafe-inline'; connect-src 'self'; frame-ancestors 'none'; base-uri 'self';"));
+    TRUE));
+TEST("resp/login_page/header/X-Content-Type-Options", FUN(() ,
+    (ASSERT_EQ(AT_K(AT_K(resp_login_page, "headers", DICT()), "X-Content-Type-Options", "<missing>"), "nosniff"));
+    TRUE));
+TEST("resp/login_page/header/X-Frame-Options", FUN(() ,
+    (ASSERT_EQ(AT_K(AT_K(resp_login_page, "headers", DICT()), "X-Frame-Options", "<missing>"), "DENY"));
+    TRUE));
+TEST("resp/login_page/header/Referrer-Policy", FUN(() ,
+    (ASSERT_EQ(AT_K(AT_K(resp_login_page, "headers", DICT()), "Referrer-Policy", "<missing>"), "no-referrer"));
+    TRUE));
+TEST("resp/login_page/header/Cross-Origin-Opener-Policy", FUN(() ,
+    (ASSERT_EQ(AT_K(AT_K(resp_login_page, "headers", DICT()), "Cross-Origin-Opener-Policy", "<missing>"), "same-origin"));
+    TRUE));
+TEST("resp/login_page/header/Permissions-Policy", FUN(() ,
+    (ASSERT_EQ(AT_K(AT_K(resp_login_page, "headers", DICT()), "Permissions-Policy", "<missing>"), "accelerometer=(), camera=(), geolocation=(), gyroscope=(), magnetometer=(), microphone=(), payment=(), usb=()"));
+    TRUE));
+TEST("resp/login_page/body", FUN(() ,
+    (ASSERT_EQ(AT_K(resp_login_page, "body", "<missing>"), "LOGIN"));
+    TRUE));
+
+// redirect_theme —— set_theme 成功后 302 /theme（actions.py:365）（admin/actions.py:365）
+TEST("resp/redirect_theme/status", FUN(() ,
+    (ASSERT_EQ(AT_K(resp_redirect_theme, "status", -1), 302));
+    TRUE));
+TEST("resp/redirect_theme/status_line", FUN(() ,
+    (ASSERT_EQ(STATUS_LINE(AT_K(resp_redirect_theme, "status", -1)), "302 Found"));
+    TRUE));
+TEST("resp/redirect_theme/header_order", FUN(() ,
+    (ASSERT_EQ(JOIN(KEYS(AT_K(resp_redirect_theme, "headers", DICT())), "|"), "Location|X-Content-Type-Options|X-Frame-Options|Referrer-Policy|Cross-Origin-Opener-Policy|Permissions-Policy"));
+    TRUE));
+TEST("resp/redirect_theme/header_count", FUN(() ,
+    (ASSERT_EQ(LEN(KEYS(AT_K(resp_redirect_theme, "headers", DICT()))), 6));
+    TRUE));
+TEST("resp/redirect_theme/header/Location", FUN(() ,
+    (ASSERT_EQ(AT_K(AT_K(resp_redirect_theme, "headers", DICT()), "Location", "<missing>"), "/theme"));
+    TRUE));
+TEST("resp/redirect_theme/header/X-Content-Type-Options", FUN(() ,
+    (ASSERT_EQ(AT_K(AT_K(resp_redirect_theme, "headers", DICT()), "X-Content-Type-Options", "<missing>"), "nosniff"));
+    TRUE));
+TEST("resp/redirect_theme/header/X-Frame-Options", FUN(() ,
+    (ASSERT_EQ(AT_K(AT_K(resp_redirect_theme, "headers", DICT()), "X-Frame-Options", "<missing>"), "DENY"));
+    TRUE));
+TEST("resp/redirect_theme/header/Referrer-Policy", FUN(() ,
+    (ASSERT_EQ(AT_K(AT_K(resp_redirect_theme, "headers", DICT()), "Referrer-Policy", "<missing>"), "no-referrer"));
+    TRUE));
+TEST("resp/redirect_theme/header/Cross-Origin-Opener-Policy", FUN(() ,
+    (ASSERT_EQ(AT_K(AT_K(resp_redirect_theme, "headers", DICT()), "Cross-Origin-Opener-Policy", "<missing>"), "same-origin"));
+    TRUE));
+TEST("resp/redirect_theme/header/Permissions-Policy", FUN(() ,
+    (ASSERT_EQ(AT_K(AT_K(resp_redirect_theme, "headers", DICT()), "Permissions-Policy", "<missing>"), "accelerometer=(), camera=(), geolocation=(), gyroscope=(), magnetometer=(), microphone=(), payment=(), usb=()"));
+    TRUE));
+TEST("resp/redirect_theme/body", FUN(() ,
+    (ASSERT_EQ(AT_K(resp_redirect_theme, "body", "<missing>"), ""));
+    TRUE));
+
+// rate_limit —— app.py 内联构造的 429（无独立函数可对拍）（admin/app.py:132-140）
+TEST("resp/rate_limit/status", FUN(() ,
+    (ASSERT_EQ(AT_K(resp_rate_limit, "status", -1), 429));
+    TRUE));
+TEST("resp/rate_limit/status_line", FUN(() ,
+    (ASSERT_EQ(STATUS_LINE(AT_K(resp_rate_limit, "status", -1)), "429 Too Many Requests"));
+    TRUE));
+TEST("resp/rate_limit/header_order", FUN(() ,
+    (ASSERT_EQ(JOIN(KEYS(AT_K(resp_rate_limit, "headers", DICT())), "|"), "Content-Type|Retry-After|X-Content-Type-Options|X-Frame-Options|Referrer-Policy|Cross-Origin-Opener-Policy|Permissions-Policy"));
+    TRUE));
+TEST("resp/rate_limit/header_count", FUN(() ,
+    (ASSERT_EQ(LEN(KEYS(AT_K(resp_rate_limit, "headers", DICT()))), 7));
+    TRUE));
+TEST("resp/rate_limit/header/Content-Type", FUN(() ,
+    (ASSERT_EQ(AT_K(AT_K(resp_rate_limit, "headers", DICT()), "Content-Type", "<missing>"), "text/plain"));
+    TRUE));
+TEST("resp/rate_limit/header/Retry-After", FUN(() ,
+    (ASSERT_EQ(AT_K(AT_K(resp_rate_limit, "headers", DICT()), "Retry-After", "<missing>"), "42"));
+    TRUE));
+TEST("resp/rate_limit/header/X-Content-Type-Options", FUN(() ,
+    (ASSERT_EQ(AT_K(AT_K(resp_rate_limit, "headers", DICT()), "X-Content-Type-Options", "<missing>"), "nosniff"));
+    TRUE));
+TEST("resp/rate_limit/header/X-Frame-Options", FUN(() ,
+    (ASSERT_EQ(AT_K(AT_K(resp_rate_limit, "headers", DICT()), "X-Frame-Options", "<missing>"), "DENY"));
+    TRUE));
+TEST("resp/rate_limit/header/Referrer-Policy", FUN(() ,
+    (ASSERT_EQ(AT_K(AT_K(resp_rate_limit, "headers", DICT()), "Referrer-Policy", "<missing>"), "no-referrer"));
+    TRUE));
+TEST("resp/rate_limit/header/Cross-Origin-Opener-Policy", FUN(() ,
+    (ASSERT_EQ(AT_K(AT_K(resp_rate_limit, "headers", DICT()), "Cross-Origin-Opener-Policy", "<missing>"), "same-origin"));
+    TRUE));
+TEST("resp/rate_limit/header/Permissions-Policy", FUN(() ,
+    (ASSERT_EQ(AT_K(AT_K(resp_rate_limit, "headers", DICT()), "Permissions-Policy", "<missing>"), "accelerometer=(), camera=(), geolocation=(), gyroscope=(), magnetometer=(), microphone=(), payment=(), usb=()"));
+    TRUE));
+TEST("resp/rate_limit/body", FUN(() ,
+    (ASSERT_EQ(AT_K(resp_rate_limit, "body", "<missing>"), "Rate limit exceeded. Please try again later."));
+    TRUE));
+
+// static_asset —— 注入的 CSS/JS：**显式**给 Content-Length，缓存 3600s，免会话（admin/app.py:142-152）
+TEST("resp/static_asset/status", FUN(() ,
+    (ASSERT_EQ(AT_K(resp_static_asset, "status", -1), 200));
+    TRUE));
+TEST("resp/static_asset/status_line", FUN(() ,
+    (ASSERT_EQ(STATUS_LINE(AT_K(resp_static_asset, "status", -1)), "200 OK"));
+    TRUE));
+TEST("resp/static_asset/header_order", FUN(() ,
+    (ASSERT_EQ(JOIN(KEYS(AT_K(resp_static_asset, "headers", DICT())), "|"), "Content-Type|Content-Length|Cache-Control|X-Content-Type-Options|X-Frame-Options|Referrer-Policy|Cross-Origin-Opener-Policy|Permissions-Policy"));
+    TRUE));
+TEST("resp/static_asset/header_count", FUN(() ,
+    (ASSERT_EQ(LEN(KEYS(AT_K(resp_static_asset, "headers", DICT()))), 8));
+    TRUE));
+TEST("resp/static_asset/header/Content-Type", FUN(() ,
+    (ASSERT_EQ(AT_K(AT_K(resp_static_asset, "headers", DICT()), "Content-Type", "<missing>"), "text/css"));
+    TRUE));
+TEST("resp/static_asset/header/Content-Length", FUN(() ,
+    (ASSERT_EQ(AT_K(AT_K(resp_static_asset, "headers", DICT()), "Content-Length", "<missing>"), "6"));
+    TRUE));
+TEST("resp/static_asset/header/Cache-Control", FUN(() ,
+    (ASSERT_EQ(AT_K(AT_K(resp_static_asset, "headers", DICT()), "Cache-Control", "<missing>"), "max-age=3600"));
+    TRUE));
+TEST("resp/static_asset/header/X-Content-Type-Options", FUN(() ,
+    (ASSERT_EQ(AT_K(AT_K(resp_static_asset, "headers", DICT()), "X-Content-Type-Options", "<missing>"), "nosniff"));
+    TRUE));
+TEST("resp/static_asset/header/X-Frame-Options", FUN(() ,
+    (ASSERT_EQ(AT_K(AT_K(resp_static_asset, "headers", DICT()), "X-Frame-Options", "<missing>"), "DENY"));
+    TRUE));
+TEST("resp/static_asset/header/Referrer-Policy", FUN(() ,
+    (ASSERT_EQ(AT_K(AT_K(resp_static_asset, "headers", DICT()), "Referrer-Policy", "<missing>"), "no-referrer"));
+    TRUE));
+TEST("resp/static_asset/header/Cross-Origin-Opener-Policy", FUN(() ,
+    (ASSERT_EQ(AT_K(AT_K(resp_static_asset, "headers", DICT()), "Cross-Origin-Opener-Policy", "<missing>"), "same-origin"));
+    TRUE));
+TEST("resp/static_asset/header/Permissions-Policy", FUN(() ,
+    (ASSERT_EQ(AT_K(AT_K(resp_static_asset, "headers", DICT()), "Permissions-Policy", "<missing>"), "accelerometer=(), camera=(), geolocation=(), gyroscope=(), magnetometer=(), microphone=(), payment=(), usb=()"));
+    TRUE));
+TEST("resp/static_asset/body", FUN(() ,
+    (ASSERT_EQ(AT_K(resp_static_asset, "body", "<missing>"), "body{}"));
+    TRUE));
+
+// ── 状态行（串逐字取自 app.py / responses.py）──────────────────────
+TEST("status_line/200", FUN(() ,
+    (ASSERT_EQ(STATUS_LINE(200), "200 OK"));
+    TRUE));
+TEST("status_line/302", FUN(() ,
+    (ASSERT_EQ(STATUS_LINE(302), "302 Found"));
+    TRUE));
+TEST("status_line/400", FUN(() ,
+    (ASSERT_EQ(STATUS_LINE(400), "400 Bad Request"));
+    TRUE));
+TEST("status_line/403", FUN(() ,
+    (ASSERT_EQ(STATUS_LINE(403), "403 Forbidden"));
+    TRUE));
+TEST("status_line/404", FUN(() ,
+    (ASSERT_EQ(STATUS_LINE(404), "404 Not Found"));
+    TRUE));
+TEST("status_line/405", FUN(() ,
+    (ASSERT_EQ(STATUS_LINE(405), "405 Method Not Allowed"));
+    TRUE));
+TEST("status_line/409", FUN(() ,
+    (ASSERT_EQ(STATUS_LINE(409), "409 Conflict"));
+    TRUE));
+TEST("status_line/429", FUN(() ,
+    (ASSERT_EQ(STATUS_LINE(429), "429 Too Many Requests"));
+    TRUE));
+TEST("status_line/500", FUN(() ,
+    (ASSERT_EQ(STATUS_LINE(500), "500 Internal Server Error"));
+    TRUE));
+TEST("status_line/503", FUN(() ,
+    (ASSERT_EQ(STATUS_LINE(503), "503 Service Unavailable"));
+    TRUE));
+
+// ── 反向守卫（卡 S4-3 明确要求的三条 + 三条实现约束）───────────────
+// ① 未登录访问 / ⇒ 入口必须 302（这里钉的是「MATCH_ROUTE 说这路径要会话」）
+TEST("guard/anon_root_needs_session", FUN(() ,
+    (ASSERT_EQ(AT_K(MATCH_ROUTE(INDEX_SET(INDEX_SET(DICT(), "method", "GET"), "path", "/")), "requires_session", FALSE), TRUE));
+    TRUE));
+// ② 未登录 PUT /create 也**先要会话**（不是 405、不是 403）—— 顺序守卫
+TEST("guard/anon_put_needs_session_first", FUN(() ,
+    (ASSERT_EQ(AT_K(MATCH_ROUTE(INDEX_SET(INDEX_SET(DICT(), "method", "PUT"), "path", "/create")), "requires_session", FALSE), TRUE));
+    TRUE));
+// ③ CSRF 豁免**只有** /upload（app.py:89）；其余 POST 都不是豁免
+TEST("guard/csrf_exempt_only_upload", FUN(() ,
+    (ASSERT_EQ(AT_K(MATCH_ROUTE(INDEX_SET(INDEX_SET(DICT(), "method", "POST"), "path", "/upload")), "csrf_exempt", FALSE), TRUE));
+    TRUE));
+TEST("guard/csrf_exempt_not_create", FUN(() ,
+    (ASSERT_EQ(AT_K(MATCH_ROUTE(INDEX_SET(INDEX_SET(DICT(), "method", "POST"), "path", "/create")), "csrf_exempt", TRUE), FALSE));
+    TRUE));
+TEST("guard/csrf_exempt_not_save", FUN(() ,
+    (ASSERT_EQ(AT_K(MATCH_ROUTE(INDEX_SET(INDEX_SET(DICT(), "method", "POST"), "path", "/save")), "csrf_exempt", TRUE), FALSE));
+    TRUE));
+// ④ 登录页**不要**会话（否则未登录永远进不去 ⇒ 死循环）
+TEST("guard/login_page_no_session", FUN(() ,
+    (ASSERT_EQ(AT_K(MATCH_ROUTE(INDEX_SET(INDEX_SET(DICT(), "method", "GET"), "path", "/login")), "requires_session", TRUE), FALSE));
+    TRUE));
+// ⑤ 错误响应**不发** CSP（security.py:342 是 HTML 页专用）
+TEST("guard/error_has_no_csp", FUN(() ,
+    (ASSERT_EQ(AT_K(AT_K(resp_error_404, "headers", DICT()), "Content-Security-Policy", "<absent>"), "<absent>"));
+    TRUE));
+TEST("guard/html_has_csp", FUN(() ,
+    (ASSERT_EQ(AT_K(AT_K(resp_html_csrf, "headers", DICT()), "Content-Security-Policy", "<absent>"), "default-src 'self'; style-src 'self' 'unsafe-inline'; img-src 'self' data: https:; font-src 'self'; script-src 'self' 'unsafe-inline'; connect-src 'self'; frame-ancestors 'none'; base-uri 'self';"));
+    TRUE));
+// ⑥ 重定向 body 必须为空（不能把页面塞进 302）
+TEST("guard/redirect_body_empty", FUN(() ,
+    (ASSERT_EQ(LEN(AT_K(resp_redirect_login, "body", "x")), 0));
+    TRUE));
+// ⑦ 只读工具：Cookie 解析「首个命中即停」/ 头取值大小写不敏感
+LET(cv, COOKIE_VALUE(INDEX_SET(INDEX_SET(DICT(), "cookie", "x=1; csrf_token=FIRST; csrf_token=SECOND"), "prefix", "csrf_token=")));
+TEST("guard/cookie_first_match", FUN(() ,
+    (ASSERT_EQ(cv, "FIRST"));
+    TRUE));
+LET(hv, HEADER_VALUE(INDEX_SET(INDEX_SET(DICT(), "headers", INDEX_SET(DICT(), "content-type", "text/plain")), "name", "Content-Type")));
+TEST("guard/header_lower_insensitive", FUN(() ,
+    (ASSERT_EQ(hv, "text/plain"));
+    TRUE));
+// ⑧ 字段取值对齐 `post_data.get(k, [""])[0]`（多值时取第一个）
+LET(ff, FORM_FIELD(INDEX_SET(INDEX_SET(DICT(), "fields", PARSE_FORM(INDEX_SET(DICT(), "body", "k=1&k=2"))), "key", "k")));
+TEST("guard/form_field_first_value", FUN(() ,
+    (ASSERT_EQ(ff, "1"));
+    TRUE));
+LET(ff_missing, FORM_FIELD(INDEX_SET(INDEX_SET(INDEX_SET(DICT(), "fields", DICT()), "key", "k"), "default", "dflt")));
+TEST("guard/form_field_default", FUN(() ,
+    (ASSERT_EQ(ff_missing, "dflt"));
+    TRUE));
+// ⑨ HEAD：body 清空但头一个不少（wsgiref / TCP_SERVE 的 HEAD 语义）
+//   ⚠ 用**同一份 opts** 只换 method，才是「头不变」的严格对比
+LET(head_base, INDEX_SET(INDEX_SET(INDEX_SET(DICT(), "status", 200), "headers", INDEX_SET(DICT(), "Content-Type", "text/plain")), "body", "hello"));
+LET(head_resp, BUILD_RESPONSE(head_base));
+LET(head_resp2, BUILD_RESPONSE(INDEX_SET(head_base, "method", "HEAD")));
+TEST("guard/head_body_empty", FUN(() ,
+    (ASSERT_EQ(LEN(AT_K(head_resp2, "body", "x")), 0));
+    TRUE));
+TEST("guard/head_headers_kept", FUN(() ,
+    (ASSERT_EQ(JOIN(KEYS(AT_K(head_resp2, "headers", DICT())), "|"), JOIN(KEYS(AT_K(head_resp, "headers", DICT())), "|")));
+    TRUE));
+
+// ── 跑测试 + 自己把关退出码 ─────────────────────────────────────
+LET(records, RUN_TESTS());
+PRINT("test_http_util: ", LEN(records), " test(s) run");
+LET MUT(failed, 0);
+FOR(rec, records,
+    (IF(AT_K(rec, "passed", FALSE),
+        PRINT("  PASS ", AT_K(rec, "name", "?")),
+        (SET(failed, +(failed, 1));
+         PRINT("  FAIL ", AT_K(rec, "name", "?"), " :: ", AT_K(rec, "error", ""))))));
+PRINT("test_http_util: failed=", failed);
+IF(>(failed, 0), (PRINT_ERR("test_http_util: FAILED"); PANIC("http_util tests failed")), NULL);
+PRINT("test_http_util: OK");

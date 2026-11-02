@@ -35,8 +35,8 @@
 | S1-4 front-matter/TOC/脚注/wikilink | ✅ 完成 | `frontmatter.wll` / `toc.wll` / `footnotes.wll` / `wikilink.wll` + 共享 `esc.wll`（全部生成器产出）；**38/38 + 41/41 + 23/23 + 28/28 + esc 19/19 全绿**；本地 CI 5 步全过（21 生成器 / 21 产物无 drift） |
 | S2 内容模型与生成器 | ✅ **完成（含编排层）** | S2-1 **277/277**／S2-2 **39/39**／S2-3 **162+68**／S2-4 **42+33+21+30+29=155**／S2-5 **37/37**／**编排层 `bin/build.wll` 63/63，端到端 40/40 产物 sha256 全等**；合计 20 个模块 + 1 个入口，**801 个断言** |
 | S3 前台静态服务（TLS） | ✅ **完成** | `static_serve.wll`（纯函数内核）+ `bin/serve_public.wll`（明文）+ `bin/serve_tls.wll`（TLS）；`test_static_serve.wll` **365/365**；5 个安全头与 `get_security_headers()` 逐字同序相等；curl 实测 200/404/405 与长缓存；坏连接后循环存活；缺 cert 拒绝启动 |
-| S4 Admin 后台 | ⬜ 未开始 | `serve_admin.wll` + 会话/CSRF/限流/CRUD |
-| S5 AI 助手（出站 HTTPS） | ⬜ 未开始 | `ai.wll`（`tls.CONNECT` + 手写 HTTP/1.1） |
+| S4 Admin 后台 | ✅ **完成**（⚠ 视图层未交付，见卡 S4-3） | `security.wll`（**235**）／`admin_actions.wll`（**108**）／`http_util.wll` + `bin/serve_admin.wll`（**312**）／S4-5 高亮资产与注入（`test_build` **63**）；合计 **718 个断言** |
+| S5 AI 助手（出站 HTTPS） | ✅ **完成** | `http_client_tls.wll`（**180**，无扩展可跑）／`ai.wll`（**163**，脱网）；合计 **343 个断言**；真实 TLS 往返只在本机探针覆盖 |
 | S6 部署与切换 | ⬜ 未开始 | Dockerfile/compose 改造 + 停用 nginx |
 
 ### §0.2 S1 已沉淀的工程约定（**后续所有 .wll 都适用**）
@@ -1271,7 +1271,7 @@ TinyPage/
 
 ### S4 Admin 后台
 
-#### 卡 S4-1：会话与 CSRF
+#### 卡 S4-1：会话与 CSRF ✅ 已完成
 
 - **依赖**：S2-1
 - **交付物**：`tp/lib/security.wll`
@@ -1292,7 +1292,7 @@ TinyPage/
   - 进程重启 ⇒ 旧会话全部失效（对齐 Python 行为）
 - **非目标**：不做会话持久化（Python 侧也没有）
 
-#### 卡 S4-2：限流与审计
+#### 卡 S4-2：限流与审计 ✅ 已完成
 
 - **依赖**：S4-1
 - **交付物**：同 `security.wll`
@@ -1307,7 +1307,7 @@ TinyPage/
 - **反向守卫**：连续 6 次错误登录 ⇒ 第 6 次必须 429 + `Retry-After`
 - **非目标**：不做日志轮转（Python 侧也没有）
 
-#### 卡 S4-3：路由与请求处理
+#### 卡 S4-3：路由与请求处理 ✅ 已完成（视图层未交付，见实测状态）
 
 - **依赖**：S4-1、S4-2
 - **交付物**：`tp/lib/http_util.wll` + `tp/bin/serve_admin.wll`
@@ -1329,8 +1329,28 @@ TinyPage/
   - 未登录访问 `/` ⇒ 必须 302 到 `/login`（对齐 Python）
   - POST 缺 CSRF ⇒ 必须 403
 - **非目标**：不做路径参数与正则路由（Python 侧也没有）
+- **✅ 实测状态（2026-11-02）**：`tp/lib/http_util.wll`（432 行，纯函数）+ `tp/bin/serve_admin.wll`（331 行）；
+  `test_http_util.wll` **312/312**、failed=0、exit 0（无网络、无 `--ext`）。
+  本机 curl 冒烟（18081/18083/18084）实测：`GET /login` 200 + 头序
+  `Content-Type → Set-Cookie(csrf) → CSP → 5 安全头`；匿名 `GET /` 302→`/login`；
+  合法登录 302 + `session_id` Cookie；`POST /create` 缺 csrf 403 text/plain；
+  `POST /upload` 缺 csrf 403 **JSON**（豁免路径）；`POST /preview` 200 text/html 且**无 CSP**；
+  `POST /logout` 302 + 清 Cookie；`GET /nope` 404、`PUT /` 405。
+  **绑定守卫**：`netstat` 只见 `127.0.0.1:PORT`；用 LAN IP 连接被拒；`TP_ADMIN_HOST=0.0.0.0`
+  ⇒ 启动即 `PANIC: admin must bind loopback` + exit 1。
+  **三处「卡片 vs 源码」出入（以源码为准）**：① GET 是 **9** 条不是 8 条（多一条 `/dashboard`）；
+  ② 会话 Cookie 复用 `security.wll` 的 `SESSION_COOKIE_HEADER`，不另造；
+  ③ 「POST 缺 CSRF ⇒ 403」只对其余路由成立 —— `/login` 是 302 `?error=1`，`/upload` 是 403 JSON，
+  且 **404 早于 CSRF、未登录时会话检查早于 method**。
+  ⚠ **已知缺口（如实登记）**：
+  - **视图层未交付**：GET 页面是占位 HTML（登录页是可用的最小表单）⇒ admin 能登录、状态码正确，
+    但**看不到仪表盘/编辑器**。这是 S4 的实际缺口，需要单独一张视图卡。
+  - `login`/`logout` 的 handler 不在 `admin_actions.wll`（它只导出 10 个动作）⇒ 入口按 `actions.py:382-437`
+    直接调 security 原语，属**重复实现**；且 `[AUTH-FAIL]`/`[LOGIN]` 审计未接线。
+  - `admin_actions` 的返回**不含 HTTP 状态** ⇒ `Page already exists → 409` 等是**按消息字符串**映射，脆弱。
+  - `/ai-assist`、`/translate` 现为 500（`admin_actions` 无对应函数；`ai.wll` 已就绪，缺一步接线）。
 
-#### 卡 S4-4：文章/独立页 CRUD + 上传
+#### 卡 S4-4：文章/独立页 CRUD + 上传 ✅ 已完成
 
 - **依赖**：S4-3、S2-4
 - **交付物**：`tp/lib/admin_actions.wll`
@@ -1354,7 +1374,7 @@ TinyPage/
   - 删除失败 ⇒ 必须回滚，文章仍在
 - **非目标**：不做 multipart（Python 侧也没有）
 
-#### 卡 S4-5：前端高亮切换
+#### 卡 S4-5：前端高亮切换 ✅ 已完成
 
 - **依赖**：S2-4
 - **交付物**：`static_inject/highlight.js` + 主题 CSS；`generator.wll` 输出
@@ -1382,7 +1402,7 @@ TinyPage/
 
 ### S5 AI 助手（出站 HTTPS）
 
-#### 卡 S5-1：出站 HTTPS 客户端
+#### 卡 S5-1：出站 HTTPS 客户端 ✅ 已完成
 
 - **依赖**：S4-3
 - **交付物**：`tp/lib/http_client_tls.wll`
@@ -1404,7 +1424,7 @@ TinyPage/
   - 未配置 API key ⇒ 必须明确报错，不得静默返回空
 - **非目标**：不做流式（SSE）；不做多供应商适配（只 OpenAI 兼容协议，对齐 Python）
 
-#### 卡 S5-2：五个 AI 能力与后台接线
+#### 卡 S5-2：五个 AI 能力与后台接线 ✅ 已完成（端点接线见缺口）
 
 - **依赖**：S5-1
 - **交付物**：`tp/lib/ai.wll` + `/ai-assist`、`/translate` 端点

@@ -1,0 +1,331 @@
+// tp/bin/serve_admin.wll —— admin 后台入口（卡 S4-3）
+//
+// ⚠ 本文件由 tp/test/gen_serve_admin.py 生成 —— 请勿手改。
+//
+// 传输在此，**HTTP 语义全在** tp/lib/http_util.wll（MATCH_ROUTE / PARSE_FORM /
+// BUILD_RESPONSE 都是纯函数）；会话与 CSRF 走 tp/lib/security.wll，
+// 写操作用 tp/lib/admin_actions.wll。
+//
+// ⚠⚠ **仅绑 127.0.0.1**（业主裁决，卡 S4-3 反向守卫）：地址是**字面量**，
+//   `TP_ADMIN_HOST` 一旦设成别的值 ⇒ 启动即 PANIC（不提供「改绑」开关）。
+//
+// 配置（环境变量；`wlwl run` 不透传脚本参数 —— 坑 49）：
+//   TP_ADMIN_PORT / ADMIN_PORT    监听端口（缺省 8081 == config.py:35-37）
+//   TP_ADMIN_USER / ADMIN_USER    登录用户名（缺省 admin == config.py:25）
+//   TP_ADMIN_PASS / ADMIN_PASS    登录口令（空 ⇒ 登录 503 == actions.py:394-400）
+//   TP_ROOT                       站点根（缺省 pages == config.py:48）
+//   BIND_DOMAIN                   非空 ⇒ cookie 加 Secure（security.py:130-132）
+//
+// 本机跑法：
+//   $env:TP_ADMIN_PORT="18081"; $env:TP_ADMIN_PASS="0123456789abcdef"
+//   & D:\wlwl_v0.12.1\wlwl.exe run tp\bin\serve_admin.wll
+//   curl -s -o NUL -w "%{http_code}" http://127.0.0.1:18081/login
+//
+// ⚠ 已知缺口（不粉饰）：视图层未交付 ⇒ GET 页面是占位 HTML；login/logout 走
+//   security 原语（admin_actions 没有这两个 handler）；/ai-assist /translate ⇒ 500。
+
+IMPORT("wlwl:std.net", ["TCP_LISTEN", "TCP_SERVE", "TCP_CLOSE_LISTENER",
+    "TCP_LOCAL_ADDR"]);
+IMPORT("wlwl:std.signal", ["ON_SIGNAL", "STOP"]);
+IMPORT("wlwl:std.env", ["ENV_GET"]);
+IMPORT("wlwl:std.text", ["TO_INT"]);
+IMPORT("wlwl:std.fs", ["PATH_JOIN", "PATH_CANONICAL"]);
+IMPORT("wlwl:std.str", ["CAT"]);
+IMPORT("wlwl:std.encode", ["TIMING_SAFE_EQ"]);
+IMPORT("./../lib/http_util.wll", ["MATCH_ROUTE", "PARSE_FORM", "FORM_FIELD",
+    "HEADER_VALUE", "COOKIE_VALUE", "BUILD_RESPONSE", "TEXT_ERROR_RESPONSE",
+    "JSON_ERROR_RESPONSE", "JSON_RESPONSE", "HTML_RESPONSE", "REDIRECT",
+    "RATE_LIMIT_RESPONSE", "JSON_ESCAPE"]);
+IMPORT("./../lib/security.wll", ["NEW_CSRF_TOKEN", "VALIDATE_CSRF_TOKEN",
+    "SESSION_FROM_COOKIE", "SESSION_VALIDATE", "SESSION_CREATE",
+    "SESSION_DESTROY", "SESSION_COOKIE_HEADER", "SESSION_CLEAR_COOKIE_HEADER",
+    "RATE_LIMIT"]);
+IMPORT("./../lib/admin_actions.wll", ["CREATE_ARTICLE", "SAVE_ARTICLE",
+    "DELETE_ARTICLE", "CREATE_PAGE", "SAVE_PAGE", "DELETE_PAGE", "SET_THEME",
+    "PREVIEW", "REGEN", "UPLOAD_IMAGE"]);
+
+// ── 配置（环境变量；缺省值对齐 tinypage/config.py）──────────────────
+LET(SAD_LOOPBACK, "127.0.0.1");
+LET(host_env, ENV_GET("TP_ADMIN_HOST", SAD_LOOPBACK));
+IF(!=(host_env, SAD_LOOPBACK), (
+     PRINT_ERR("serve_admin: TP_ADMIN_HOST must be 127.0.0.1 (loopback only): ",
+               host_env);
+     PANIC("admin must bind loopback")
+), NULL);
+
+LET(port_s, ENV_GET("TP_ADMIN_PORT", ENV_GET("ADMIN_PORT", "8081")));
+LET(port_t, TO_INT(port_s));
+LET(SAD_PORT, IF(IS_ERR(port_t), -1, port_t));
+IF(<(SAD_PORT, 1), (
+     PRINT_ERR("serve_admin: TP_ADMIN_PORT is not a valid port: ", port_s);
+     PANIC("bad TP_ADMIN_PORT")
+), NULL);
+
+LET(SAD_USER, ENV_GET("TP_ADMIN_USER", ENV_GET("ADMIN_USER", "admin")));
+LET(SAD_PASS, ENV_GET("TP_ADMIN_PASS", ENV_GET("ADMIN_PASS", "")));
+LET(SAD_BIND_DOMAIN, ENV_GET("BIND_DOMAIN", ""));
+// cookie 的 Secure 属性：非空 bind_domain ⇒ 视为 HTTPS 部署（security.py:130）
+LET(SAD_SECURE, !=(SAD_BIND_DOMAIN, ""));
+
+LET(SAD_ROOT, PATH_CANONICAL(ENV_GET("TP_ROOT", "pages")));
+LET(SAD_ARTICLE_DIR, PATH_JOIN(SAD_ROOT, "article"));
+LET(SAD_STANDALONE_DIR, PATH_JOIN(SAD_ROOT, "standalone"));
+LET(SAD_STATIC_DIR, PATH_JOIN(SAD_ROOT, "static"));
+// 会话/限流按客户端 IP 计；admin **只**绑回环 ⇒ 客户端恒为回环地址
+// （Python 的 get_real_ip 在 trusted_proxies 为空时也返回 REMOTE_ADDR）
+LET(SAD_CLIENT_IP, SAD_LOOPBACK);
+
+// 页面标题（app.py:288-298）
+LET(SAD_TITLES, INDEX_SET(INDEX_SET(INDEX_SET(INDEX_SET(INDEX_SET(INDEX_SET(INDEX_SET(DICT(), "dashboard", "仪表盘"), "pages_dashboard", "独立页面"), "new_article", "新建文章"), "edit_article", "编辑文章"), "new_page", "新建页面"), "edit_page", "编辑页面"), "theme", "主题管理"));
+
+// ── HTML 片段（视图层未交付 ⇒ 占位页；登录页是**能用**的最小表单）────────
+// ⚠ WLWL 不做字面量拼接（`"a" "b"` 是 E0002）⇒ 每段都是**一个**字面量，用 CAT 连。
+LET(SAD_PAGE, FUN((title, body), (
+     CAT("<!doctype html>\n<html lang=\"zh-CN\">\n<head><meta charset=\"utf-8\"><title>", title, "</title></head>\n<body>\n", body, "\n</body>\n</html>\n")
+)));
+
+LET(SAD_LOGIN_FORM, FUN((csrf), (
+     CAT("<h1>登录</h1>\n<form method=\"post\" action=\"/login\">\n<input type=\"hidden\" name=\"csrf_token\" value=\"", csrf, "\">\n<label>用户名 <input name=\"username\" autocomplete=\"username\"></label>\n<label>密码 <input type=\"password\" name=\"password\" autocomplete=\"current-password\"></label>\n<button type=\"submit\">登录</button>\n</form>\n")
+)));
+
+LET(SAD_PLACEHOLDER, FUN((route), (
+     CAT("<h1>", AT_K(SAD_TITLES, route, "管理后台"), "</h1>\n<p>本页是卡 S4-3 的 <b>路由占位</b>：admin 的视图层（views.py / 模板）尚未交付。</p>\n<p>route=<code>", route, "</code></p>\n")
+)));
+
+// ── 请求工具 ─────────────────────────────────────────────────────
+LET(SAD_HDRS, FUN((req), (
+     AT_K(req, "headers", DICT())
+)));
+
+LET(SAD_HEADER, FUN((req, name), (
+     HEADER_VALUE(INDEX_SET(INDEX_SET(DICT(), "headers", SAD_HDRS(req)), "name", name))
+)));
+
+LET(SAD_FIELDS, FUN((req), (
+     // app.py:317-329：只解析 x-www-form-urlencoded；>10MB ⇒ 空表单
+     PARSE_FORM(INDEX_SET(INDEX_SET(DICT(), "body", AT_K(req, "body", "")), "content_type", SAD_HEADER(req, "content-type")))
+)));
+
+LET(SAD_EXISTING_CSRF, FUN((cookie), (
+     // app.py:303-312：cookie 里已有的 csrf_token 能复用就复用，否则新生成。
+     // ⚠ Python 用的是 `is_valid_csrf_format`（格式+签名+1h）；security.wll 没导出它，
+     //   这里用 VALIDATE_CSRF_TOKEN + **自造的同值 cookie** 等价替代：
+     //   双提交必然一致，剩下的正是「格式/签名/时限」三道 ⇒ 与 is_valid_csrf_format 同义。
+     LET(t, COOKIE_VALUE(INDEX_SET(INDEX_SET(DICT(), "cookie", cookie), "prefix", "csrf_token=")));
+     IF(==(t, ""), (NEW_CSRF_TOKEN(DICT())), (
+          IF(VALIDATE_CSRF_TOKEN(INDEX_SET(INDEX_SET(DICT(), "token", t), "cookie", CAT("csrf_token=", t))),
+             (t), (NEW_CSRF_TOKEN(DICT())))
+     ))
+)));
+
+LET(SAD_CSRF_OK, FUN((fields, cookie, req), (
+     // app.py:247-251：token 取自表单第一个值；Origin/Referer 白名单在 security.wll 里
+     VALIDATE_CSRF_TOKEN(INDEX_SET(INDEX_SET(INDEX_SET(INDEX_SET(INDEX_SET(INDEX_SET(DICT(), "token", FORM_FIELD(INDEX_SET(INDEX_SET(DICT(), "fields", fields), "key", "csrf_token"))), "cookie", cookie), "origin", SAD_HEADER(req, "origin")), "referer", SAD_HEADER(req, "referer")), "admin_port", SAD_PORT), "bind_domain", SAD_BIND_DOMAIN))
+)));
+
+// ── 动作结果（admin_actions 的 {ok, ...}）→ 响应 ────────────────────
+LET(SAD_ERR_STATUS, FUN((res), (
+     // ⚠ admin_actions 只回 {ok, error}，**丢了 HTTP 状态**；Python 的两处特例是
+     //   409 "Page already exists"（actions.py:130）与其余 400 ⇒ 按消息映射回来。
+     IF(==(AT_K(res, "error", ""), "Page already exists"), (409), (400))
+)));
+
+LET(SAD_ERR_TEXT, FUN((res), (
+     TEXT_ERROR_RESPONSE(SAD_ERR_STATUS(res), AT_K(res, "error", "Server error"))
+)));
+
+LET(SAD_REDIRECT_RESULT, FUN((res, location), (
+     IF(!AT_K(res, "ok", FALSE), (SAD_ERR_TEXT(res)), (
+          REDIRECT(INDEX_SET(DICT(), "location", location))
+     ))
+)));
+
+LET(SAD_DELETE_RESULT, FUN((res, htmx, location), (
+     // actions.py:107-112 / 190-192：htmx 回 200 + **只有** 5 个安全头（无 body）
+     IF(!AT_K(res, "ok", FALSE), (SAD_ERR_TEXT(res)), (
+          IF(htmx, (
+               BUILD_RESPONSE(INDEX_SET(INDEX_SET(DICT(), "status", 200), "body", ""))
+          ), (
+               REDIRECT(INDEX_SET(DICT(), "location", location))
+          ))
+     ))
+)));
+
+LET(SAD_PREVIEW_RESULT, FUN((res), (
+     // actions.py:289-294：Content-Type text/html + 5 个安全头（**不发** CSP）
+     IF(!AT_K(res, "ok", FALSE), (SAD_ERR_TEXT(res)), (
+          BUILD_RESPONSE(INDEX_SET(INDEX_SET(INDEX_SET(DICT(), "status", 200), "headers", INDEX_SET(DICT(), "Content-Type", "text/html; charset=utf-8")), "body", AT_K(res, "html", "")))
+     ))
+)));
+
+LET(SAD_REGEN_RESULT, FUN((res, htmx), (
+     // actions.py:268-283：htmx ⇒ 200 + 一段 HTML；否则 302 /
+     IF(!AT_K(res, "ok", FALSE), (SAD_ERR_TEXT(res)), (
+          IF(htmx, (
+               BUILD_RESPONSE(INDEX_SET(INDEX_SET(INDEX_SET(DICT(), "status", 200), "headers", INDEX_SET(DICT(), "Content-Type", "text/html; charset=utf-8")), "body", "<span style=\"color:var(--a-primary);font-size:0.9rem;\">✓ 已重新生成</span>"))
+          ), (
+               REDIRECT(INDEX_SET(DICT(), "location", "/"))
+          ))
+     ))
+)));
+
+LET(SAD_UPLOAD_RESULT, FUN((res), (
+     // actions.py:261-265：成功 {"success": true, "url": ...}；失败 JSON 400
+     IF(!AT_K(res, "ok", FALSE), (
+          JSON_ERROR_RESPONSE(400, AT_K(res, "error", "Server error"))
+     ), (
+          LET(url_json, CAT("{\"success\": true, \"url\": \"", JSON_ESCAPE(AT_K(res, "url", "")), "\"}"));
+          JSON_RESPONSE(INDEX_SET(DICT(), "body", url_json))
+     ))
+)));
+
+// ── 动作分发（路由名 → admin_actions）────────────────────────────────
+// ⚠ 路由名逐字取自 app.py:98-115（`_POST_HANDLERS` / `_POST_HANDLERS_NO_BODY`）
+LET(SAD_ACTION, FUN((route, fields, req), (
+     LET(htmx, ==(SAD_HEADER(req, "hx-request"), "true"));
+     LET(art, SAD_ARTICLE_DIR);
+     LET(sad, SAD_STANDALONE_DIR);
+     IF(==(route, "create_article"), (RETURN(SAD_REDIRECT_RESULT(CREATE_ARTICLE(INDEX_SET(INDEX_SET(INDEX_SET(INDEX_SET(INDEX_SET(INDEX_SET(INDEX_SET(DICT(), "article_dir", art), "title", FORM_FIELD(INDEX_SET(INDEX_SET(DICT(), "fields", fields), "key", "title"))), "date", FORM_FIELD(INDEX_SET(INDEX_SET(DICT(), "fields", fields), "key", "date"))), "content", FORM_FIELD(INDEX_SET(INDEX_SET(DICT(), "fields", fields), "key", "content"))), "tags", FORM_FIELD(INDEX_SET(INDEX_SET(DICT(), "fields", fields), "key", "tags"))), "category", FORM_FIELD(INDEX_SET(INDEX_SET(DICT(), "fields", fields), "key", "category"))), "status", FORM_FIELD(INDEX_SET(INDEX_SET(DICT(), "fields", fields), "key", "status")))), "/"))), NULL);
+     IF(==(route, "save_article"), (RETURN(SAD_REDIRECT_RESULT(SAVE_ARTICLE(INDEX_SET(INDEX_SET(INDEX_SET(INDEX_SET(INDEX_SET(INDEX_SET(INDEX_SET(INDEX_SET(DICT(), "article_dir", art), "file", FORM_FIELD(INDEX_SET(INDEX_SET(DICT(), "fields", fields), "key", "file"))), "title", FORM_FIELD(INDEX_SET(INDEX_SET(DICT(), "fields", fields), "key", "title"))), "date", FORM_FIELD(INDEX_SET(INDEX_SET(DICT(), "fields", fields), "key", "date"))), "content", FORM_FIELD(INDEX_SET(INDEX_SET(DICT(), "fields", fields), "key", "content"))), "tags", FORM_FIELD(INDEX_SET(INDEX_SET(DICT(), "fields", fields), "key", "tags"))), "category", FORM_FIELD(INDEX_SET(INDEX_SET(DICT(), "fields", fields), "key", "category"))), "status", FORM_FIELD(INDEX_SET(INDEX_SET(DICT(), "fields", fields), "key", "status")))), "/"))), NULL);
+     IF(==(route, "delete_article"), (RETURN(SAD_DELETE_RESULT(DELETE_ARTICLE(INDEX_SET(INDEX_SET(DICT(), "article_dir", art), "file", FORM_FIELD(INDEX_SET(INDEX_SET(DICT(), "fields", fields), "key", "file")))), htmx, "/"))), NULL);
+     IF(==(route, "create_page"), (RETURN(SAD_REDIRECT_RESULT(CREATE_PAGE(INDEX_SET(INDEX_SET(INDEX_SET(INDEX_SET(DICT(), "standalone_dir", sad), "title", FORM_FIELD(INDEX_SET(INDEX_SET(DICT(), "fields", fields), "key", "title"))), "slug", FORM_FIELD(INDEX_SET(INDEX_SET(DICT(), "fields", fields), "key", "slug"))), "content", FORM_FIELD(INDEX_SET(INDEX_SET(DICT(), "fields", fields), "key", "content")))), "/pages"))), NULL);
+     IF(==(route, "save_page"), (RETURN(SAD_REDIRECT_RESULT(SAVE_PAGE(INDEX_SET(INDEX_SET(INDEX_SET(INDEX_SET(INDEX_SET(DICT(), "standalone_dir", sad), "file", FORM_FIELD(INDEX_SET(INDEX_SET(DICT(), "fields", fields), "key", "file"))), "title", FORM_FIELD(INDEX_SET(INDEX_SET(DICT(), "fields", fields), "key", "title"))), "slug", FORM_FIELD(INDEX_SET(INDEX_SET(DICT(), "fields", fields), "key", "slug"))), "content", FORM_FIELD(INDEX_SET(INDEX_SET(DICT(), "fields", fields), "key", "content")))), "/pages"))), NULL);
+     IF(==(route, "delete_page"), (RETURN(SAD_DELETE_RESULT(DELETE_PAGE(INDEX_SET(INDEX_SET(DICT(), "standalone_dir", sad), "file", FORM_FIELD(INDEX_SET(INDEX_SET(DICT(), "fields", fields), "key", "file")))), htmx, "/pages"))), NULL);
+     IF(==(route, "set_theme"), (RETURN(SAD_REDIRECT_RESULT(SET_THEME(INDEX_SET(DICT(), "theme", FORM_FIELD(INDEX_SET(INDEX_SET(DICT(), "fields", fields), "key", "theme")))), "/theme"))), NULL);
+     // ⚠ 路由名是 `live_preview`（app.py:81），不是动作名 PREVIEW
+     IF(==(route, "live_preview"), (RETURN(SAD_PREVIEW_RESULT(PREVIEW(INDEX_SET(DICT(), "content", FORM_FIELD(INDEX_SET(INDEX_SET(DICT(), "fields", fields), "key", "content"))))))), NULL);
+     IF(==(route, "regenerate"), (RETURN(SAD_REGEN_RESULT(REGEN(DICT()), htmx))), NULL);
+     IF(==(route, "upload_image"), (RETURN(SAD_UPLOAD_RESULT(UPLOAD_IMAGE(INDEX_SET(INDEX_SET(INDEX_SET(DICT(), "filename", FORM_FIELD(INDEX_SET(INDEX_SET(DICT(), "fields", fields), "key", "filename"))), "data", FORM_FIELD(INDEX_SET(INDEX_SET(DICT(), "fields", fields), "key", "data"))), "static_dir", SAD_STATIC_DIR))))), NULL);
+     // /ai-assist 与 /translate：admin_actions.wll 里没有实现（见文件头缺口 ③）
+     TEXT_ERROR_RESPONSE(500, CAT("action not implemented: ", route))
+)));
+
+// ── 各 kind 的响应 ───────────────────────────────────────────────
+LET(SAD_LOGIN_GET, FUN((cookie), (
+     // app.py:226-237：头序 = Content-Type → CSRF cookie → CSP → 5 个安全头
+     LET(csrf, SAD_EXISTING_CSRF(cookie));
+     HTML_RESPONSE(INDEX_SET(INDEX_SET(INDEX_SET(DICT(), "body", SAD_PAGE("登录", SAD_LOGIN_FORM(csrf))), "csrf_token", csrf), "security_last", TRUE))
+)));
+
+LET(SAD_VIEW, FUN((route, cookie), (
+     // app.py:185-224：GET 页面（render_admin_page 也发 CSRF cookie）
+     LET(csrf, SAD_EXISTING_CSRF(cookie));
+     HTML_RESPONSE(INDEX_SET(INDEX_SET(DICT(), "body", SAD_PAGE(AT_K(SAD_TITLES, route, "管理后台"), SAD_PLACEHOLDER(route))), "csrf_token", csrf))
+)));
+
+LET(SAD_LOGOUT, FUN((cookie), (
+     // actions.py:426-437：销毁会话 + 清 cookie + 302 /login
+     LET(tok, SESSION_FROM_COOKIE(INDEX_SET(DICT(), "cookie", cookie)));
+     SESSION_DESTROY(INDEX_SET(DICT(), "token", tok));
+     REDIRECT(INDEX_SET(INDEX_SET(INDEX_SET(DICT(), "location", "/login"), "set_cookie", SESSION_CLEAR_COOKIE_HEADER(INDEX_SET(DICT(), "secure", SAD_SECURE))), "security_last", TRUE))
+)));
+
+LET(SAD_LOGIN_POST, FUN((req, cookie), (
+     // actions.py:382-423 的顺序：CSRF → 口令未配置(503) → 锁定(302) → 凭据(302) → 302 /
+     LET(fields, SAD_FIELDS(req));
+     IF(!SAD_CSRF_OK(fields, cookie, req), (
+          RETURN(REDIRECT(INDEX_SET(DICT(), "location", "/login?error=1")))
+     ), NULL);
+     IF(==(SAD_PASS, ""), (
+          RETURN(TEXT_ERROR_RESPONSE(503, "Admin password is not configured. Set ADMIN_PASS and restart."))
+     ), NULL);
+     LET(lock, RATE_LIMIT(INDEX_SET(INDEX_SET(DICT(), "client_ip", SAD_CLIENT_IP), "event", "auth_check")));
+     IF(AT_K(lock, "locked", FALSE), (
+          RETURN(REDIRECT(INDEX_SET(DICT(), "location", "/login?locked=1")))
+     ), NULL);
+     LET(user, FORM_FIELD(INDEX_SET(INDEX_SET(DICT(), "fields", fields), "key", "username")));
+     LET(pass, FORM_FIELD(INDEX_SET(INDEX_SET(DICT(), "fields", fields), "key", "password")));
+     IF(!&&(TIMING_SAFE_EQ(user, SAD_USER), TIMING_SAFE_EQ(pass, SAD_PASS)), (
+          // 记一次认证失败（security.wll 的锁定计数；5 次 ⇒ 302 /login?locked=1）
+          RATE_LIMIT(INDEX_SET(INDEX_SET(DICT(), "client_ip", SAD_CLIENT_IP), "event", "auth_failure"));
+          RETURN(REDIRECT(INDEX_SET(DICT(), "location", "/login?error=1")))
+     ), NULL);
+     LET(tok, SESSION_CREATE(INDEX_SET(DICT(), "client_ip", SAD_CLIENT_IP)));
+     // actions.py:419-423：Location "/" → session cookie → 5 个安全头
+     REDIRECT(INDEX_SET(INDEX_SET(INDEX_SET(DICT(), "location", "/"), "set_cookie", SESSION_COOKIE_HEADER(INDEX_SET(INDEX_SET(DICT(), "token", tok), "secure", SAD_SECURE))), "security_last", TRUE))
+)));
+
+LET(SAD_POST, FUN((m, req, cookie), (
+     // app.py:241-271：404 已在上面判掉；这里 CSRF → 动作
+     LET(fields, SAD_FIELDS(req));
+     IF(!SAD_CSRF_OK(fields, cookie, req), (
+          // app.py:253-257：豁免路径的失败是 JSON，其余是 text/plain
+          RETURN(IF(AT_K(m, "csrf_exempt", FALSE), (
+               JSON_ERROR_RESPONSE(403, "CSRF validation failed")
+          ), (
+               TEXT_ERROR_RESPONSE(403, "CSRF validation failed")
+          )))
+     ), NULL);
+     SAD_ACTION(AT_K(m, "route", ""), fields, req)
+)));
+
+LET(SAD_DISPATCH, FUN((m, req, cookie), (
+     LET(kind, AT_K(m, "kind", ""));
+     IF(==(kind, "login"), (RETURN(SAD_LOGIN_GET(cookie))), NULL);
+     IF(==(kind, "login_post"), (RETURN(SAD_LOGIN_POST(req, cookie))), NULL);
+     IF(==(kind, "logout_post"), (RETURN(SAD_LOGOUT(cookie))), NULL);
+     IF(==(kind, "get"), (RETURN(SAD_VIEW(AT_K(m, "route", ""), cookie))), NULL);
+     SAD_POST(m, req, cookie)
+)));
+
+LET(SAD_ROUTE, FUN((req), (
+     // app.py:154-181 的顺序：路由判定 → 会话（未登录 302）→ 404 / 405 → 分发
+     LET(m, MATCH_ROUTE(INDEX_SET(INDEX_SET(DICT(), "method", AT_K(req, "method", "GET")), "path", AT_K(req, "path", "/"))));
+     LET(cookie, SAD_HEADER(req, "cookie"));
+     LET(sess_tok, SESSION_FROM_COOKIE(INDEX_SET(DICT(), "cookie", cookie)));
+     LET(sess_ok, IF(==(sess_tok, ""), (FALSE), (
+          SESSION_VALIDATE(INDEX_SET(INDEX_SET(DICT(), "token", sess_tok), "client_ip", SAD_CLIENT_IP))
+     )));
+     IF(&&(AT_K(m, "requires_session", TRUE), !sess_ok), (
+          REDIRECT(INDEX_SET(DICT(), "location", "/login"))
+     ), (
+          IF(==(AT_K(m, "status", 200), 404), (
+               TEXT_ERROR_RESPONSE(404, "Not Found")
+          ), (
+               IF(==(AT_K(m, "status", 200), 405), (
+                    TEXT_ERROR_RESPONSE(405, "Method not allowed")
+               ), (
+                    SAD_DISPATCH(m, req, cookie)
+               ))
+          ))
+     ))
+)));
+
+LET(SAD_HANDLE_REQUEST, FUN((req), (
+     // app.py:132-140：限流先判（60 次 / 60 秒，按 IP）
+     LET(rl, RATE_LIMIT(INDEX_SET(DICT(), "client_ip", SAD_CLIENT_IP)));
+     IF(!AT_K(rl, "allowed", TRUE), (
+          RATE_LIMIT_RESPONSE(INDEX_SET(DICT(), "retry_after", AT_K(rl, "retry_after", 1)))
+     ), (
+          SAD_ROUTE(req)
+     ))
+)));
+
+// ── 优雅停机 + 主循环（照 tp/bin/serve_public.wll 的骨架）──────────────
+LET MUT(running, TRUE);
+LET MUT(served, 0);
+ON_SIGNAL("SIGINT", FUN(() , (SET(running, FALSE); STOP())));
+ON_SIGNAL("SIGTERM", FUN(() , (SET(running, FALSE); STOP())));
+
+// ⚠ read_timeout_ms 给 5000：缺省 0 = 无截止时间，一个慢客户端就能把循环卡住
+LET(serve_opts, INDEX_SET(DICT(), "read_timeout_ms", 5000));
+LET(l, TCP_LISTEN(SAD_LOOPBACK, SAD_PORT));
+IF(IS_ERR(l), (
+     PRINT_ERR("serve_admin: TCP_LISTEN failed: ", ERR_PAYLOAD(l));
+     PANIC("listen failed")
+), (
+     PRINT("serve_admin: listening on ", SAD_LOOPBACK, ":",
+           AT_K(TCP_LOCAL_ADDR(l), "port", 0), " root=", SAD_ROOT);
+     WHILE(running, (
+          LET(cnt, TCP_SERVE(l, 1000, serve_opts, SAD_HANDLE_REQUEST));
+          IF(IS_ERR(cnt), (
+               PRINT_ERR("serve_admin: TCP_SERVE failed: ", ERR_PAYLOAD(cnt));
+               SET(running, FALSE)
+          ), (
+               SET(served, +(served, IF(IS_ERR(cnt), 0, cnt)))
+          ))
+     ))
+));
+
+TCP_CLOSE_LISTENER(l);
+PRINT("serve_admin: served=", served, " — bye");

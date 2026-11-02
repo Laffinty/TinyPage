@@ -1,0 +1,1060 @@
+{
+  "meta": {
+    "generated_by": "tp/test/gen_http_util_baseline.py",
+    "product": "tp/lib/http_util.wll",
+    "sources": [
+      "tinypage/admin/app.py:58-89（路由表 / CSRF 豁免 / MAX_POST_SIZE）",
+      "tinypage/admin/app.py:154-181（/login 分支 + 会话先于 method）",
+      "tinypage/admin/responses.py:17-55（四个响应构造）",
+      "tinypage/security.py:342-352（CSP 策略串）",
+      "tinypage/security.py:116-137（CSRF Set-Cookie 属性）"
+    ],
+    "cross_checks": [
+      "② 分发行为 13 条：status / Location / Content-Type 全部与 tinypage.admin.app.AdminApp 实测一致",
+      "① 路由表：GET 9 条 / POST 14 条 / CSRF 豁免 ['/upload'] / MAX_POST_SIZE 10485760 与 app.py 逐键逐值一致",
+      "③ bad_percent：Python parse_qs 实测给 {'a': '%ZZ'}（本实现给 {}，D-HU-3）",
+      "③ 表单 12 条：与 urllib.parse.parse_qs（keep_blank_values=False）逐键相等（两条登记偏离除外）",
+      "④ 响应 9 条：status / 头序 / 头值 / body 与 responses.py 实测一致；CSP 串 == security.get_csp_header()"
+    ],
+    "findings": [
+      "卡片 S4-3 的 GET 清单只列了 8 条，第 9 条是 `/dashboard`（app.py:62 与 `/` 同指 dashboard）—— 本实现按**源码**取 9 条。",
+      "卡片写「会话 Cookie：SET_COOKIE」，但 security.wll 已交付 SESSION_COOKIE_HEADER / CSRF_COOKIE_HEADER 且 235 断言全绿 ⇒ 实现复用后者，不另造。",
+      "POST 的 404 判定**早于** CSRF 校验（app.py:242-244），CSRF 豁免（/upload）只改**失败时的响应格式**，不跳过校验（app.py:253-257）。",
+      "`/login` 的 CSRF 失败不是 403 而是 302 `/login?error=1`（actions.py:388-389）—— 「POST 缺 CSRF ⇒ 403」这条反向守卫只对**其它** POST 路由成立。",
+      "响应头序有两套：responses.html_response 是「安全头 → CSRF → CSP」，app.py 的登录页是「CSRF → CSP → 安全头」。BUILD_RESPONSE 用 security_last 开关同时支持两者。"
+    ],
+    "divergences": [
+      {
+        "id": "D-HU-1",
+        "what": "PARSE_FORM 直接调用 std.http::PARSE_FORM",
+        "why": "实测该成员在本机 0.12.1 可用（含 +/%XX/多值/空体），自己重写只会引入新的语义差"
+      },
+      {
+        "id": "D-HU-2",
+        "what": "Content-Type 非 urlencoded ⇒ 返回空表单",
+        "why": "Python 的 _get_post_data 完全不看 Content-Type，会把 multipart 体当 urlencoded 解析出垃圾键；两条路最终都拿不到字段 ⇒ 同一条失败路径（upload 400 JSON）。实测命令见 fixtures 的 form_cases/multipart_rejected"
+      },
+      {
+        "id": "D-HU-3",
+        "what": "非法 percent 转义 ⇒ 返回空表单",
+        "why": "Python 的 parse_qs 不报错、原样保留 `%ZZ`；WLWL 的 PARSE_FORM 给 ERR。本实现 fail-closed（表单为空 ⇒ CSRF 必然失败 ⇒ 403），不把畸形输入带进动作层"
+      },
+      {
+        "id": "D-HU-4",
+        "what": "空值字段剔除",
+        "why": "对齐 parse_qs 的 keep_blank_values=False 缺省；否则 `csrf_token=` 排在 `csrf_token=<valid>` 前面时取第一个值会与 Python 不一致"
+      },
+      {
+        "id": "D-HU-5",
+        "what": "JSON 错误体不转义非 ASCII",
+        "why": "Python 的 json.dumps 缺省 ensure_ascii=True（中文变 \\uXXXX）。本实现原样发 UTF-8：仍是合法 JSON，只是字面不同"
+      }
+    ]
+  },
+  "routes": {
+    "get": [
+      [
+        "/",
+        "dashboard"
+      ],
+      [
+        "/dashboard",
+        "dashboard"
+      ],
+      [
+        "/pages",
+        "pages_dashboard"
+      ],
+      [
+        "/new",
+        "new_article"
+      ],
+      [
+        "/new-page",
+        "new_page"
+      ],
+      [
+        "/edit",
+        "edit_article"
+      ],
+      [
+        "/edit-page",
+        "edit_page"
+      ],
+      [
+        "/theme",
+        "theme"
+      ],
+      [
+        "/login",
+        "login"
+      ]
+    ],
+    "post": [
+      [
+        "/upload",
+        "upload_image"
+      ],
+      [
+        "/create",
+        "create_article"
+      ],
+      [
+        "/create-page",
+        "create_page"
+      ],
+      [
+        "/save",
+        "save_article"
+      ],
+      [
+        "/save-page",
+        "save_page"
+      ],
+      [
+        "/delete",
+        "delete_article"
+      ],
+      [
+        "/delete-page",
+        "delete_page"
+      ],
+      [
+        "/regen",
+        "regenerate"
+      ],
+      [
+        "/preview",
+        "live_preview"
+      ],
+      [
+        "/set-theme",
+        "set_theme"
+      ],
+      [
+        "/ai-assist",
+        "ai_assist"
+      ],
+      [
+        "/translate",
+        "translate_article"
+      ],
+      [
+        "/login",
+        "login_handler"
+      ],
+      [
+        "/logout",
+        "logout_handler"
+      ]
+    ],
+    "csrf_exempt": [
+      "/upload"
+    ],
+    "auth_paths": [
+      "/login",
+      "/logout"
+    ],
+    "max_post_size": 10485760
+  },
+  "route_cases": [
+    {
+      "name": "get_login_anon",
+      "method": "GET",
+      "path": "/login",
+      "expected_status": "200 OK",
+      "expected_location": "",
+      "match_status": 200,
+      "match_route": "login",
+      "match_kind": "login",
+      "match_requires_session": false,
+      "match_csrf_exempt": false,
+      "has_session": false,
+      "note": "未登录也能进登录页（app.py:154-158）",
+      "python_observed": {
+        "status": "200 OK",
+        "location": "",
+        "content_type": "text/html; charset=utf-8"
+      }
+    },
+    {
+      "name": "get_root_anon",
+      "method": "GET",
+      "path": "/",
+      "expected_status": "302 Found",
+      "expected_location": "/login",
+      "match_status": 200,
+      "match_route": "dashboard",
+      "match_kind": "get",
+      "match_requires_session": true,
+      "match_csrf_exempt": false,
+      "has_session": false,
+      "note": "未登录访问 / ⇒ 302 到 /login（app.py:169-171，卡 S4-3 反向守卫）",
+      "python_observed": {
+        "status": "302 Found",
+        "location": "/login",
+        "content_type": ""
+      }
+    },
+    {
+      "name": "put_root_anon",
+      "method": "PUT",
+      "path": "/",
+      "expected_status": "302 Found",
+      "expected_location": "/login",
+      "match_status": 405,
+      "match_route": "",
+      "match_kind": "",
+      "match_requires_session": true,
+      "match_csrf_exempt": false,
+      "has_session": false,
+      "note": "**会话检查先于 method**：未登录 PUT 也先 302（app.py:168-171）",
+      "python_observed": {
+        "status": "302 Found",
+        "location": "/login",
+        "content_type": ""
+      }
+    },
+    {
+      "name": "get_protected_404_anon",
+      "method": "GET",
+      "path": "/nope",
+      "expected_status": "302 Found",
+      "expected_location": "/login",
+      "match_status": 404,
+      "match_route": "",
+      "match_kind": "",
+      "match_requires_session": true,
+      "match_csrf_exempt": false,
+      "has_session": false,
+      "note": "未登录的 404 路径同样先 302（顺序证据）",
+      "python_observed": {
+        "status": "302 Found",
+        "location": "/login",
+        "content_type": ""
+      }
+    },
+    {
+      "name": "post_login_anon_no_csrf",
+      "method": "POST",
+      "path": "/login",
+      "expected_status": "302 Found",
+      "expected_location": "/login?error=1",
+      "match_status": 200,
+      "match_route": "login_handler",
+      "match_kind": "login_post",
+      "match_requires_session": false,
+      "match_csrf_exempt": false,
+      "has_session": false,
+      "note": "⚠ /login 的 CSRF 失败是 **302 /login?error=1**（actions.py:388-389），不是 403",
+      "python_observed": {
+        "status": "302 Found",
+        "location": "/login?error=1",
+        "content_type": ""
+      }
+    },
+    {
+      "name": "post_create_sess_no_csrf",
+      "method": "POST",
+      "path": "/create",
+      "expected_status": "403 Forbidden",
+      "expected_location": "",
+      "match_status": 200,
+      "match_route": "create_article",
+      "match_kind": "post",
+      "match_requires_session": true,
+      "match_csrf_exempt": false,
+      "has_session": true,
+      "note": "有会话 + 缺 CSRF ⇒ 403 text/plain（app.py:258-260）",
+      "python_observed": {
+        "status": "403 Forbidden",
+        "location": "",
+        "content_type": "text/plain"
+      }
+    },
+    {
+      "name": "post_upload_sess_no_csrf",
+      "method": "POST",
+      "path": "/upload",
+      "expected_status": "403 Forbidden",
+      "expected_location": "",
+      "match_status": 200,
+      "match_route": "upload_image",
+      "match_kind": "post",
+      "match_requires_session": true,
+      "match_csrf_exempt": true,
+      "has_session": true,
+      "note": "CSRF 豁免路径的失败是 **JSON** 403（app.py:253-257）",
+      "python_observed": {
+        "status": "403 Forbidden",
+        "location": "",
+        "content_type": "application/json"
+      }
+    },
+    {
+      "name": "post_upload_sess_csrf",
+      "method": "POST",
+      "path": "/upload",
+      "expected_status": "400 Bad Request",
+      "expected_location": "",
+      "match_status": 200,
+      "match_route": "upload_image",
+      "match_kind": "post",
+      "match_requires_session": true,
+      "match_csrf_exempt": true,
+      "has_session": true,
+      "note": "合法 CSRF 后进入 upload 动作 ⇒ 缺字段 400 JSON（actions.py:200-201）",
+      "python_observed": {
+        "status": "400 Bad Request",
+        "location": "",
+        "content_type": "application/json"
+      }
+    },
+    {
+      "name": "post_create_sess_csrf",
+      "method": "POST",
+      "path": "/create",
+      "expected_status": "400 Bad Request",
+      "expected_location": "",
+      "match_status": 200,
+      "match_route": "create_article",
+      "match_kind": "post",
+      "match_requires_session": true,
+      "match_csrf_exempt": false,
+      "has_session": true,
+      "note": "合法 CSRF 后进入 create 动作 ⇒ 缺字段 400 text/plain（actions.py:48-49）",
+      "python_observed": {
+        "status": "400 Bad Request",
+        "location": "",
+        "content_type": "text/plain"
+      }
+    },
+    {
+      "name": "post_unknown_sess",
+      "method": "POST",
+      "path": "/nope",
+      "expected_status": "404 Not Found",
+      "expected_location": "",
+      "match_status": 404,
+      "match_route": "",
+      "match_kind": "",
+      "match_requires_session": true,
+      "match_csrf_exempt": false,
+      "has_session": true,
+      "note": "404 早于 CSRF 校验（app.py:242-244）",
+      "python_observed": {
+        "status": "404 Not Found",
+        "location": "",
+        "content_type": "text/plain"
+      }
+    },
+    {
+      "name": "put_unknown_sess",
+      "method": "PUT",
+      "path": "/nope",
+      "expected_status": "405 Method Not Allowed",
+      "expected_location": "",
+      "match_status": 405,
+      "match_route": "",
+      "match_kind": "",
+      "match_requires_session": true,
+      "match_csrf_exempt": false,
+      "has_session": true,
+      "note": "有会话后 method 不符 ⇒ 405（app.py:178）",
+      "python_observed": {
+        "status": "405 Method Not Allowed",
+        "location": "",
+        "content_type": "text/plain"
+      }
+    },
+    {
+      "name": "get_unknown_sess",
+      "method": "GET",
+      "path": "/nope",
+      "expected_status": "404 Not Found",
+      "expected_location": "",
+      "match_status": 404,
+      "match_route": "",
+      "match_kind": "",
+      "match_requires_session": true,
+      "match_csrf_exempt": false,
+      "has_session": true,
+      "note": "有会话 GET 未命中 ⇒ 404（app.py:186-188）",
+      "python_observed": {
+        "status": "404 Not Found",
+        "location": "",
+        "content_type": "text/plain"
+      }
+    },
+    {
+      "name": "get_logout_anon",
+      "method": "GET",
+      "path": "/logout",
+      "expected_status": "405 Method Not Allowed",
+      "expected_location": "",
+      "match_status": 405,
+      "match_route": "",
+      "match_kind": "",
+      "match_requires_session": false,
+      "match_csrf_exempt": false,
+      "has_session": false,
+      "note": "GET /logout ⇒ 405（app.py:163，落在 /login /logout 分支里）",
+      "python_observed": {
+        "status": "405 Method Not Allowed",
+        "location": "",
+        "content_type": "text/plain"
+      }
+    }
+  ],
+  "form_cases": [
+    {
+      "name": "empty",
+      "body": "",
+      "content_type": "application/x-www-form-urlencoded",
+      "expect": [],
+      "note": "空体 ⇒ 空字典",
+      "source": "admin/app.py:322-323（CONTENT_LENGTH<=0 ⇒ {}）"
+    },
+    {
+      "name": "basic",
+      "body": "a=1&b=2",
+      "content_type": "application/x-www-form-urlencoded",
+      "expect": [
+        [
+          "a",
+          "1"
+        ],
+        [
+          "b",
+          "2"
+        ]
+      ],
+      "note": "两个字段",
+      "source": "admin/app.py:317-329"
+    },
+    {
+      "name": "multi",
+      "body": "a=1&b=2&a=3",
+      "content_type": "application/x-www-form-urlencoded",
+      "expect": [
+        [
+          "a",
+          [
+            "1",
+            "3"
+          ]
+        ],
+        [
+          "b",
+          "2"
+        ]
+      ],
+      "note": "同名多值 ⇒ ARRAY（parse_qs 的 list）",
+      "source": "security.py:53 + app.py:247（post_data.get(k,[\"\"])[0] 取第一个）"
+    },
+    {
+      "name": "plus_and_percent",
+      "body": "x=hello+world&k=%E4%B8%AD",
+      "content_type": "application/x-www-form-urlencoded",
+      "expect": [
+        [
+          "x",
+          "hello world"
+        ],
+        [
+          "k",
+          "中"
+        ]
+      ],
+      "note": "`+` → 空格；percent-decode UTF-8",
+      "source": "urllib.parse.parse_qs"
+    },
+    {
+      "name": "blank_dropped",
+      "body": "a=&a=1",
+      "content_type": "application/x-www-form-urlencoded",
+      "expect": [
+        [
+          "a",
+          "1"
+        ]
+      ],
+      "note": "空值剔除（keep_blank_values=False 缺省）",
+      "source": "D-HU-4"
+    },
+    {
+      "name": "blank_only",
+      "body": "a=",
+      "content_type": "application/x-www-form-urlencoded",
+      "expect": [],
+      "note": "只有空值 ⇒ 该键整体消失",
+      "source": "D-HU-4"
+    },
+    {
+      "name": "no_value",
+      "body": "bare",
+      "content_type": "application/x-www-form-urlencoded",
+      "expect": [],
+      "note": "无 `=` 的键 ⇒ 空值 ⇒ 剔除（Python 同）",
+      "source": "D-HU-4"
+    },
+    {
+      "name": "empty_key",
+      "body": "=1",
+      "content_type": "application/x-www-form-urlencoded",
+      "expect": [
+        [
+          "",
+          "1"
+        ]
+      ],
+      "note": "空键保留（parse_qs 也保留）",
+      "source": "urllib.parse.parse_qs"
+    },
+    {
+      "name": "semicolon_literal",
+      "body": "a=1;b=2",
+      "content_type": "application/x-www-form-urlencoded",
+      "expect": [
+        [
+          "a",
+          "1;b=2"
+        ]
+      ],
+      "note": "`;` 不是分隔符（Python 3.13 的缺省 separator=\"&\"）",
+      "source": "urllib.parse.parse_qs(separator=\"&\")"
+    },
+    {
+      "name": "double_amp",
+      "body": "a=1&&b=2",
+      "content_type": "application/x-www-form-urlencoded",
+      "expect": [
+        [
+          "a",
+          "1"
+        ],
+        [
+          "b",
+          "2"
+        ]
+      ],
+      "note": "连续 `&` 跳过空段",
+      "source": "urllib.parse.parse_qs"
+    },
+    {
+      "name": "csrf_shape",
+      "body": "csrf_token=abc&t=1",
+      "content_type": "application/x-www-form-urlencoded",
+      "expect": [
+        [
+          "csrf_token",
+          "abc"
+        ],
+        [
+          "t",
+          "1"
+        ]
+      ],
+      "note": "csrf_token 就是普通字段",
+      "source": "admin/app.py:247"
+    },
+    {
+      "name": "bad_percent",
+      "body": "a=%ZZ",
+      "content_type": "application/x-www-form-urlencoded",
+      "expect": [],
+      "note": "非法 percent ⇒ **空表单**（Python 原样保留 %ZZ，D-HU-3）",
+      "source": "D-HU-3"
+    },
+    {
+      "name": "multipart_rejected",
+      "body": "a=1",
+      "content_type": "multipart/form-data; boundary=x",
+      "expect": [],
+      "note": "非 urlencoded ⇒ **空表单**（Python 不判这个头，D-HU-2）",
+      "source": "D-HU-2"
+    },
+    {
+      "name": "no_ct_header",
+      "body": "a=1",
+      "content_type": "",
+      "expect": [
+        [
+          "a",
+          "1"
+        ]
+      ],
+      "note": "无 Content-Type ⇒ 按 urlencoded 处理",
+      "source": "D-HU-2"
+    }
+  ],
+  "size_cases": [
+    {
+      "name": "exactly_max",
+      "body": "abcde",
+      "max_bytes": 5,
+      "too_large": false,
+      "note": "body 字节数 == 阈值 ⇒ **不算超**（判据是 `>`）",
+      "source": "admin/app.py:324"
+    },
+    {
+      "name": "one_over_max",
+      "body": "abcde",
+      "max_bytes": 4,
+      "too_large": true,
+      "note": "body 字节数 == 阈值+1 ⇒ 超",
+      "source": "admin/app.py:324"
+    }
+  ],
+  "response_cases": [
+    {
+      "name": "error_404",
+      "status": 404,
+      "status_line": "404 Not Found",
+      "headers": [
+        [
+          "Content-Type",
+          "text/plain"
+        ],
+        [
+          "X-Content-Type-Options",
+          "nosniff"
+        ],
+        [
+          "X-Frame-Options",
+          "DENY"
+        ],
+        [
+          "Referrer-Policy",
+          "no-referrer"
+        ],
+        [
+          "Cross-Origin-Opener-Policy",
+          "same-origin"
+        ],
+        [
+          "Permissions-Policy",
+          "accelerometer=(), camera=(), geolocation=(), gyroscope=(), magnetometer=(), microphone=(), payment=(), usb=()"
+        ]
+      ],
+      "body": "Not Found",
+      "note": "error_response：Content-Type text/plain + 5 安全头",
+      "source": "admin/responses.py:23-28"
+    },
+    {
+      "name": "error_405",
+      "status": 405,
+      "status_line": "405 Method Not Allowed",
+      "headers": [
+        [
+          "Content-Type",
+          "text/plain"
+        ],
+        [
+          "X-Content-Type-Options",
+          "nosniff"
+        ],
+        [
+          "X-Frame-Options",
+          "DENY"
+        ],
+        [
+          "Referrer-Policy",
+          "no-referrer"
+        ],
+        [
+          "Cross-Origin-Opener-Policy",
+          "same-origin"
+        ],
+        [
+          "Permissions-Policy",
+          "accelerometer=(), camera=(), geolocation=(), gyroscope=(), magnetometer=(), microphone=(), payment=(), usb=()"
+        ]
+      ],
+      "body": "Method not allowed",
+      "note": "方法不符的身体串是 \"Method not allowed\"（app.py:163,178）",
+      "source": "admin/app.py:163,178"
+    },
+    {
+      "name": "error_403",
+      "status": 403,
+      "status_line": "403 Forbidden",
+      "headers": [
+        [
+          "Content-Type",
+          "text/plain"
+        ],
+        [
+          "X-Content-Type-Options",
+          "nosniff"
+        ],
+        [
+          "X-Frame-Options",
+          "DENY"
+        ],
+        [
+          "Referrer-Policy",
+          "no-referrer"
+        ],
+        [
+          "Cross-Origin-Opener-Policy",
+          "same-origin"
+        ],
+        [
+          "Permissions-Policy",
+          "accelerometer=(), camera=(), geolocation=(), gyroscope=(), magnetometer=(), microphone=(), payment=(), usb=()"
+        ]
+      ],
+      "body": "CSRF validation failed",
+      "note": "CSRF 失败的 text/plain 形态（app.py:260）",
+      "source": "admin/app.py:258-260"
+    },
+    {
+      "name": "redirect_login",
+      "status": 302,
+      "status_line": "302 Found",
+      "headers": [
+        [
+          "Location",
+          "/login"
+        ],
+        [
+          "X-Content-Type-Options",
+          "nosniff"
+        ],
+        [
+          "X-Frame-Options",
+          "DENY"
+        ],
+        [
+          "Referrer-Policy",
+          "no-referrer"
+        ],
+        [
+          "Cross-Origin-Opener-Policy",
+          "same-origin"
+        ],
+        [
+          "Permissions-Policy",
+          "accelerometer=(), camera=(), geolocation=(), gyroscope=(), magnetometer=(), microphone=(), payment=(), usb=()"
+        ]
+      ],
+      "body": "",
+      "note": "redirect_response：Location + 5 安全头，body 空",
+      "source": "admin/responses.py:17-20"
+    },
+    {
+      "name": "json_error_403",
+      "status": 403,
+      "status_line": "403 Forbidden",
+      "headers": [
+        [
+          "Content-Type",
+          "application/json"
+        ],
+        [
+          "X-Content-Type-Options",
+          "nosniff"
+        ],
+        [
+          "X-Frame-Options",
+          "DENY"
+        ],
+        [
+          "Referrer-Policy",
+          "no-referrer"
+        ],
+        [
+          "Cross-Origin-Opener-Policy",
+          "same-origin"
+        ],
+        [
+          "Permissions-Policy",
+          "accelerometer=(), camera=(), geolocation=(), gyroscope=(), magnetometer=(), microphone=(), payment=(), usb=()"
+        ]
+      ],
+      "body": "{\"success\": false, \"error\": \"CSRF validation failed\"}",
+      "note": "CSRF 豁免路径的 JSON 403（app.py:255-257）",
+      "source": "admin/app.py:253-257"
+    },
+    {
+      "name": "html_csrf",
+      "status": 200,
+      "status_line": "200 OK",
+      "headers": [
+        [
+          "Content-Type",
+          "text/html; charset=utf-8"
+        ],
+        [
+          "X-Content-Type-Options",
+          "nosniff"
+        ],
+        [
+          "X-Frame-Options",
+          "DENY"
+        ],
+        [
+          "Referrer-Policy",
+          "no-referrer"
+        ],
+        [
+          "Cross-Origin-Opener-Policy",
+          "same-origin"
+        ],
+        [
+          "Permissions-Policy",
+          "accelerometer=(), camera=(), geolocation=(), gyroscope=(), magnetometer=(), microphone=(), payment=(), usb=()"
+        ],
+        [
+          "Set-Cookie",
+          "csrf_token=TESTTOKEN0123456789; Path=/; HttpOnly; SameSite=Strict"
+        ],
+        [
+          "Content-Security-Policy",
+          "default-src 'self'; style-src 'self' 'unsafe-inline'; img-src 'self' data: https:; font-src 'self'; script-src 'self' 'unsafe-inline'; connect-src 'self'; frame-ancestors 'none'; base-uri 'self';"
+        ]
+      ],
+      "body": "<b>x</b>",
+      "note": "html_response：Content-Type → 5 安全头 → CSRF cookie → CSP",
+      "source": "admin/responses.py:39-55"
+    },
+    {
+      "name": "html_no_csrf",
+      "status": 200,
+      "status_line": "200 OK",
+      "headers": [
+        [
+          "Content-Type",
+          "text/html; charset=utf-8"
+        ],
+        [
+          "X-Content-Type-Options",
+          "nosniff"
+        ],
+        [
+          "X-Frame-Options",
+          "DENY"
+        ],
+        [
+          "Referrer-Policy",
+          "no-referrer"
+        ],
+        [
+          "Cross-Origin-Opener-Policy",
+          "same-origin"
+        ],
+        [
+          "Permissions-Policy",
+          "accelerometer=(), camera=(), geolocation=(), gyroscope=(), magnetometer=(), microphone=(), payment=(), usb=()"
+        ],
+        [
+          "Content-Security-Policy",
+          "default-src 'self'; style-src 'self' 'unsafe-inline'; img-src 'self' data: https:; font-src 'self'; script-src 'self' 'unsafe-inline'; connect-src 'self'; frame-ancestors 'none'; base-uri 'self';"
+        ]
+      ],
+      "body": "<b>x</b>",
+      "note": "无 csrf_token ⇒ 不发 Set-Cookie（app.py:49-51）",
+      "source": "admin/responses.py:49-51"
+    },
+    {
+      "name": "login_page",
+      "status": 200,
+      "status_line": "200 OK",
+      "headers": [
+        [
+          "Content-Type",
+          "text/html; charset=utf-8"
+        ],
+        [
+          "Set-Cookie",
+          "csrf_token=TESTTOKEN0123456789; Path=/; HttpOnly; SameSite=Strict"
+        ],
+        [
+          "Content-Security-Policy",
+          "default-src 'self'; style-src 'self' 'unsafe-inline'; img-src 'self' data: https:; font-src 'self'; script-src 'self' 'unsafe-inline'; connect-src 'self'; frame-ancestors 'none'; base-uri 'self';"
+        ],
+        [
+          "X-Content-Type-Options",
+          "nosniff"
+        ],
+        [
+          "X-Frame-Options",
+          "DENY"
+        ],
+        [
+          "Referrer-Policy",
+          "no-referrer"
+        ],
+        [
+          "Cross-Origin-Opener-Policy",
+          "same-origin"
+        ],
+        [
+          "Permissions-Policy",
+          "accelerometer=(), camera=(), geolocation=(), gyroscope=(), magnetometer=(), microphone=(), payment=(), usb=()"
+        ]
+      ],
+      "body": "LOGIN",
+      "note": "登录页头序：Content-Type → CSRF cookie → CSP → 5 安全头（与 html_response 相反，逐字照 app.py:231-235）",
+      "source": "admin/app.py:226-237"
+    },
+    {
+      "name": "redirect_theme",
+      "status": 302,
+      "status_line": "302 Found",
+      "headers": [
+        [
+          "Location",
+          "/theme"
+        ],
+        [
+          "X-Content-Type-Options",
+          "nosniff"
+        ],
+        [
+          "X-Frame-Options",
+          "DENY"
+        ],
+        [
+          "Referrer-Policy",
+          "no-referrer"
+        ],
+        [
+          "Cross-Origin-Opener-Policy",
+          "same-origin"
+        ],
+        [
+          "Permissions-Policy",
+          "accelerometer=(), camera=(), geolocation=(), gyroscope=(), magnetometer=(), microphone=(), payment=(), usb=()"
+        ]
+      ],
+      "body": "",
+      "note": "set_theme 成功后 302 /theme（actions.py:365）",
+      "source": "admin/actions.py:365"
+    },
+    {
+      "name": "rate_limit",
+      "status": 429,
+      "status_line": "429 Too Many Requests",
+      "headers": [
+        [
+          "Content-Type",
+          "text/plain"
+        ],
+        [
+          "Retry-After",
+          "42"
+        ],
+        [
+          "X-Content-Type-Options",
+          "nosniff"
+        ],
+        [
+          "X-Frame-Options",
+          "DENY"
+        ],
+        [
+          "Referrer-Policy",
+          "no-referrer"
+        ],
+        [
+          "Cross-Origin-Opener-Policy",
+          "same-origin"
+        ],
+        [
+          "Permissions-Policy",
+          "accelerometer=(), camera=(), geolocation=(), gyroscope=(), magnetometer=(), microphone=(), payment=(), usb=()"
+        ]
+      ],
+      "body": "Rate limit exceeded. Please try again later.",
+      "note": "app.py 内联构造的 429（无独立函数可对拍）",
+      "source": "admin/app.py:132-140"
+    },
+    {
+      "name": "static_asset",
+      "status": 200,
+      "status_line": "200 OK",
+      "headers": [
+        [
+          "Content-Type",
+          "text/css"
+        ],
+        [
+          "Content-Length",
+          "6"
+        ],
+        [
+          "Cache-Control",
+          "max-age=3600"
+        ],
+        [
+          "X-Content-Type-Options",
+          "nosniff"
+        ],
+        [
+          "X-Frame-Options",
+          "DENY"
+        ],
+        [
+          "Referrer-Policy",
+          "no-referrer"
+        ],
+        [
+          "Cross-Origin-Opener-Policy",
+          "same-origin"
+        ],
+        [
+          "Permissions-Policy",
+          "accelerometer=(), camera=(), geolocation=(), gyroscope=(), magnetometer=(), microphone=(), payment=(), usb=()"
+        ]
+      ],
+      "body": "body{}",
+      "note": "注入的 CSS/JS：**显式**给 Content-Length，缓存 3600s，免会话",
+      "source": "admin/app.py:142-152"
+    }
+  ],
+  "status_lines": [
+    [
+      "200",
+      "200 OK"
+    ],
+    [
+      "302",
+      "302 Found"
+    ],
+    [
+      "400",
+      "400 Bad Request"
+    ],
+    [
+      "403",
+      "403 Forbidden"
+    ],
+    [
+      "404",
+      "404 Not Found"
+    ],
+    [
+      "405",
+      "405 Method Not Allowed"
+    ],
+    [
+      "409",
+      "409 Conflict"
+    ],
+    [
+      "429",
+      "429 Too Many Requests"
+    ],
+    [
+      "500",
+      "500 Internal Server Error"
+    ],
+    [
+      "503",
+      "503 Service Unavailable"
+    ]
+  ],
+  "csp": "default-src 'self'; style-src 'self' 'unsafe-inline'; img-src 'self' data: https:; font-src 'self'; script-src 'self' 'unsafe-inline'; connect-src 'self'; frame-ancestors 'none'; base-uri 'self';"
+}

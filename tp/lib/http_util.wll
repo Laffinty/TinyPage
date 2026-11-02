@@ -1,0 +1,434 @@
+// tp/lib/http_util.wll —— admin 路由 / 表单 / 响应构造（卡 S4-3）
+//
+// ⚠ 本文件由 tp/test/gen_http_util.py 生成 —— 请勿手改。
+//
+// 本模块是**纯函数**：不碰 socket、不 import `tls`、不写文件。
+// 传输在入口里（tp/bin/serve_admin.wll）⇒ 路由 / 表单 / 响应可脱网逐字节测。
+//
+// 权威落点（逐条对齐，出入见夹具 meta.findings）：
+//   路由表          == tinypage/admin/app.py:60-89（GET 9 条 + POST 14 条）
+//   CSRF 豁免表     == app.py:89 `_CSRF_EXEMPT_POST = {"/upload"}`
+//   判定顺序        == app.py:154-181（/login /logout 免会话；其余**先会话**再 method）
+//   响应头序        == tinypage/admin/responses.py:17-55
+//   登录页头序      == app.py:226-237（5 个安全头在**最后**，与 html_response 相反）
+//   CSP 策略        == tinypage/security.py:342-352
+//   请求体上限      == app.py:58 MAX_POST_SIZE = 10MB
+//
+// ⚠ 顶层名一律加 `HU_` 前缀（坑 52：顶层绑定**跨模块共享**，同名的会被互相覆盖）；
+//   导出名（EXPORT）是契约名，保持与卡片一致 —— **例外一个**：
+//   `TEXT_ERROR_RESPONSE`（= responses.error_response）。叫 ERROR_RESPONSE 会覆盖
+//   `static_serve.wll` 里的同名私有函数（顶层名跨模块共享，坑 52）。
+
+IMPORT("wlwl:std.str", ["INDEX_OF", "CAT"]);
+IMPORT("wlwl:std.text", ["TO_LOWER", "TO_UPPER"]);
+IMPORT("wlwl:std.encode", ["BYTE_LEN"]);
+// ⚠ std.http 的 PARSE_FORM 与本模块**导出的** PARSE_FORM 同名 ⇒ 必须改名导入
+//   （§9：`IMPORT(path, ["orig": "alias"])`；顶层作用域共享，原样导入会被覆盖）
+IMPORT("wlwl:std.http", ["PARSE_FORM": "HTTP_PARSE_FORM"]);
+// 5 个安全头**复用**已交付的 static_serve.wll（不重写，S3-1 已全绿）
+IMPORT("./static_serve.wll", ["SECURITY_HEADERS"]);
+// CSRF Set-Cookie **复用**已交付的 security.wll（S4-1/S4-2 已全绿）
+IMPORT("./security.wll", ["CSRF_COOKIE_HEADER"]);
+
+// GET 路由表（app.py:60-70，9 条；`/` 与 `/dashboard` 同指 dashboard）
+LET(HU_GET_ROUTES, INDEX_SET(INDEX_SET(INDEX_SET(INDEX_SET(INDEX_SET(INDEX_SET(INDEX_SET(INDEX_SET(INDEX_SET(DICT(), "/", "dashboard"), "/dashboard", "dashboard"), "/pages", "pages_dashboard"), "/new", "new_article"), "/new-page", "new_page"), "/edit", "edit_article"), "/edit-page", "edit_page"), "/theme", "theme"), "/login", "login"));
+
+// POST 路由表（app.py:72-87，14 条）
+LET(HU_POST_ROUTES, INDEX_SET(INDEX_SET(INDEX_SET(INDEX_SET(INDEX_SET(INDEX_SET(INDEX_SET(INDEX_SET(INDEX_SET(INDEX_SET(INDEX_SET(INDEX_SET(INDEX_SET(INDEX_SET(DICT(), "/upload", "upload_image"), "/create", "create_article"), "/create-page", "create_page"), "/save", "save_article"), "/save-page", "save_page"), "/delete", "delete_article"), "/delete-page", "delete_page"), "/regen", "regenerate"), "/preview", "live_preview"), "/set-theme", "set_theme"), "/ai-assist", "ai_assist"), "/translate", "translate_article"), "/login", "login_handler"), "/logout", "logout_handler"));
+
+// CSRF 豁免（app.py:89；注意：豁免只改**失败时的响应格式**，不跳过校验）
+LET(HU_CSRF_EXEMPT, ["/upload"]);
+
+// 免会话路径（app.py:155）
+LET(HU_AUTH_PATHS, ["/login", "/logout"]);
+
+// 请求体上限（app.py:58 `MAX_POST_SIZE = 10 * 1024 * 1024`）
+LET(HU_MAX_POST_SIZE_BYTES, 10485760);
+
+LET(HU_URLENCODED, "application/x-www-form-urlencoded");
+
+LET(HU_STATUS_REASONS, INDEX_SET(INDEX_SET(INDEX_SET(INDEX_SET(INDEX_SET(INDEX_SET(INDEX_SET(INDEX_SET(INDEX_SET(INDEX_SET(DICT(), "200", "OK"), "302", "Found"), "400", "Bad Request"), "403", "Forbidden"), "404", "Not Found"), "405", "Method Not Allowed"), "409", "Conflict"), "429", "Too Many Requests"), "500", "Internal Server Error"), "503", "Service Unavailable"));
+
+LET(HU_CSP, "default-src 'self'; style-src 'self' 'unsafe-inline'; img-src 'self' data: https:; font-src 'self'; script-src 'self' 'unsafe-inline'; connect-src 'self'; frame-ancestors 'none'; base-uri 'self';");
+
+LET(HU_RATE_LIMIT_BODY, "Rate limit exceeded. Please try again later.");
+
+// JSON 转义的单字符表（键是**一个字符**）
+LET(HU_JSON_MAP, INDEX_SET(INDEX_SET(INDEX_SET(INDEX_SET(INDEX_SET(DICT(), "\"", "\\\""), "\\", "\\\\"), "\n", "\\n"), "\r", "\\r"), "\t", "\\t"));
+
+// // 非 STRING ⇒ 默认值
+     LET(HU_AS_STRING, FUN((v, dflt), (
+               // 取字符串值；非 STRING ⇒ 默认值（坑 56：类型问题用 TYPE 前置判断，别指望 IS_ERR）;
+               IF(==(TYPE(v), "STRING"), v, dflt)
+     )));
+
+// // 非 DICT ⇒ 空字典
+     LET(HU_AS_DICT, FUN((v), (
+               // 非 DICT ⇒ 空字典（坑 35：AT_K(NULL, k, d) 是运行时 E0030）;
+               IF(==(TYPE(v), "DICT"), v, DICT())
+     )));
+
+// // 去掉查询串
+     LET(HU_STRIP_QUERY, FUN((p), (
+               // 请求目标里 "?" 之前的部分（TCP_SERVE 的 path 是**原样**目标）;
+               LET(i, INDEX_OF(p, "?"));
+               IF(<(i, 0), p, SUB(p, 0, i))
+     )));
+
+// // 请求体上限（字节）
+     LET(MAX_POST_SIZE, FUN((), (
+               // app.py:58 —— 10MB（原 nginx `client_max_body_size 10m` 的 admin 侧语义）;
+               HU_MAX_POST_SIZE_BYTES
+     )));
+
+// // 请求体是否超上限
+     LET(FORM_TOO_LARGE, FUN((opts), (
+               // opts 键：body / max_bytes（缺省 10MB）;
+               // Python 比的是 CONTENT_LENGTH 头；这里比**实际字节数**（入口拿到的就是 body）;
+               LET(body, AT_K(opts, "body", ""));
+               LET(maxb, AT_K(opts, "max_bytes", HU_MAX_POST_SIZE_BYTES));
+               >(IF(==(TYPE(body), "STRING"), BYTE_LEN(body), 0), maxb)
+     )));
+
+// // Content-Type 是否为表单编码
+     LET(IS_URLENCODED, FUN((ct), (
+               // 只认 application/x-www-form-urlencoded（卡 S4-3）/ 缺头也认（Python 不判这个头）;
+               LET(lc, TO_LOWER(HU_AS_STRING(ct, "")));
+               IF(==(lc, ""), TRUE, ==(SUB(lc, 0, LEN(HU_URLENCODED)), HU_URLENCODED))
+     )));
+
+// // 取请求头（单值）
+     LET(HEADER_VALUE, FUN((opts), (
+               // opts 键：headers（请求头 DICT，键**已小写**）/ name;
+               // 多值头（PARSE_REQUEST 给 ARRAY[STRING]）⇒ 取**第一个**，对齐 WSGI 的单值口径;
+               LET(h, HU_AS_DICT(AT_K(opts, "headers", NULL)));
+               LET(v, AT_K(h, TO_LOWER(HU_AS_STRING(AT_K(opts, "name", ""), "")), ""));
+               IF(==(TYPE(v), "ARRAY"), (
+                    IF(>(LEN(v), 0), HU_AS_STRING(AT(v, 0, ""), ""), "")
+               ), (
+                    HU_AS_STRING(v, "")
+               ))
+     )));
+
+// // 从 Cookie 头取一个值（首个命中）
+     LET(COOKIE_VALUE, FUN((opts), (
+               // opts 键：cookie（Cookie 头原文）/ prefix（如 "csrf_token="）;
+               // 对齐 app.py:303-312：按 ";" 切 → strip → 前缀比对 → **首个命中即停**;
+               LET(cookie, HU_AS_STRING(AT_K(opts, "cookie", ""), ""));
+               LET(prefix, HU_AS_STRING(AT_K(opts, "prefix", ""), ""));
+               LET MUT(out, "");
+               LET MUT(stop, FALSE);
+               IF(==(prefix, ""), (
+                    NULL
+               ), (
+                    FOR(part, SPLIT(cookie, ";"), (
+                         IF(stop, (
+                              NULL
+                         ), (
+                              LET(t, TRIM(part));
+                              IF(==(SUB(t, 0, LEN(prefix)), prefix), (
+                                   SET(out, SUB(t, LEN(prefix)));
+                                   SET(stop, TRUE)
+                              ), (
+                                   NULL
+                              ))
+                         ))
+                    ))
+               ));
+               out
+     )));
+
+// // 去掉空值
+     LET(HU_FORM_DROP, FUN((v), (
+               // 去掉空值：对齐 parse_qs 的 keep_blank_values=False 缺省（D-HU-4）;
+               // 返回 NULL 表示「这个键整体剔除」;
+               IF(==(TYPE(v), "ARRAY"), (
+                    LET MUT(kept, []);
+                    FOR(x, v, (
+                         IF(==(HU_AS_STRING(x, ""), ""), NULL, (SET(kept, PUSH(kept, x))))
+                    ));
+                    IF(==(LEN(kept), 0), NULL, IF(==(LEN(kept), 1), AT(kept, 0, ""), kept))
+               ), (
+                    IF(==(HU_AS_STRING(v, ""), ""), NULL, v)
+               ))
+     )));
+
+// // 清洗表单
+     LET(HU_FORM_CLEAN, FUN((fields), (
+               // 逐键清洗（同名多值 ⇒ ARRAY；单值 ⇒ STRING，与 std.http::PARSE_FORM 同形）;
+               LET MUT(out, DICT());
+               FOR(k, KEYS(fields), (
+                    LET(v, HU_FORM_DROP(AT_K(fields, k, NULL)));
+                    IF(==(TYPE(v), "NULL"), (
+                         NULL
+                    ), (
+                         SET(out, INDEX_SET(out, k, v))
+                    ))
+               ));
+               out
+     )));
+
+// // 解析表单（x-www-form-urlencoded）
+     LET(PARSE_FORM, FUN((opts), (
+               // opts 键：body / content_type / max_bytes（缺省 10MB）;
+               // 返回 fields 字典：单值 STRING、同名多值 ARRAY[STRING]（空值已剔除）;
+               // ⚠ 解析器**直接用** std.http::PARSE_FORM（R1 成员，实测可用 ⇒ 不自己重写，D-HU-1）;
+               LET(body, HU_AS_STRING(AT_K(opts, "body", ""), ""));
+               IF(FORM_TOO_LARGE(opts), (
+                    DICT()
+               ), (
+                    IF(NOT(IS_URLENCODED(AT_K(opts, "content_type", ""))), (
+                         DICT()
+                    ), (
+                         IF(==(body, ""), (
+                              DICT()
+                         ), (
+                              IF(IS_ERR(HTTP_PARSE_FORM(body)), (
+                                   DICT()
+                              ), (
+                                   HU_FORM_CLEAN(HTTP_PARSE_FORM(body))
+                              ))
+                         ))
+                    ))
+               ))
+     )));
+
+// // 取一个表单字段（单值）
+     LET(FORM_FIELD, FUN((opts), (
+               // opts 键：fields / key / default;
+               // 对齐 Python 的 `post_data.get(k, [""])[0]`;
+               LET(fields, HU_AS_DICT(AT_K(opts, "fields", NULL)));
+               LET(dflt, AT_K(opts, "default", ""));
+               LET(v, AT_K(fields, HU_AS_STRING(AT_K(opts, "key", ""), ""), dflt));
+               IF(==(TYPE(v), "ARRAY"), (
+                    IF(>(LEN(v), 0), HU_AS_STRING(AT(v, 0, dflt), dflt), dflt)
+               ), (
+                    HU_AS_STRING(v, dflt)
+               ))
+     )));
+
+// // 命中
+     LET(HU_ROUTE, FUN((route, kind, status, needs_session, csrf_exempt), (
+               // 命中形状：{status, route, kind, requires_session, csrf_exempt};
+               INDEX_SET(INDEX_SET(INDEX_SET(INDEX_SET(INDEX_SET(DICT(), "status", status), "route", route), "kind", kind), "requires_session", needs_session), "csrf_exempt", csrf_exempt)
+     )));
+
+// // 未命中
+     LET(HU_MISS, FUN((status, needs_session), (
+               // 未命中（404）/ 方法不符（405）：route 与 kind 都是空串;
+               INDEX_SET(INDEX_SET(INDEX_SET(INDEX_SET(INDEX_SET(DICT(), "status", status), "route", ""), "kind", ""), "requires_session", needs_session), "csrf_exempt", FALSE)
+     )));
+
+// // /login /logout 分支
+     LET(HU_MATCH_AUTH, FUN((method, path), (
+               // /login 与 /logout（app.py:154-166）：**不需要**会话 —— 未登录也能进登录页;
+               IF(&&(==(method, "GET"), ==(path, "/login")), (
+                    HU_ROUTE("login", "login", 200, FALSE, FALSE)
+               ), (
+                    IF(&&(==(method, "POST"), ==(path, "/login")), (
+                         HU_ROUTE("login_handler", "login_post", 200, FALSE, FALSE)
+                    ), (
+                         IF(&&(==(method, "POST"), ==(path, "/logout")), (
+                              HU_ROUTE("logout_handler", "logout_post", 200, FALSE, FALSE)
+                         ), (
+                              HU_MISS(405, FALSE)
+                         ))
+                    ))
+               ))
+     )));
+
+// // 需会话的路径
+     LET(HU_MATCH_PROTECTED, FUN((method, path), (
+               // 其余路径（app.py:168-181）：**先要会话** → 再看 method → 再查表;
+               // ⚠ 顺序是语义：未登录 PUT /x 先 302（不是 405）；有会话才可能 404 / 405;
+               LET(get_route, AT_K(HU_GET_ROUTES, path, ""));
+               LET(post_route, AT_K(HU_POST_ROUTES, path, ""));
+               IF(==(method, "GET"), (
+                    IF(==(get_route, ""), (
+                         HU_MISS(404, TRUE)
+                    ), (
+                         HU_ROUTE(get_route, "get", 200, TRUE, FALSE)
+                    ))
+               ), (
+                    IF(==(method, "POST"), (
+                         IF(==(post_route, ""), (
+                              HU_MISS(404, TRUE)
+                         ), (
+                              HU_ROUTE(post_route, "post", 200, TRUE, CONTAINS(HU_CSRF_EXEMPT, path))
+                         ))
+                    ), (
+                         HU_MISS(405, TRUE)
+                    ))
+               ))
+     )));
+
+// // (method, path) → 路由名 + 判定结果
+     LET(MATCH_ROUTE, FUN((opts), (
+               // opts 键：method / path（path 可带查询串）;
+               // 返回 {status, route, kind, requires_session, csrf_exempt};
+               // kind：login | login_post | logout_post | get | post（空串 = 未命中）;
+               LET(path0, HU_STRIP_QUERY(HU_AS_STRING(AT_K(opts, "path", "/"), "/")));
+               LET(path, IF(==(path0, ""), "/", path0));
+               LET(method, TO_UPPER(HU_AS_STRING(AT_K(opts, "method", "GET"), "GET")));
+               IF(CONTAINS(HU_AUTH_PATHS, path), (
+                    HU_MATCH_AUTH(method, path)
+               ), (
+                    HU_MATCH_PROTECTED(method, path)
+               ))
+     )));
+
+// // 状态行
+     LET(STATUS_LINE, FUN((status), (
+               // 状态行 = "<code> <reason>"（串逐字取自 admin/app.py + responses.py）;
+               CAT(STR(status), " ", AT_K(HU_STATUS_REASONS, STR(status), "Unknown"))
+     )));
+
+// // 响应字典
+     LET(HU_RESPONSE, FUN((status, headers, body), (
+               // handler 契约形（TCP_SERVE 只要求这三个键；实测多余键被忽略）;
+               INDEX_SET(INDEX_SET(INDEX_SET(DICT(), "status", status), "headers", headers), "body", body)
+     )));
+
+// // 合并头字典
+     LET(HU_MERGE, FUN((a, b), (
+               // 把 b 的键按插入序并入 a（同键覆盖值，位置保留 —— dict 语义）;
+               LET MUT(out, a);
+               FOR(k, KEYS(b), (
+                    SET(out, INDEX_SET(out, k, AT_K(b, k, "")))
+               ));
+               out
+     )));
+
+// // 头对 → 单键字典
+     LET(HU_PAIR_DICT, FUN((pair), (
+               // ["Set-Cookie", "<cookie>"] → {Set-Cookie: <cookie>}（security.wll 的返回形状）;
+               IF(>(LEN(pair), 1), INDEX_SET(DICT(), AT(pair, 0, "Set-Cookie"), AT(pair, 1, "")), DICT())
+     )));
+
+// // 附加业务头
+     LET(HU_ADDON, FUN((token, secure, csp, set_cookie), (
+               // 业务附加头，顺序 = responses.py 的追加顺序：;
+               //   set_cookie（调用方给的 [name, value]）→ CSRF Set-Cookie（有 token 才发）→ CSP;
+               LET MUT(out, DICT());
+               IF(==(TYPE(set_cookie), "ARRAY"), (
+                    IF(>(LEN(set_cookie), 1), (
+                         SET(out, INDEX_SET(out, AT(set_cookie, 0, "Set-Cookie"), AT(set_cookie, 1, "")))
+                    ), (
+                         NULL
+                    ))
+               ), (
+                    NULL
+               ));
+               IF(==(token, ""), (
+                    NULL
+               ), (
+                    SET(out, HU_MERGE(out, HU_PAIR_DICT(CSRF_COOKIE_HEADER(INDEX_SET(INDEX_SET(DICT(), "token", token), "secure", secure)))))
+               ));
+               IF(csp, (
+                    SET(out, INDEX_SET(out, "Content-Security-Policy", HU_CSP))
+               ), (
+                    NULL
+               ));
+               out
+     )));
+
+// // 通用响应构造
+     LET(BUILD_RESPONSE, FUN((opts), (
+               // opts 键：status / headers（基础头 DICT，**键序即线序**）/ body / method；;
+               //          csrf_token / secure / csp / security（缺省 TRUE）/ security_last / set_cookie;
+               // 头序：基础头 → [安全头] → set_cookie → CSRF cookie → CSP;
+               //   security_last = TRUE 时安全头**移到最后**（app.py:231-235 登录页的真实头序）;
+               // ⚠ 不补 Content-Length：wsgiref 也是传输层补（实测 TCP_SERVE 会补）;
+               LET(status, AT_K(opts, "status", 200));
+               LET(base, HU_AS_DICT(AT_K(opts, "headers", NULL)));
+               LET(token, HU_AS_STRING(AT_K(opts, "csrf_token", ""), ""));
+               LET(addon, HU_ADDON(token, AT_K(opts, "secure", FALSE), AT_K(opts, "csp", FALSE), AT_K(opts, "set_cookie", NULL)));
+               LET(sec, IF(AT_K(opts, "security", TRUE), SECURITY_HEADERS(), DICT()));
+               LET MUT(h, base);
+               IF(AT_K(opts, "security_last", FALSE), (
+                    SET(h, HU_MERGE(h, addon));
+                    SET(h, HU_MERGE(h, sec))
+               ), (
+                    SET(h, HU_MERGE(h, sec));
+                    SET(h, HU_MERGE(h, addon))
+               ));
+               LET(body, HU_AS_STRING(AT_K(opts, "body", ""), ""));
+               LET(is_head, ==(TO_UPPER(HU_AS_STRING(AT_K(opts, "method", "GET"), "GET")), "HEAD"));
+               HU_RESPONSE(status, h, IF(is_head, "", body))
+     )));
+
+// // 纯文本错误响应
+     LET(TEXT_ERROR_RESPONSE, FUN((status, message), (
+               // responses.py:23 error_response —— Content-Type text/plain + 5 个安全头;
+               // ⚠ 名字里带 TEXT 是为了避开 static_serve.wll 的同名私有函数（坑 52，见文件头）;
+               BUILD_RESPONSE(INDEX_SET(INDEX_SET(INDEX_SET(DICT(), "status", status), "headers", INDEX_SET(DICT(), "Content-Type", "text/plain")), "body", message))
+     )));
+
+// // JSON 字符串转义
+     LET(JSON_ESCAPE, FUN((s), (
+               // 逐字符转义 " 与 \ 与 \n / \r / \t（Python 的 json.dumps 还会把非 ASCII 转 \uXXXX）;
+               // ⇒ 非 ASCII 原样发：仍是合法 UTF-8 JSON，只是**字面**与 Python 不同（D-HU-5）;
+               LET MUT(out, "");
+               LET(n, LEN(s));
+               LET MUT(i, 0);
+               WHILE(<(i, n), (
+                    LET(c, SUB(s, i, 1));
+                    LET(esc, AT_K(HU_JSON_MAP, c, NULL));
+                    SET(out, CAT(out, IF(==(TYPE(esc), "NULL"), c, esc)));
+                    SET(i, +(i, 1))
+               ));
+               out
+     )));
+
+// // JSON 错误响应
+     LET(JSON_ERROR_RESPONSE, FUN((status, message), (
+               // responses.py:31 json_error_response —— {"success": false, "error": "..."};
+               // ⚠ 空格与键序逐字对齐 json.dumps 的缺省输出;
+               LET(body, CAT("{\"success\": false, \"error\": \"", JSON_ESCAPE(message), "\"}"));
+               BUILD_RESPONSE(INDEX_SET(INDEX_SET(INDEX_SET(DICT(), "status", status), "headers", INDEX_SET(DICT(), "Content-Type", "application/json")), "body", body))
+     )));
+
+// // JSON 响应
+     LET(JSON_RESPONSE, FUN((opts), (
+               // 业务 JSON 响应（upload / ai）：Content-Type application/json + 5 个安全头;
+               BUILD_RESPONSE(INDEX_SET(INDEX_SET(INDEX_SET(DICT(), "status", AT_K(opts, "status", 200)), "headers", INDEX_SET(DICT(), "Content-Type", "application/json")), "body", AT_K(opts, "body", "")))
+     )));
+
+// // HTML 响应
+     LET(HTML_RESPONSE, FUN((opts), (
+               // responses.py:39 html_response：Content-Type → 5 安全头 → CSRF cookie → CSP;
+               // security_last = TRUE ⇒ Content-Type → CSRF cookie → CSP → 5 安全头;
+               //   （app.py:226-237 `_route_login_get` 的真实头序）;
+               BUILD_RESPONSE(INDEX_SET(INDEX_SET(INDEX_SET(INDEX_SET(INDEX_SET(INDEX_SET(INDEX_SET(INDEX_SET(DICT(), "status", AT_K(opts, "status", 200)), "headers", INDEX_SET(DICT(), "Content-Type", "text/html; charset=utf-8")), "body", AT_K(opts, "body", "")), "method", AT_K(opts, "method", "GET")), "csrf_token", AT_K(opts, "csrf_token", "")), "secure", AT_K(opts, "secure", FALSE)), "csp", TRUE), "security_last", AT_K(opts, "security_last", FALSE)))
+     )));
+
+// // 302 重定向
+     LET(REDIRECT, FUN((opts), (
+               // responses.py:17 redirect_response —— Location + 5 安全头，302，body 空;
+               // opts 可再给 set_cookie（[name, value]），排在 Location 之后（logout 用它清会话，;
+               //   那时必须同时给 security_last = TRUE —— actions.py:433-436 的头序是;
+               //   Location → Set-Cookie → 5 个安全头）;
+               BUILD_RESPONSE(INDEX_SET(INDEX_SET(INDEX_SET(INDEX_SET(INDEX_SET(DICT(), "status", 302), "headers", INDEX_SET(DICT(), "Location", AT_K(opts, "location", "/login"))), "body", ""), "set_cookie", AT_K(opts, "set_cookie", NULL)), "security_last", AT_K(opts, "security_last", FALSE)))
+     )));
+
+// // 429 响应
+     LET(RATE_LIMIT_RESPONSE, FUN((opts), (
+               // app.py:132-140 —— 429 + Content-Type / Retry-After + 5 个安全头;
+               LET(h, INDEX_SET(INDEX_SET(DICT(), "Content-Type", "text/plain"), "Retry-After", STR(AT_K(opts, "retry_after", 1))));
+               BUILD_RESPONSE(INDEX_SET(INDEX_SET(INDEX_SET(DICT(), "status", 429), "headers", h), "body", HU_RATE_LIMIT_BODY))
+     )));
+
+// // 静态资源响应
+     LET(STATIC_RESPONSE, FUN((opts), (
+               // app.py:142-152 —— 注入的 CSS/JS 不发会话；**显式**给 Content-Length;
+               // 头序：Content-Type / Content-Length / Cache-Control + 5 个安全头;
+               LET(body, HU_AS_STRING(AT_K(opts, "body", ""), ""));
+               LET(h, INDEX_SET(INDEX_SET(INDEX_SET(DICT(), "Content-Type", AT_K(opts, "content_type", "text/plain")), "Content-Length", STR(BYTE_LEN(body))), "Cache-Control", AT_K(opts, "cache_control", "max-age=3600")));
+               BUILD_RESPONSE(INDEX_SET(INDEX_SET(INDEX_SET(DICT(), "status", 200), "headers", h), "body", body))
+     )));
+
+
+EXPORT(["PARSE_FORM", "FORM_FIELD", "FORM_TOO_LARGE", "MAX_POST_SIZE",
+    "MATCH_ROUTE", "COOKIE_VALUE", "HEADER_VALUE", "STATUS_LINE", "JSON_ESCAPE",
+    "BUILD_RESPONSE", "TEXT_ERROR_RESPONSE", "JSON_ERROR_RESPONSE", "JSON_RESPONSE",
+    "HTML_RESPONSE", "REDIRECT", "RATE_LIMIT_RESPONSE", "STATIC_RESPONSE"]);
