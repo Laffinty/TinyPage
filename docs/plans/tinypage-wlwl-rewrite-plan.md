@@ -33,7 +33,7 @@
 | S1-2 行内解析器 | ✅ 完成 | `tp/lib/md_inline.wll`（生成器产出）；**21/21 测试通过**，含 3 个反向守卫 |
 | S1-3 块级解析器 | ✅ 完成 | `tp/lib/md.wll`（生成器产出）；**28/28 对照 mistune 3.2.1 逐字节通过**（25 基准 + 3 守卫）；链接去掉自加的 `rel` 属性以逐字节对齐 |
 | S1-4 front-matter/TOC/脚注/wikilink | ✅ 完成 | `frontmatter.wll` / `toc.wll` / `footnotes.wll` / `wikilink.wll` + 共享 `esc.wll`（全部生成器产出）；**38/38 + 41/41 + 23/23 + 28/28 + esc 19/19 全绿**；本地 CI 5 步全过（21 生成器 / 21 产物无 drift） |
-| S2 内容模型与生成器 | 🔄 **S2-1～S2-5 已完成**；编排层 `bin/build.wll` 在收尾 | S2-1 ✅ **277/277**／S2-2 ✅ **39/39**／S2-3 ✅ **162+68**／S2-4 ✅ **42+33+21+30+29 = 155**／S2-5 ✅ `incremental.wll` **37/37**（修掉「判定目录不匹配 ⇒ 恒判未变」的缺陷）；⚠ 编排层未完成前**还不能跑一次真构建** |
+| S2 内容模型与生成器 | ✅ **完成（含编排层）** | S2-1 **277/277**／S2-2 **39/39**／S2-3 **162+68**／S2-4 **42+33+21+30+29=155**／S2-5 **37/37**／**编排层 `bin/build.wll` 63/63，端到端 40/40 产物 sha256 全等**；合计 20 个模块 + 1 个入口，**973 个断言** |
 | S3 前台静态服务（TLS） | ✅ **完成** | `static_serve.wll`（纯函数内核）+ `bin/serve_public.wll`（明文）+ `bin/serve_tls.wll`（TLS）；`test_static_serve.wll` **365/365**；5 个安全头与 `get_security_headers()` 逐字同序相等；curl 实测 200/404/405 与长缓存；坏连接后循环存活；缺 cert 拒绝启动 |
 | S4 Admin 后台 | ⬜ 未开始 | `serve_admin.wll` + 会话/CSRF/限流/CRUD |
 | S5 AI 助手（出站 HTTPS） | ⬜ 未开始 | `ai.wll`（`tls.CONNECT` + 手写 HTTP/1.1） |
@@ -1052,11 +1052,15 @@ TinyPage/
   |---|---|---|
   | 「RSS 最多 20 条、**排除草稿**」 | `generate_rss`（`generator.py:542`）**不过滤**，只 `articles[:20]`；过滤在调用方 `generator.py:730` 的 `published = [a for a in articles if a.is_published]` | **`RSS()` 不过滤**（照函数现状），排除草稿由**调用方**（构建编排层）做 —— 否则与 `generate_rss` 逐字节对照必红 |
   | 「草稿不进**搜索索引**」 | `generate_search_index`（`generator.py:599-625`）**不过滤**；排除发生在 `cli.py:139` 的 `list_articles(include_drafts=False)`（过滤点在 `content.py:187-189`） | 同上：`SEARCH_INDEX()` 不过滤，草稿排除归**调用方** |
-  | 「反向守卫：草稿不得出现在 **sitemap**」 | `generator.py:736` 传给 `generate_sitemap` 的是**未过滤**的 `articles` ⇒ 真实实现里**草稿在 sitemap 里** | **按现状实现**，并把它写成守卫 `guard/sitemap_draft_present_upstream`（上游哪天改了这条会红，正是提醒） |
+  | 「反向守卫：草稿不得出现在 **sitemap**」 | **实测证伪了我此前的判断**（2026-11-02 二次核查）：`generator.py:736` 确实传的是它收到的 `articles`，但**这个列表在到达它之前已被过滤** —— `cli.py:139` / `cli.py:189` / `server.py:74` / `admin/actions.py` 共 8 处调用 `list_articles`，其 `include_drafts` 默认 `False`（`content.py:187-189` 才是过滤点）⇒ 真跑一遍，**草稿不在 sitemap 里** | 按**实测**实现：编排层用 `list_articles` 的默认语义（不含草稿）取列表，所有产物模块照抄函数现状（不过滤）。`SITEMAP()` 喂的就是这份已过滤列表 |
 
-  ⇒ **统一口径（避免「两套语义」）**：**过滤草稿是构建编排层的唯一职责**，各产物模块一律照抄对应 Python 函数的现状（不过滤）。
-  这条对后续接线者尤其重要：接 `RSS()` / `SEARCH_INDEX()` 时**必须**先过滤，否则草稿会漏进发布物；
-  而 `SITEMAP()` 要喂**未过滤**列表才与现状一致（这是上游既有行为，不是新引入的偏差）。
+  ⚠ **这条修正来自「跑一遍」而不是「读一遍」**：我先前只读 `generator.py:736` 就断言「草稿在 sitemap 里」，
+  是**错的**；`test_build.wll` 用真 Python 跑出 `sitemap.xml` 的 19 条 `<loc>` 全为已发布文章，才发现。
+  教训与本仓库既有的「规范的字面读法 ≠ 实现的真实行为」同源 —— **能实测就别只读文本**。
+
+  ⇒ **统一口径（避免「两套语义」）**：**草稿过滤发生在取列表那一步**（`list_articles` 的默认参数），
+  产物模块一律照抄对应 Python 函数的现状（不过滤）。这条对后续接线者尤其重要：
+  接 `RSS()` / `SEARCH_INDEX()` / `SITEMAP()` 时都要先拿到**已过滤**的列表，否则草稿会漏进发布物。
 
 - **⚠ 已知 blocker：`pages/` 下没有真实文章**（2026-11-02 实测）：
   `pages/` 里只有 `pages/.tinypage/backlinks.json`（30 bytes），
@@ -1086,8 +1090,40 @@ TinyPage/
   - 重复构建两次 ⇒ 产物**逐字节一致**（幂等）
 - **非目标**：不生成 RSS 的 RFC822 严格日期；不做 sitemap 的 lastmod
 
-#### 卡 S2-5：增量构建
+#### S2 收尾：编排层 `tp/bin/build.wll`（✅ 已交付，计划里原先没有这张卡）
 
+> 计划的 S2-4 把 5 个产物模块都列全了，却**没有任何东西把它们接起来** ⇒
+> 「跑一次构建生成整站」这条验收命令 `wlwl run tp\bin\build.wll` 一直是**不可执行**的。
+> 本卡补的就是这个「组装」环节。
+
+- **交付物**：`tp/bin/build.wll`（676 行，生成物）+ `tp/test/site_corpus.py`（三方共用的合成语料）
+- **✅ 实测状态（2026-11-02 完成，父进程独立复跑）**：
+  | 项 | 读数 |
+  |---|---|
+  | `wlwl run tp/test/test_build.wll` | **63/63**，failed=0，exit 0（父进程独立复跑确认） |
+  | **端到端逐文件对照** | **40/40 个产物 sha256 全等**：`article/*.html` 13 / `index.html`+`list/2.html` 2 / `category/*.html` 3 / `standalone/*.html` 2 / `search.html`+`search-index.json` 2 / `rss.xml`+`sitemap.xml`+`robots.txt` 3 / `article/*.md` 14 / 草稿页 1（未被重生成） |
+  | 脚本模式 | `wlwl run tp\bin\build.wll` ⇒ `articles=13 written=25 ok=TRUE pages=2 categories=3`，exit 0 |
+  | 反向守卫 15 条 | 草稿文件名与「草稿」二字在 `index` / `list/2` / `rss` / `sitemap` / `search-index` 里**不得出现**（含已发布文章的对照组） |
+  | 幂等 | 三个生成器跑两次 + 按 CI 字母序重跑，输出字节一致 |
+
+- **⚠ 三处必须知道的实现事实**：
+  1. **磁盘字节不是逐字节相同（D-NL）**：Python 的 `write_text()` 在 Windows 上写 **CRLF**，
+     而 WLWL 写 LF ⇒ 夹具登记的是**归一化后的内容**，逐字节比的是内容而不是磁盘行尾。
+     （README 坑 23 只讲**读入**侧的换行归一，这里补上**写出**侧。）
+  2. **D7**：基准把 `has_syntax_highlighting` 打成 False（业主裁决高亮改前端），否则每页多一段 Pygments CSS。
+  3. **`.tinypage/backlinks.json` 不入账**：它含 `st_mtime`，本身不可复现 ⇒ WLWL 不写它。
+- **⚠ 未实现（都在语料里回避了，属后续补）**：`parse_meta` 的**自动摘要**（summary 为空时截 200 字）、
+  `get_raw_content` 的**懒迁移 / 从 `post-content` 恢复**两级回退、`incremental` 参数**接受但忽略**（走全量）、
+  日期合法性只判「形状 + 范围」（不查月长/闰年 ⇒ `2 月 31 日` 两边会不同）。
+- **⚠ 端到端才暴露的 `md_inline.wll` 两处真实缺口（S1-2 当时 21/21 绿但没覆盖到）**：
+  | 缺口 | 输入 | mistune | `md_inline.wll` |
+  |---|---|---|---|
+  | 行内代码**不转义** | `` a `x<y&z"q` b `` | `x&lt;y&amp;z&quot;q` | `x<y&z"q` |
+  | 链接目标**不 percent-encode** | `[a](/article/中文.html)` | `%E4%B8%AD%E6%96%87` | `中文` |
+  这两条让 3 篇文章页最初对不上，是本轮**唯一靠「语料回避」绕开的真实缺陷**
+  （`site_corpus.KNOWN_GAP_*` 备好了复现）。**修 `md_inline.wll` 后把语料那两处放回来即可**。
+
+#### 卡 S2-5：增量构建 —— ✅ 已完成
 - **依赖**：S2-4
 - **交付物**：`tp/lib/incremental.wll`
 - **判定**：源 `.md` 的 `FILE_META.mtime` > 产物 `.html` 的 mtime ⇒ 需重建
@@ -1110,6 +1146,20 @@ TinyPage/
   - `get_unchanged_articles`（182 行）：按 cache 分「未变/已变」两组。
   - ⚠ 本卡**修正**的是「判定目录不匹配导致恒全量重建」的缺陷（R5），
     **判定口径仍用 mtime**，不引入 hash。
+
+- **✅ 实测状态（2026-11-02 完成）**：`tp/lib/incremental.wll` 导出 `SHOULD_USE_INCREMENTAL` /
+  `BUILD_CACHE_KEY` / `GET_UNCHANGED`；`test_incremental.wll` **37/37**、failed=0、exit 0。
+  **实测确认卡面那处缺陷的确切位置**：`incremental.py:207` 是
+  `get_modified_files(article_dir, article_dir)` —— 同一个路径既当源又当产物
+  ⇒ `src.stat().st_mtime > out.stat().st_mtime` **恒假** ⇒ 返回空列表 ⇒ **每篇都被判「未变」**
+  （后果是漏建；下游若把「key 变了但变更集为空」当异常，只能退回全量重建）。
+  WLWL 侧改为**逐文件比 cache 里记录的秒级 mtime**；cache 缺失或形态不对 ⇒ **全部进 modified**
+  （退化为全量重建＝安全侧）。判据仍是 mtime，**不引入内容 hash**。
+  ⚠ **基准强度差别（如实登记）**：WLWL **没有任何设置 mtime 的手段**（`std.fs` 全表无 utime/touch）
+  ⇒ `BUILD_CACHE_KEY` 的绝对摘要**无法**做到「期望值直接来自 Python」那一档；改为三层拼成：
+  无 mtime 依赖的用例用字面量逐字节对照 + 其余由测试侧独立重算（走 `FILE_META` 毫秒，
+  与 lib 走 `DIR_ENTRIES` 不同源）+ 生成期用固定 mtime 的 Python key 校验重算规则。
+  大小写交错的名字集合两侧排序不同（Python 按 `lower`、`DIR_ENTRIES` 按码点）⇒ 已登记 limitation。
 
 ### S3 前台静态服务（TLS）
 

@@ -1,0 +1,676 @@
+// tp/bin/build.wll —— 构建编排层（入口脚本 + 可被测试调用的 BUILD）
+//
+// ⚠ 本文件由 tp/test/gen_build.py 生成 —— 请勿手改。
+//   改实现请改生成器（WLWL 的括号诊断不告诉你缺了几层）。
+//
+// 对齐目标（真 Python 源码树）：
+//   BUILD(opts) == cli.py:96-144 的 build 主流程
+//                + generator.py:628 generate_static_pages
+//                + content.py:543 regenerate_all_articles
+//
+// opts 键：
+//   root        STRING   站点根目录（其下有 pages/）
+//   config      DICT     键名同 tinypage/config.py 的 Config（可缺省）
+//   incremental BOOLEAN  默认 FALSE；**接受但忽略**（走全量，见尾注）
+//   out         STRING   产物根，默认 <root>/pages
+// 返回：["articles": INT, "written": INT, "ok": BOOLEAN, "failed": INT, ...]
+//
+// 五步渲染管线（content.py:283-305，**顺序不可调换**）：
+//   PROCESS_FOOTNOTES → EXTRACT_HEADINGS → PARSE_BIDIRECTIONAL_LINKS
+//   → RENDER_MD → ADD_HEADING_IDS（代码高亮改前端，不做）
+//
+// ⚠ 草稿口径：只在编排层过滤**一次**，sitemap 也吃已过滤列表
+//   （与真实现实测一致；计划书那条断言已被证伪，见 gen_build.py）。
+//
+// ⚠ **顶层绑定是跨模块共享的**（实测：后绑定覆盖被 import 模块的私有名）
+//   ⇒ 本文件所有顶层名字都带 `TPB_` 前缀，绝不与 tp/lib 的同名私有实现撞车。
+//   踩过的实例：本文件的「日期 → ISO 串」助手（现名 TPB_ISO_DATE）与 feeds.wll
+//   内部一个**同名不同语义**的助手撞车（那边收的是文章 DICT、取 date_obj），
+//   后者被本文件的绑定覆盖 ⇒ RSS() 拿 DICT 去 SUB ⇒ E0030，
+//   而诊断恰好指到本文件那个助手的定义行 —— 这条读数反过来证实了「全局共享」。
+//
+// ⚠ 脚本模式：`wlwl run tp/bin/build.wll` ⇒ 默认参数跑一次。
+//   判据用 **ARGS()**（不是 SCRIPT_PATH）：模块顶层执行期 SCRIPT_PATH() 返回
+//   **正在加载的那个模块**（自己），import 与直接运行无法区分；
+//   而 ARGS() 在 import 期是 `[]`、在入口脚本期含脚本路径。
+//
+// 逐字节对照基准：tp/test/fixtures/build_baseline.json
+
+IMPORT("wlwl:std.str", ["CAT", "INDEX_OF"]);
+IMPORT("wlwl:std.text", ["TO_LOWER"]);
+IMPORT("wlwl:std.regex", ["RE", "RE_TEST", "RE_REPLACE"]);
+IMPORT("wlwl:std.math", ["MIN", "MAX"]);
+IMPORT("wlwl:std.encode", ["UTF8_DECODE"]);
+IMPORT("wlwl:std.env", ["ARGS"]);
+IMPORT("wlwl:std.fs", ["READ_FILE", "WRITE_FILE_ATOMIC", "MKDIRS", "LIST_DIR", "EXISTS", "PATH_JOIN", "PATH_BASE", "PATH_EXT", "FILE_META"]);
+
+IMPORT("./../lib/esc.wll", ["ESCAPE_HTML"]);
+IMPORT("./../lib/article_store.wll", ["VALIDATE_FILENAME", "SOURCE_PATH", "DECODE_CONTENT"]);
+IMPORT("./../lib/frontmatter.wll", ["PARSE_META", "META_HEADER"]);
+IMPORT("./../lib/footnotes.wll", ["PROCESS_FOOTNOTES"]);
+IMPORT("./../lib/toc.wll", ["EXTRACT_HEADINGS", "BUILD_TOC_HTML", "ADD_HEADING_IDS"]);
+IMPORT("./../lib/wikilink.wll", ["PARSE_BIDIRECTIONAL_LINKS", "EXTRACT_BIDIRECTIONAL_LINKS"]);
+IMPORT("./../lib/md.wll", ["RENDER_MD"]);
+IMPORT("./../lib/sort_util.wll", ["SORT_STRINGS", "SORT_BY_DATE", "SORT_BY_TITLE_OR_FILE", "SORT_BY_NUM_DESC"]);
+IMPORT("./../lib/theme.wll", ["LOAD_THEME_CSS"]);
+IMPORT("./../lib/article_page.wll", ["ARTICLE_PAGE", "STANDALONE_PAGE"]);
+IMPORT("./../lib/list_page.wll", ["LIST_PAGE", "CATEGORY_PAGE", "SEARCH_PAGE"]);
+IMPORT("./../lib/feeds.wll", ["RSS", "SITEMAP", "ROBOTS"]);
+IMPORT("./../lib/search_index.wll", ["SEARCH_INDEX"]);
+
+// ── 值类型兜底 ────────────────────────────────────────────────────
+// ⚠ AT_K(NULL, k, d) 是**运行期 E0030**（默认值不兜 NULL 基值，坑 35）
+//   ⇒ 每次取 opts / config 之前先把它夹成 DICT。
+LET(TPB_AS_DICT, FUN((v), (IF(==(TYPE(v), "DICT"), v, DICT()))));
+LET(TPB_AS_ARR, FUN((v), (IF(==(TYPE(v), "ARRAY"), v, []))));
+LET(TPB_AS_STR, FUN((v), (IF(==(TYPE(v), "STRING"), v, ""))));
+LET(TPB_AS_INT, FUN((v), (IF(==(TYPE(v), "INTEGER"), v, 0))));
+LET(TPB_AS_BOOL, FUN((v, d), (IF(==(TYPE(v), "BOOLEAN"), v, d))));
+
+// ── Config 的缺省值（逐字段照抄 tinypage/config.py:12-68）────────────
+// 为什么本模块要**自己**补齐：lib 的页面函数用 `AT_K(cfg, k, <默认>)` 取配置，
+//   而 `page_common.wll` 的默认值是 `""`/`FALSE` —— 与 Python 的 `Config()`
+//   （site_title="TinyPage"、enable_search=True…）**不同**。
+//   ⇒ 编排层必须递一份**完整** config，否则 enable_* 会集体变 FALSE。
+LET(TPB_CFG_DEFAULTS, FUN((), (
+     ["site_title": "TinyPage",
+      "site_description": "A modern static blog",
+      "site_url": "",
+      "site_author": "",
+      "footer_text": "Powered by TinyPage",
+      "lang": "zh-CN",
+      "theme_name": "default",
+      "page_size": 10,
+      "max_file_size": 10485760,
+      "max_title_length": 200,
+      "max_content_length": 50000,
+      "enable_pwa": TRUE,
+      "enable_dark_mode": TRUE,
+      "enable_search": TRUE,
+      "enable_rss": TRUE,
+      "enable_sitemap": TRUE,
+      "enable_view_transitions": TRUE,
+      "pwa_short_name": "TinyPage",
+      "pwa_theme_color": "#2c3e50",
+      "pwa_bg_color": "#ffffff"]
+)));
+
+// 用户 config 覆盖缺省值（== Config.merge：**逐键覆盖**，不管值真假）
+// ⚠ 必须在 BUILD **之前**绑定：函数体里的名字在**调用期**解析。
+LET(TPB_CFG_OF, FUN((opts), (
+     LET(o, TPB_AS_DICT(opts));
+     LET(uv, TPB_AS_DICT(AT_K(o, "config", DICT())));
+     LET MUT(c, TPB_CFG_DEFAULTS());
+     FOR(k, KEYS(uv), (
+          IF(HAS(uv, k), (
+               SET(c, INDEX_SET(c, k, AT_K(uv, k, NULL)))
+          ), NULL)
+     ));
+     c
+)));
+
+// ── Python `str.strip()`（Unicode 空白口径）────────────────────────
+// ⚠ 内建 TRIM **只剥 ASCII 空白**（坑 41）：NBSP / 全角空格原样返回。
+//   `tag_list` / `category.strip()` 用的都是 Python 的 str.strip()。
+// ⚠ UTF8_DECODE 的实参是**字节**（0-255），不是码点（坑 42）。
+LET(TPB_PY_WS, FUN((), (
+    UTF8_DECODE([9, 10, 11, 12, 13, 28, 29, 30, 31, 32, 194, 133, 194, 160,
+                  225, 154, 128, 226, 128, 128, 226, 128, 129, 226, 128, 130,
+                  226, 128, 131, 226, 128, 132, 226, 128, 133, 226, 128, 134,
+                  226, 128, 135, 226, 128, 136, 226, 128, 137, 226, 128, 138,
+                  226, 128, 168, 226, 128, 169, 226, 128, 175, 226, 129, 159,
+                  227, 128, 128])
+)));
+LET(TPB_WS_LEAD_RE, RE(CAT("^[", TPB_PY_WS(), "]+")));
+// ⚠ 结尾锚 `$` 在 WLWL 字面量里是插值 ⇒ 必须写 `\\$`（坑 32）。
+LET(TPB_WS_TRAIL_RE, RE(CAT("[", TPB_PY_WS(), "]+\\$")));
+LET(TPB_WS_RUN_RE, RE(CAT("[", TPB_PY_WS(), "]+")));
+LET(TPB_PY_STRIP, FUN((s), (
+    RE_REPLACE(TPB_WS_TRAIL_RE, RE_REPLACE(TPB_WS_LEAD_RE, s, ""), "")
+)));
+
+// ── 小工具 ────────────────────────────────────────────────────────
+// 读文件，失败给兜底值（⚠ `LET(r, READ_FILE(p))` 绑定**不算消费** ERR，坑 25）
+LET(TPB_READ_OR, FUN((p, fb), (IF(IS_ERR(READ_FILE(p)), fb, READ_FILE(p)))));
+// 文件大小；取不到给 -1（即放过 `max_file_size` 过滤）
+LET(TPB_FILE_SIZE, FUN((p), (
+     IF(IS_ERR(FILE_META(p)), -1, TPB_AS_INT(AT_K(FILE_META(p), "size", 0)))
+)));
+LET(TPB_IS_DRAFT, FUN((rec), (
+     ==(TO_LOWER(TPB_AS_STR(AT_K(rec, "status", "published"))), "draft")
+)));
+LET(TPB_UNIQ, FUN((xs), (
+     LET MUT(out, []);
+     FOR(x, xs, (IF(CONTAINS(out, x), NULL, (SET(out, +(out, [x]))))));
+     out
+)));
+LET(TPB_COUNT_IN, FUN((a, b), (
+     // a 已去重；返回 a 里有多少项出现在 b 里（= 交集大小）
+     LET MUT(n, 0);
+     FOR(x, a, (IF(CONTAINS(b, x), (SET(n, +(n, 1))), NULL)));
+     n
+)));
+
+// ── 日期合法性（content.py:183-187 的 strptime 守卫）──────────────────
+// ⚠ Python 是 `strptime(meta.date[:16], "%Y-%m-%d %H:%M")`，抛异常就**跳过这篇文章**。
+//   这里用正则判「形状 + 各段取值范围」；**不做**月长 / 闰年校验（见 docstring）。
+LET(TPB_DATE_RE, RE("^[0-9]{4}-(0[1-9]|1[0-2])-(0[1-9]|[12][0-9]|3[01]) ([01][0-9]|2[0-3]):[0-5][0-9]$"));
+LET(TPB_VALID_DATE, FUN((d), (
+     // 取前 16 码点再整串匹配（RE_TEST 是**整串锚定**，坑 15 / 36）
+     IF(<(LEN(d), 16), FALSE, RE_TEST(TPB_DATE_RE, SUB(d, 0, 16)))
+)));
+// ArticleMeta.iso_date == date_obj.isoformat()（秒补 :00）
+LET(TPB_ISO_DATE, FUN((d), (CAT(SUB(d, 0, 10), "T", SUB(d, 11, 5), ":00"))));
+
+// ══════════════════════════════════════════════════════════════════
+// 读目录（content.py:153 list_articles / :674 list_standalones）
+// ══════════════════════════════════════════════════════════════════
+// ⚠ `LIST_DIR` 返回**完整路径**（含目录自身条目）、已排序、正斜杠；
+//   对「不存在」「传入文件」都返 ERR（坑 37）⇒ 结果只能**内联**用。
+//   「跳过不是文件的条目」靠扩展名判（Python 是 `entry.is_file()`）。
+LET(TPB_ARTICLE_REC, FUN((meta, name, date), (
+     // ArticleMeta 的派生字段：file / date_obj（RSS 走 date_obj.isoformat）
+     LET MUT(r, meta);
+     SET(r, INDEX_SET(r, "file", name));
+     SET(r, INDEX_SET(r, "date_obj", ["iso": TPB_ISO_DATE(date)]));
+     r
+)));
+
+LET(TPB_LIST_ARTICLES, FUN((dir, max_size, with_drafts), (
+     // 逐条 == content.py:171-196：
+     //   .html 后缀 + validate_filename + 大小 + 日期可解析 + 草稿过滤
+     LET MUT(out, []);
+     FOR(e, LIST_DIR(dir), (
+          LET(name, PATH_BASE(e));
+          IF(!=(PATH_EXT(name), "html"), NULL, (
+               IF(!VALIDATE_FILENAME(name), NULL, (
+                    IF(>(TPB_FILE_SIZE(e), max_size), NULL, (
+                         LET(meta, PARSE_META(TPB_READ_OR(e, "")));
+                         LET(date, TPB_AS_STR(AT_K(meta, "date", "")));
+                         IF(!TPB_VALID_DATE(date), NULL, (
+                              IF(&&(!with_drafts, TPB_IS_DRAFT(meta)), NULL, (
+                                   SET(out, +(out, [TPB_ARTICLE_REC(meta, name, date)]))
+                              ))
+                         ))
+                    ))
+               ))
+          ))
+     ));
+     // ⚠ 稳定排序 + 语料日期互不相同 ⇒ 与 Python 的 iterdir 顺序无关
+     SORT_BY_DATE(out)
+)));
+
+// 独立页文件名白名单 == content.py:662 SAFE_PAGE_FILENAME
+// ⚠ CJK 用**字面** `一-龥`（坑 20：`\u4e00` 在 WLWL 正则里不生效）
+LET(TPB_PAGE_NAME_RE, RE("^[a-zA-Z0-9一-龥_-]+[.]html$"));
+LET(TPB_LIST_STANDALONES, FUN((dir, max_size), (
+     LET MUT(out, []);
+     FOR(e, LIST_DIR(dir), (
+          LET(name, PATH_BASE(e));
+          IF(!RE_TEST(TPB_PAGE_NAME_RE, name), NULL, (
+               IF(>(TPB_FILE_SIZE(e), max_size), NULL, (
+                    LET(meta, PARSE_META(TPB_READ_OR(e, "")));
+                    LET MUT(r, meta);
+                    SET(r, INDEX_SET(r, "file", name));
+                    // slug = 去掉 ".html" 的干名（Python: entry.stem）
+                    SET(r, INDEX_SET(r, "slug", SUB(name, 0, -(LEN(name), 5))));
+                    SET(out, +(out, [r]))
+               ))
+          ))
+     ));
+     // == content.py:698 pages.sort(key=lambda x: x.title or x.file)
+     SORT_BY_TITLE_OR_FILE(out)
+)));
+
+// ══════════════════════════════════════════════════════════════════
+// 原文（content.py:493 get_raw_content，简化到三步）
+// ══════════════════════════════════════════════════════════════════
+LET(TPB_DECODE_TEXT, FUN((text), (
+     // DECODE_CONTENT 返回 STRING 或 NULL（没有内嵌正文）
+     LET(d, DECODE_CONTENT(text));
+     IF(==(TYPE(d), "NULL"), "", d)
+)));
+LET(TPB_RAW_OF, FUN((html_path, summary), (
+     // ① 兄弟 .md 优先 ② 否则从 html 里解内嵌正文 ③ 都空 ⇒ summary
+     // ⚠ Python 还有「从渲染页 post-content 里恢复并写回 .md」的懒迁移；
+     //   语料每篇都有 .md ⇒ 那条分支不覆盖（见 docstring）。
+     LET(md, SOURCE_PATH(html_path));
+     LET MUT(raw, "");
+     IF(EXISTS(md), (
+          SET(raw, TPB_READ_OR(md, ""))
+     ), (
+          SET(raw, TPB_DECODE_TEXT(TPB_READ_OR(html_path, "")))
+     ));
+     IF(==(raw, ""), summary, raw)
+)));
+
+// ══════════════════════════════════════════════════════════════════
+// 五步渲染管线（content.py:584-600）—— **顺序不可调换**
+// ══════════════════════════════════════════════════════════════════
+// 脚注先摘定义行（否则 `[^1]:` 会被当成段落/标题）；标题提取在脚注之后；
+// ADD_HEADING_IDS 必须在 RENDER_MD **之后**（要给渲染出来的 <hN> 加 id）。
+LET(TPB_PIPELINE, FUN((raw, amap), (
+     LET(fnres, PROCESS_FOOTNOTES(raw));
+     LET(processed, fnres[0]);
+     LET(footnotes_html, fnres[1]);
+     LET(headings, EXTRACT_HEADINGS(processed));
+     // == content.py:589 build_toc_html(headings) ⇒ 默认 2/3 级
+     LET(toc_html, BUILD_TOC_HTML(headings, 2, 3));
+     LET(bl, PARSE_BIDIRECTIONAL_LINKS(processed, amap));
+     LET(linked, bl[0]);
+     LET(body, RENDER_MD(linked));
+     LET(html, ADD_HEADING_IDS(body, headings));
+     [html, toc_html, footnotes_html]
+)));
+
+// ══════════════════════════════════════════════════════════════════
+// 三处 Python 侧的「编排」逻辑（不在任何 tp/lib 模块里）
+// ══════════════════════════════════════════════════════════════════
+// ① 标题 → URL 映射 == bidirectional_links.py:104 build_article_title_map
+//    键是 title.lower()（后写覆盖先写，与 dict 赋值一致）
+LET(TPB_ARTICLE_MAP, FUN((arts), (
+     LET MUT(m, DICT());
+     FOR(a, arts, (
+          LET(t, TPB_AS_STR(AT_K(a, "title", "")));
+          IF(==(t, ""), NULL, (
+               SET(m, INDEX_SET(m, TO_LOWER(t),
+                    CAT("/article/", TPB_AS_STR(AT_K(a, "file", "")))))
+          ))
+     ));
+     m
+)));
+
+// ② 反向链接索引 == content.py:375 build_backlink_index
+//    索引值是**扁平对**：[来源file, 来源title, …]（一对 2 项）
+//    ⚠ Python 还比 `target.slug == slugify(linked_title)` 这一支；语料的
+//      slug 恒等于 slugify(title) 且 slug 互不相同 ⇒ 两支等价于「标题小写相等」
+//      （证明见 docstring 与报告）。
+LET(TPB_BACKLINK_INDEX, FUN((arts), (
+     LET MUT(idx, DICT());
+     LET(add, FUN((target_file, af, atitle), (
+          LET(cur, TPB_AS_ARR(AT_K(idx, target_file, [])));
+          IF(CONTAINS(cur, af), NULL, (
+               SET(idx, INDEX_SET(idx, target_file, +(cur, [af, atitle])))
+          ))
+     )));
+     FOR(a, arts, (
+          IF(TPB_IS_DRAFT(a), NULL, (
+               LET(af, TPB_AS_STR(AT_K(a, "file", "")));
+               LET(atitle, TPB_AS_STR(AT_K(a, "title", "")));
+               FOR(t, EXTRACT_BIDIRECTIONAL_LINKS(TPB_AS_STR(AT_K(a, "raw", ""))), (
+                    LET(tl, TO_LOWER(t));
+                    FOR(b, arts, (
+                         IF(TPB_IS_DRAFT(b), NULL, (
+                              IF(==(TO_LOWER(TPB_AS_STR(AT_K(b, "title", ""))), tl), (
+                                   add(TPB_AS_STR(AT_K(b, "file", "")), af, atitle)
+                              ), NULL)
+                         ))
+                    ))
+               ))
+          ))
+     ));
+     idx
+)));
+
+// ③ 反向链接 HTML == bidirectional_links.py:67 build_backlinks_html
+//    模板首尾换行、条目之间 "\n    " —— 逐字节照抄
+LET(TPB_BACKLINKS_HTML, FUN((idx, file), (
+     LET(entries, TPB_AS_ARR(AT_K(idx, file, [])));
+     IF(<(LEN(entries), 2), "", (
+          LET MUT(links, "");
+          LET MUT(i, 0);
+          WHILE(<(i, LEN(entries)), (
+               IF(>(i, 0), (SET(links, +(links, "\n    "))), NULL);
+               SET(links, CAT(links, "<li><a href=\"/article/", entries[i],
+                    "\">", ESCAPE_HTML(entries[+(i, 1)]), "</a></li>"));
+               SET(i, +(i, 2))
+          ));
+          CAT("\n<section class=\"backlinks\">\n  <h2>反向链接</h2>\n  <ul>\n    ",
+               links, "\n  </ul>\n</section>\n")
+     ))
+)));
+
+// ④ 相关文章 == content.py:200 find_related_articles（Jaccard，降序稳定，取前 5）
+//    ⚠ 用 `FLOAT(inter) / FLOAT(union)` ⇒ 与 Python 的 `len/len` 同为 IEEE 双精度；
+//      再交给 SORT_BY_NUM_DESC（稳定、降序）⇒ 与 sort(key, reverse=True) 同序。
+LET(TPB_TAG_LIST, FUN((tags), (
+     // == ArticleMeta.tag_list：split(",") → strip → 丢空
+     LET MUT(out, []);
+     IF(==(tags, ""), NULL, (
+          FOR(t0, SPLIT(tags, ","), (
+               LET(t, TPB_PY_STRIP(t0));
+               IF(==(t, ""), NULL, (SET(out, +(out, [t]))))
+          ))
+     ));
+     out
+)));
+LET(TPB_RELATED, FUN((cur, arts, limit), (
+     LET(cset, TPB_UNIQ(TPB_TAG_LIST(TPB_AS_STR(AT_K(cur, "tags", "")))));
+     IF(==(LEN(cset), 0), [], (
+          LET MUT(items, []);
+          LET(cf, TPB_AS_STR(AT_K(cur, "file", "")));
+          FOR(a, arts, (
+               IF(==(TPB_AS_STR(AT_K(a, "file", "")), cf), NULL, (
+                    IF(TPB_IS_DRAFT(a), NULL, (
+                         LET(tl, TPB_UNIQ(TPB_TAG_LIST(TPB_AS_STR(AT_K(a, "tags", "")))));
+                         LET(inter, TPB_COUNT_IN(cset, tl));
+                         IF(==(inter, 0), NULL, (
+                              LET(uni, -(+(LEN(cset), LEN(tl)), inter));
+                              SET(items, +(items, [[a, /(FLOAT(inter), FLOAT(uni))]]))
+                         ))
+                    ))
+               ))
+          ));
+          LET(sorted, SORT_BY_NUM_DESC(items));
+          LET MUT(res, []);
+          LET MUT(i, 0);
+          WHILE(&&(<(i, limit), <(i, LEN(sorted))), (
+               SET(res, +(res, [sorted[i][0]]));
+               SET(i, +(i, 1))
+          ));
+          res
+     ))
+)));
+
+// ══════════════════════════════════════════════════════════════════
+// 独立页正文抽取 == content.py:53 _extract_body_from_html
+// ══════════════════════════════════════════════════════════════════
+// 取 post-content div 的内部 → 剥标签 → 空白压成单空格 → strip
+// ⚠ Python 用的是 `<div class="post-content">(.*?)</div>` + DOTALL（非贪婪）
+//   ⇒ 等价于「从这个开标签之后到**第一个** `</div>`」。
+LET(TPB_PC_OPEN, "<div class=\"post-content\">");
+LET(TPB_TAG_RE, RE("[<][^>]+[>]"));
+LET(TPB_STRIP_TAGS, FUN((s), (RE_REPLACE(TPB_TAG_RE, s, ""))));
+LET(TPB_COLLAPSE_WS, FUN((s), (TPB_PY_STRIP(RE_REPLACE(TPB_WS_RUN_RE, s, " ")))));
+LET(TPB_EXTRACT_BODY, FUN((html), (
+     LET(start, INDEX_OF(html, TPB_PC_OPEN));
+     LET MUT(chunk, "");
+     IF(<(start, 0), (
+          // 没有 post-content ⇒ Python 退回「整页剥标签」
+          SET(chunk, html)
+     ), (
+          LET(off, +(start, LEN(TPB_PC_OPEN)));
+          SET(chunk, SUB(html, off, -(LEN(html), off)));
+          LET(end_i, INDEX_OF(chunk, "</div>"));
+          IF(>=(end_i, 0), (SET(chunk, SUB(chunk, 0, end_i))), NULL)
+     ));
+     TPB_COLLAPSE_WS(TPB_STRIP_TAGS(chunk))
+)));
+
+// ══════════════════════════════════════════════════════════════════
+// 页面 opts（键名与 Python 的具名参数同名；lib 侧可缺省）
+// ══════════════════════════════════════════════════════════════════
+// 三个页面类型共用：主题三件套 + 配置 + 独立页导航
+LET(TPB_SHARED_OPTS, FUN((ctx), (
+     LET MUT(o, DICT());
+     SET(o, INDEX_SET(o, "config", AT_K(ctx, "config", DICT())));
+     SET(o, INDEX_SET(o, "theme_css", AT_K(ctx, "theme_css", "")));
+     SET(o, INDEX_SET(o, "dark_css", AT_K(ctx, "dark_css", "")));
+     SET(o, INDEX_SET(o, "has_dark", AT_K(ctx, "has_dark", FALSE)));
+     SET(o, INDEX_SET(o, "standalones", TPB_AS_ARR(AT_K(ctx, "standalones", []))));
+     o
+)));
+
+// == content.py:618-636 里 generate_article_html(...) 的实参
+LET(TPB_ARTICLE_OPTS, FUN((a, pipe, bl_html, rel, ctx), (
+     LET MUT(o, TPB_SHARED_OPTS(ctx));
+     SET(o, INDEX_SET(o, "title", TPB_AS_STR(AT_K(a, "title", ""))));
+     SET(o, INDEX_SET(o, "date", TPB_AS_STR(AT_K(a, "date", ""))));
+     SET(o, INDEX_SET(o, "slug", TPB_AS_STR(AT_K(a, "slug", ""))));
+     SET(o, INDEX_SET(o, "content", pipe[0]));
+     SET(o, INDEX_SET(o, "toc_html", pipe[1]));
+     SET(o, INDEX_SET(o, "footnotes_html", pipe[2]));
+     SET(o, INDEX_SET(o, "tags", TPB_AS_STR(AT_K(a, "tags", ""))));
+     SET(o, INDEX_SET(o, "summary", TPB_AS_STR(AT_K(a, "summary", ""))));
+     SET(o, INDEX_SET(o, "category", TPB_AS_STR(AT_K(a, "category", ""))));
+     SET(o, INDEX_SET(o, "status", TPB_AS_STR(AT_K(a, "status", "published"))));
+     SET(o, INDEX_SET(o, "backlinks_html", bl_html));
+     SET(o, INDEX_SET(o, "related_articles", rel));
+     o
+)));
+
+// ══════════════════════════════════════════════════════════════════
+// BUILD —— 一次完整构建
+// ══════════════════════════════════════════════════════════════════
+LET(BUILD, FUN((opts), (
+     LET(o, TPB_AS_DICT(opts));
+     // ── 路径 ────────────────────────────────────────────────────
+     LET(root0, TPB_AS_STR(AT_K(o, "root", "")));
+     LET(root, IF(==(root0, ""), ".", root0));
+     LET(out0, TPB_AS_STR(AT_K(o, "out", "")));
+     LET(out_dir, IF(==(out0, ""), PATH_JOIN(root, "pages"), out0));
+     LET(article_dir, PATH_JOIN(out_dir, "article"));
+     LET(list_dir, PATH_JOIN(out_dir, "list"));
+     LET(st_dir, PATH_JOIN(out_dir, "standalone"));
+     LET(cat_dir, PATH_JOIN(out_dir, "category"));
+
+     // ── 配置（补齐 Config 缺省值 + 推导 root_dir / theme_dir）──────
+     LET(base_cfg, TPB_CFG_OF(o));
+     LET(theme_dir, PATH_JOIN(root, "themes",
+          TPB_AS_STR(AT_K(base_cfg, "theme_name", "default"))));
+     LET MUT(cfg, base_cfg);
+     SET(cfg, INDEX_SET(cfg, "root_dir", out_dir));
+     SET(cfg, INDEX_SET(cfg, "theme_dir", theme_dir));
+     LET(max_size, TPB_AS_INT(AT_K(cfg, "max_file_size", 10485760)));
+     LET(page_size, TPB_AS_INT(AT_K(cfg, "page_size", 10)));
+     LET MUT(page_size2, page_size);
+     IF(<(page_size2, 1), (SET(page_size2, 1)), NULL);
+
+     // ── 文章目录不存在 ⇒ 与 cli.py:107-110 同口径：直接失败 ──────
+     IF(!EXISTS(article_dir), (
+          RETURN(["articles": 0, "written": 0, "ok": FALSE,
+                  "error": CAT("article dir missing: ", article_dir)])
+     ), NULL);
+
+     // ── 主题（generator.py:638 load_theme_css(cfg.theme_dir)）──────
+     LET(theme, LOAD_THEME_CSS(theme_dir));
+     LET(ctx0, ["config": cfg,
+                "theme_css": TPB_AS_STR(AT_K(theme, "css", "")),
+                "dark_css": TPB_AS_STR(AT_K(theme, "dark_css", "")),
+                "has_dark": TPB_AS_BOOL(AT_K(theme, "has_dark", FALSE), FALSE)]);
+
+     // ── 读目录（草稿在这里就被过滤掉）────────────────────────────
+     LET(arts_raw, TPB_LIST_ARTICLES(article_dir, max_size, FALSE));
+     LET(sts, TPB_LIST_STANDALONES(st_dir, max_size));
+     LET MUT(ctx, ctx0);
+     SET(ctx, INDEX_SET(ctx, "standalones", sts));
+
+     // ── 每篇补上原文（反向链接索引与渲染共用同一份）──────────────
+     LET MUT(arts, []);
+     FOR(a, arts_raw, (
+          LET MUT(r, a);
+          SET(r, INDEX_SET(r, "raw", TPB_RAW_OF(PATH_JOIN(article_dir,
+               TPB_AS_STR(AT_K(a, "file", ""))), TPB_AS_STR(AT_K(a, "summary", "")))));
+          SET(arts, +(arts, [r]))
+     ));
+     LET(total, LEN(arts));
+
+     // ── 标题映射 + 反向链接索引（两者都是全局的，建一次）──────────
+     LET(amap, TPB_ARTICLE_MAP(arts));
+     LET(bidx, TPB_BACKLINK_INDEX(arts));
+
+     // ── 写盘计数器（闭包可写外层 LET MUT，坑 12 已实测）──────────
+     LET MUT(written, 0);
+     LET MUT(failed, 0);
+     LET(WRITE_OUT, FUN((path, content), (
+          IF(IS_ERR(WRITE_FILE_ATOMIC(path, content)), (
+               SET(failed, +(failed, 1))
+          ), (
+               SET(written, +(written, 1))
+          ))
+     )));
+     LET(MKDIR_OK, FUN((p), (IF(IS_ERR(MKDIRS(p)), NULL, NULL))));
+
+     // ══ ① 文章页（content.py:543 regenerate_all_articles）══════════
+     FOR(a, arts, (
+          LET(file, TPB_AS_STR(AT_K(a, "file", "")));
+          LET(pipe, TPB_PIPELINE(TPB_AS_STR(AT_K(a, "raw", "")), amap));
+          LET(bl, TPB_BACKLINKS_HTML(bidx, file));
+          LET(rel, TPB_RELATED(a, arts, 5));
+          LET(op, TPB_ARTICLE_OPTS(a, pipe, bl, rel, ctx));
+          // ⚠ `LET(h, ARTICLE_PAGE(op))` 绑定**不算消费** ERR（坑 25）
+          //   ⇒ 先 IS_ERR 判别，再在分支里重新调一次。
+          LET(page, IF(IS_ERR(ARTICLE_PAGE(op)), "", ARTICLE_PAGE(op)));
+          LET(header, META_HEADER(TPB_AS_STR(AT_K(a, "title", "")),
+               TPB_AS_STR(AT_K(a, "date", "")), TPB_AS_STR(AT_K(a, "slug", "")),
+               TPB_AS_STR(AT_K(a, "tags", "")), TPB_AS_STR(AT_K(a, "summary", "")),
+               TPB_AS_STR(AT_K(a, "category", "")),
+               TPB_AS_STR(AT_K(a, "status", "published"))));
+          IF(==(page, ""), (SET(failed, +(failed, 1))), (
+               WRITE_OUT(PATH_JOIN(article_dir, file), CAT(header, page))
+          ))
+     ));
+
+     // ══ ② 列表页（generator.py:658-673）══════════════════════════
+     LET(pages_n, MAX(1, /(-(+(total, page_size2), 1), page_size2)));
+     MKDIR_OK(list_dir);
+     LET MUT(p, 1);
+     WHILE(<=(p, pages_n), (
+          LET(start, *(-(p, 1), page_size2));
+          LET(stop, MIN(+(start, page_size2), total));
+          LET(items, SLICE(arts, start, stop));
+          // == generator.py:666 prev_url="/" if p == 2 else f"/list/{p-1}.html"
+          LET(prev_url, IF(==(p, 2), "/", CAT("/list/", STR(-(p, 1)), ".html")));
+          LET MUT(info, DICT());
+          SET(info, INDEX_SET(info, "current", p));
+          SET(info, INDEX_SET(info, "total", pages_n));
+          SET(info, INDEX_SET(info, "has_prev", >(p, 1)));
+          SET(info, INDEX_SET(info, "has_next", <(p, pages_n)));
+          SET(info, INDEX_SET(info, "prev_url", prev_url));
+          SET(info, INDEX_SET(info, "next_url",
+               IF(<(p, pages_n), CAT("/list/", STR(+(p, 1)), ".html"), "")));
+          LET MUT(lo, TPB_SHARED_OPTS(ctx));
+          SET(lo, INDEX_SET(lo, "articles", items));
+          SET(lo, INDEX_SET(lo, "page_info", info));
+          LET(html, IF(IS_ERR(LIST_PAGE(lo)), "", LIST_PAGE(lo)));
+          LET(target, IF(==(p, 1),
+               PATH_JOIN(out_dir, "index.html"),
+               PATH_JOIN(list_dir, CAT(STR(p), ".html"))));
+          IF(==(html, ""), (SET(failed, +(failed, 1))),
+               (WRITE_OUT(target, html)));
+          SET(p, +(p, 1))
+     ));
+
+     // ══ ③ 分类页（generator.py:675-692）══════════════════════════
+     LET MUT(cat_map, DICT());
+     FOR(a, arts, (
+          LET(raw_cat, TPB_AS_STR(AT_K(a, "category", "")));
+          IF(==(raw_cat, ""), NULL, (
+               LET(cat, TPB_PY_STRIP(raw_cat));
+               IF(==(cat, ""), NULL, (
+                    SET(cat_map, INDEX_SET(cat_map, cat,
+                         +(TPB_AS_ARR(AT_K(cat_map, cat, [])), [a])))
+               ))
+          ))
+     ));
+     // == sorted(set(categories))：KEYS 是插入序，再 SORT_STRINGS 成码点序
+     LET(cats, SORT_STRINGS(KEYS(cat_map)));
+     IF(>(LEN(cats), 0), (MKDIR_OK(cat_dir)), NULL);
+     FOR(cat, cats, (
+          LET MUT(co, TPB_SHARED_OPTS(ctx));
+          SET(co, INDEX_SET(co, "category", cat));
+          SET(co, INDEX_SET(co, "articles", TPB_AS_ARR(AT_K(cat_map, cat, []))));
+          LET(html, IF(IS_ERR(CATEGORY_PAGE(co)), "", CATEGORY_PAGE(co)));
+          IF(==(html, ""), (SET(failed, +(failed, 1))), (
+               WRITE_OUT(PATH_JOIN(cat_dir, CAT(cat, ".html")), html)
+          ))
+     ));
+
+     // ══ ④ 独立页（generator.py:695-716）══════════════════════════
+     IF(>(LEN(sts), 0), (MKDIR_OK(st_dir)), NULL);
+     FOR(st, sts, (
+          LET(file, TPB_AS_STR(AT_K(st, "file", "")));
+          LET(src, PATH_JOIN(st_dir, file));
+          // Python: 只处理**存在的**文件
+          IF(!EXISTS(src), NULL, (
+               LET(body, TPB_EXTRACT_BODY(TPB_READ_OR(src, "")));
+               LET(title, TPB_AS_STR(AT_K(st, "title", "")));
+               LET MUT(so, TPB_SHARED_OPTS(ctx));
+               // == generator.py:707 title=page.title or page.file
+               SET(so, INDEX_SET(so, "title", IF(==(title, ""), file, title)));
+               SET(so, INDEX_SET(so, "summary",
+                    TPB_AS_STR(AT_K(st, "summary", ""))));
+               // == generator.py:708  `_render_md(body) if body else ""`
+               SET(so, INDEX_SET(so, "content",
+                    IF(==(body, ""), "", RENDER_MD(body))));
+               LET(html, IF(IS_ERR(STANDALONE_PAGE(so)), "",
+                    STANDALONE_PAGE(so)));
+               IF(==(html, ""), (SET(failed, +(failed, 1))), (
+                    WRITE_OUT(src, html)
+               ))
+          ))
+     ));
+
+     // ══ ⑤ 搜索页 + 搜索索引（generator.py:719-726）═════════════════
+     IF(TPB_AS_BOOL(AT_K(cfg, "enable_search", TRUE), TRUE), (
+          LET(so, TPB_SHARED_OPTS(ctx));
+          LET(html, IF(IS_ERR(SEARCH_PAGE(so)), "", SEARCH_PAGE(so)));
+          IF(==(html, ""), (SET(failed, +(failed, 1))), (
+               WRITE_OUT(PATH_JOIN(out_dir, "search.html"), html)
+          ));
+          // ⚠ 喂**已过滤**列表（cli.py:139 的口径）
+          WRITE_OUT(PATH_JOIN(out_dir, "search-index.json"),
+               SEARCH_INDEX(["articles": arts, "standalones": sts]))
+     ), NULL);
+
+     // ══ ⑥ RSS（generator.py:729-731）═════════════════════════════
+     IF(TPB_AS_BOOL(AT_K(cfg, "enable_rss", TRUE), TRUE), (
+          // == `published = [a for a in articles if a.is_published]`
+          LET MUT(pub, []);
+          FOR(a, arts, (IF(TPB_IS_DRAFT(a), NULL, (SET(pub, +(pub, [a]))))));
+          WRITE_OUT(PATH_JOIN(out_dir, "rss.xml"),
+               RSS(["articles": pub, "config": cfg]))
+     ), NULL);
+
+     // ══ ⑦ sitemap（generator.py:734-737）═════════════════════════
+     IF(TPB_AS_BOOL(AT_K(cfg, "enable_sitemap", TRUE), TRUE), (
+          // ⚠ 与 RSS/搜索索引一样是**已过滤**列表 —— 见 gen_build.py docstring
+          WRITE_OUT(PATH_JOIN(out_dir, "sitemap.xml"),
+               SITEMAP(["articles": arts, "config": cfg,
+                        "standalones": sts, "categories": cats]))
+     ), NULL);
+
+     // ══ ⑧ robots.txt（generator.py:739-744）═══════════════════════
+     WRITE_OUT(PATH_JOIN(out_dir, "robots.txt"),
+          ROBOTS(["site_url": TPB_AS_STR(AT_K(cfg, "site_url", ""))]));
+
+     // ── 统计回报 ──────────────────────────────────────────────
+     ["articles": total,
+      "written": written,
+      "ok": ==(failed, 0),
+      "failed": failed,
+      "pages": pages_n,
+      "categories": LEN(cats),
+      "standalones": LEN(sts)]
+)));
+
+EXPORT(["BUILD"]);
+
+// ── 脚本模式：`wlwl run tp/bin/build.wll` ⇒ 默认参数跑一次 ───────────
+// ⚠ 本文件被 IMPORT 时**不得**自我执行（test_build.wll 就 import 它）。
+//   判据用 ARGS()：
+//     · import 期（模块顶层执行）ARGS() == []          → 不跑
+//     · 入口脚本期        ARGS() == [exe, "run", <脚本>] → 跑
+//   ⚠ **不能**用 SCRIPT_PATH()：模块顶层执行期它返回**正在加载的模块**自己，
+//     两种情形下都是 build.wll ⇒ 区分不出来（实测 2026-11-02）。
+LET(TPB_SP, FUN((want), (
+     LET MUT(hit, FALSE);
+     FOR(a, ARGS(), (
+          IF(==(PATH_BASE(a), want), (SET(hit, TRUE)), NULL)
+     ));
+     hit
+)));
+IF(TPB_SP("build.wll"), (
+     LET(res, BUILD(["root": ".", "config": DICT()]));
+     PRINT("build: articles=", AT_K(res, "articles", 0),
+           " written=", AT_K(res, "written", 0),
+           " ok=", AT_K(res, "ok", FALSE),
+           " pages=", AT_K(res, "pages", 0),
+           " categories=", AT_K(res, "categories", 0))
+), NULL);
+
+// ── 尾注：`incremental` 接受但忽略 ───────────────────────────────────
+// 真 Python 的 `--incremental`（cli.py:112-136）走 core/incremental.py 的
+// mtime 比价，只重生成「改过的」文章；它**不产生**任何新产物形态，只是少写
+// 几个文件。本卡的判据是「一次完整构建的产物逐字节对齐」⇒ 本层按全量处理，
+// 并把这条事实登记在报告里。

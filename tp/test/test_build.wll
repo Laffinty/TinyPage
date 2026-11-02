@@ -1,0 +1,461 @@
+// tp/test/test_build.wll —— 构建编排层端到端逐字节对照 + 反向守卫
+//
+// ⚠ 本文件由 tp/test/gen_test_build.py 生成 —— 请勿手改。
+//
+// 做法：在 TEMP_DIR() 里用夹具内联的语料重建同一棵树 → BUILD → 逐文件比 sha256。
+// 基准：tp/test/fixtures/build_baseline.json（真 Python generate_static_pages 产出）
+//
+// ⚠ 夹具里没有绝对路径：语料按「相对站点的 POSIX 路径 → 内容」内联，
+//   测试自己把它们拼到 TEMP_DIR() 下（跨机器可复现，CI 上同样是临时目录）。
+
+IMPORT("wlwl:std.test", ["TEST", "ASSERT", "ASSERT_EQ", "TEMP_DIR", "RUN_TESTS"]);
+IMPORT("wlwl:std.str", ["CAT", "CONTAINS_SUB"]);
+IMPORT("wlwl:std.regex", ["RE", "RE_FIND_ALL"]);
+IMPORT("wlwl:std.encode", ["SHA256"]);
+IMPORT("wlwl:std.fs", ["READ_FILE", "WRITE_FILE_ATOMIC", "MKDIRS", "PATH_JOIN", "WALK_DIR", "FILE_META"]);
+IMPORT("./../bin/build.wll", ["BUILD"]);
+
+// ── 小工具 ────────────────────────────────────────────────────────
+// ⚠ `LET(r, READ_FILE(p))` / `LET(r, WRITE_FILE_ATOMIC(...))` 绑定**不算消费**
+//   ERR（坑 25）⇒ 一律直接放进 IS_ERR(...)。
+LET(PUT_FILE, FUN((p, c), (
+     IF(IS_ERR(WRITE_FILE_ATOMIC(p, c)), (PANIC(CAT("write failed: ", p))), NULL)
+)));
+LET(PUT_DIR, FUN((p), (
+     IF(IS_ERR(MKDIRS(p)), (PANIC(CAT("mkdir failed: ", p))), NULL)
+)));
+LET(READ_OR_SPENT, FUN((p), (
+     IF(IS_ERR(READ_FILE(p)), "", READ_FILE(p))
+)));
+// `WALK_DIR` 的结果**含目录条目**（实测：4 个目录 + 40 个文件 = 44 条）
+// ⇒ 要按「只留文件」过滤，才与基准的文件清单同形。
+LET(TST_IS_DIR, FUN((p), (
+     IF(IS_ERR(FILE_META(p)), TRUE,
+          AT_K(FILE_META(p), "is_dir", TRUE))
+)));
+LET(TST_WALK_FILES, FUN((dir), (
+     LET(all, IF(IS_ERR(WALK_DIR(dir)), [], WALK_DIR(dir)));
+     LET MUT(out, []);
+     FOR(e, all, (
+          IF(TST_IS_DIR(PATH_JOIN(dir, e)), NULL, (SET(out, +(out, [e]))))
+     ));
+     out
+)));
+
+// ── 造语料（与基准同一份 spec）──────────────────────────────────────
+LET(root, TEMP_DIR());
+LET(out_dir, PATH_JOIN(root, "pages"));
+PUT_DIR(PATH_JOIN(root, "pages/article"));
+PUT_DIR(PATH_JOIN(root, "pages/standalone"));
+PUT_DIR(PATH_JOIN(root, "themes/default"));
+
+PUT_FILE(PATH_JOIN(root, "pages/article/2026-01-05-site-launch.html"), "<!-- title: 发布：站点上线 -->\n<!-- date: 2026-01-05 09:30 -->\n<!-- slug: site-launch -->\n<!-- tags: 公告,静态站点,Tech -->\n<!-- summary: 站点第一次上线时的说明。 -->\n<!-- category: Tech -->\n<!-- status: published -->\n<!DOCTYPE html>\n<html><body>\n<div class=\"post-content\"><p>旧正文占位：真实正文在同名 .md 里。</p></div>\n</body></html>\n");
+PUT_FILE(PATH_JOIN(root, "pages/article/2026-01-05-site-launch.md"), "## 我们上线了\n\n这是站点上线后的第一篇说明，正文放在同名的 `.md` 文件里。\n\n正文经过 `PROCESS_FOOTNOTES` → `EXTRACT_HEADINGS` → `PARSE_BIDIRECTIONAL_LINKS` → `RENDER_MD` → `ADD_HEADING_IDS` 五步。\n\n### 小节：格式\n\n这一节用来钉住行内语法：**粗体**、*斜体*、`行内代码`，以及一个[外链](https://example.org/a?b=1&c=2)。\n\n#### 四级标题（不进 TOC）\n\n四级标题落在 `build_toc_html(2, 3)` 的过滤范围之外。\n\n> 引用块：一行也要能渲染成 blockquote。\n\n- 列表项甲\n- 列表项乙\n- 列表项丙\n\n正文里引用一次脚注[^1]。\n\n[^1]: 编排顺序不可调换：脚注必须先于标题提取。\n");
+PUT_FILE(PATH_JOIN(root, "pages/article/2026-01-09-markdown-notes.html"), "<!-- title: Markdown 笔记：脚注与标题层级 -->\n<!-- date: 2026-01-09 14:05 -->\n<!-- slug: markdown-notes -->\n<!-- tags: Markdown,笔记 -->\n<!-- summary: 脚注与标题层级的边界情况。 -->\n<!-- category: Notes -->\n<!-- status: published -->\n<!DOCTYPE html>\n<html><body>\n<div class=\"post-content\"><p>旧正文占位：真实正文在同名 .md 里。</p></div>\n</body></html>\n");
+PUT_FILE(PATH_JOIN(root, "pages/article/2026-01-09-markdown-notes.md"), "## 脚注与标题\n\n标题提取在脚注处理**之后**：`[^1]:` 定义行已经不在文本里了，否则它会被当成普通段落。\n\n### 小节：格式\n\n这一节用来钉住行内语法：**粗体**、*斜体*、`行内代码`，以及一个[外链](https://example.org/a?b=1&c=2)。\n\n延伸阅读：[[双向链接与数字花园]]。\n\n#### 四级标题（不进 TOC）\n\n四级标题落在 `build_toc_html(2, 3)` 的过滤范围之外。\n\n> 引用块：一行也要能渲染成 blockquote。\n\n- 列表项甲\n- 列表项乙\n- 列表项丙\n\n正文里引用一次脚注[^1]。\n\n[^1]: 脚注定义行里的 `#` 不会被当成标题。\n");
+PUT_FILE(PATH_JOIN(root, "pages/article/2026-01-12-wikilink-garden.html"), "<!-- title: 双向链接与数字花园 -->\n<!-- date: 2026-01-12 08:00 -->\n<!-- slug: wikilink-garden -->\n<!-- tags: 双链,笔记,Markdown -->\n<!-- summary: 双向链接的两个出口：命中的标题与未命中的标题。 -->\n<!-- category: Tech -->\n<!-- status: published -->\n<!DOCTYPE html>\n<html><body>\n<div class=\"post-content\"><p>旧正文占位：真实正文在同名 .md 里。</p></div>\n</body></html>\n");
+PUT_FILE(PATH_JOIN(root, "pages/article/2026-01-12-wikilink-garden.md"), "## 双向链接\n\n命中的双链解析成文章页的 URL，未命中的回退到「按标题 slug 拼出来的」URL。\n\n### 小节：格式\n\n这一节用来钉住行内语法：**粗体**、*斜体*、`行内代码`，以及一个[外链](https://example.org/a?b=1&c=2)。\n\n延伸阅读：回链：[[发布：站点上线]]；不存在的：[[no-such-page]]。\n\n#### 四级标题（不进 TOC）\n\n四级标题落在 `build_toc_html(2, 3)` 的过滤范围之外。\n\n> 引用块：一行也要能渲染成 blockquote。\n\n- 列表项甲\n- 列表项乙\n- 列表项丙\n");
+PUT_FILE(PATH_JOIN(root, "pages/article/2026-01-16-long-title.html"), "<!-- title: 一个被刻意写得很长的文章标题用来钉住列表页的八十码点截断以及导航栏的二十码点截断确保超长标题不会把布局撑破也不会在截断处产生半个字符或多余的省略号这是原实现的行为我们照抄不误 -->\n<!-- date: 2026-01-16 11:11 -->\n<!-- slug: long-title -->\n<!-- tags: 测试,长标题 -->\n<!-- summary: 超长标题的截断行为。 -->\n<!-- category: Notes -->\n<!-- status: published -->\n<!DOCTYPE html>\n<html><body>\n<div class=\"post-content\"><p>旧正文占位：真实正文在同名 .md 里。</p></div>\n</body></html>\n");
+PUT_FILE(PATH_JOIN(root, "pages/article/2026-01-16-long-title.md"), "## 超长标题\n\n列表页用 `title[:80]`、导航用 `title[:20]`、页面标题不截断。\n\n### 小节：格式\n\n这一节用来钉住行内语法：**粗体**、*斜体*、`行内代码`，以及一个[外链](https://example.org/a?b=1&c=2)。\n\n#### 四级标题（不进 TOC）\n\n四级标题落在 `build_toc_html(2, 3)` 的过滤范围之外。\n\n> 引用块：一行也要能渲染成 blockquote。\n\n- 列表项甲\n- 列表项乙\n- 列表项丙\n");
+PUT_FILE(PATH_JOIN(root, "pages/article/2026-01-20-css-grid.html"), "<!-- title: CSS Grid 布局速查 -->\n<!-- date: 2026-01-20 20:20 -->\n<!-- slug: css-grid -->\n<!-- tags: CSS,前端 -->\n<!-- summary: Grid 的两条心智模型。 -->\n<!-- category: Tech -->\n<!-- status: published -->\n<!DOCTYPE html>\n<html><body>\n<div class=\"post-content\"><p>旧正文占位：真实正文在同名 .md 里。</p></div>\n</body></html>\n");
+PUT_FILE(PATH_JOIN(root, "pages/article/2026-01-20-css-grid.md"), "## Grid\n\n轨道与区域是两套正交的模型。\n\n### 小节：格式\n\n这一节用来钉住行内语法：**粗体**、*斜体*、`行内代码`，以及一个[外链](https://example.org/a?b=1&c=2)。\n\n#### 四级标题（不进 TOC）\n\n四级标题落在 `build_toc_html(2, 3)` 的过滤范围之外。\n\n> 引用块：一行也要能渲染成 blockquote。\n\n- 列表项甲\n- 列表项乙\n- 列表项丙\n");
+PUT_FILE(PATH_JOIN(root, "pages/article/2026-01-24-life-notes.html"), "<!-- title: 生活片段：三件小事 -->\n<!-- date: 2026-01-24 21:40 -->\n<!-- slug: life-notes -->\n<!-- tags: 随笔 -->\n<!-- summary: 三件不值得单独写的小事。 -->\n<!-- category: 生活 -->\n<!-- status: published -->\n<!DOCTYPE html>\n<html><body>\n<div class=\"post-content\"><p>旧正文占位：真实正文在同名 .md 里。</p></div>\n</body></html>\n");
+PUT_FILE(PATH_JOIN(root, "pages/article/2026-01-24-life-notes.md"), "## 三件小事\n\n冬天的太阳、修好的椅子、没读完的书。\n\n### 小节：格式\n\n这一节用来钉住行内语法：**粗体**、*斜体*、`行内代码`，以及一个[外链](https://example.org/a?b=1&c=2)。\n\n#### 四级标题（不进 TOC）\n\n四级标题落在 `build_toc_html(2, 3)` 的过滤范围之外。\n\n> 引用块：一行也要能渲染成 blockquote。\n\n- 列表项甲\n- 列表项乙\n- 列表项丙\n");
+PUT_FILE(PATH_JOIN(root, "pages/article/2026-02-01-no-tags.html"), "<!-- title: 无标签无分类的文章 -->\n<!-- date: 2026-02-01 07:00 -->\n<!-- slug: no-tags -->\n<!-- tags:  -->\n<!-- summary: 既没有标签也没有分类。 -->\n<!-- category:  -->\n<!-- status: published -->\n<!DOCTYPE html>\n<html><body>\n<div class=\"post-content\"><p>旧正文占位：真实正文在同名 .md 里。</p></div>\n</body></html>\n");
+PUT_FILE(PATH_JOIN(root, "pages/article/2026-02-01-no-tags.md"), "## 什么都没有\n\n标签为空串时不出标签行；分类为空串时不进任何分类页，也不进 sitemap 的分类段。\n\n### 小节：格式\n\n这一节用来钉住行内语法：**粗体**、*斜体*、`行内代码`，以及一个[外链](https://example.org/a?b=1&c=2)。\n\n#### 四级标题（不进 TOC）\n\n四级标题落在 `build_toc_html(2, 3)` 的过滤范围之外。\n\n> 引用块：一行也要能渲染成 blockquote。\n\n- 列表项甲\n- 列表项乙\n- 列表项丙\n");
+PUT_FILE(PATH_JOIN(root, "pages/article/2026-02-04-footnotes-deep.html"), "<!-- title: 脚注的边界情况 -->\n<!-- date: 2026-02-04 12:00 -->\n<!-- slug: footnotes-deep -->\n<!-- tags: Markdown,笔记 -->\n<!-- summary: 脚注定义出现在正文中间的情况。 -->\n<!-- category: Notes -->\n<!-- status: published -->\n<!DOCTYPE html>\n<html><body>\n<div class=\"post-content\"><p>旧正文占位：真实正文在同名 .md 里。</p></div>\n</body></html>\n");
+PUT_FILE(PATH_JOIN(root, "pages/article/2026-02-04-footnotes-deep.md"), "## 脚注边界\n\n定义行被摘掉之后，剩下的文本才是 Markdown 的输入。\n\n### 小节：格式\n\n这一节用来钉住行内语法：**粗体**、*斜体*、`行内代码`，以及一个[外链](https://example.org/a?b=1&c=2)。\n\n#### 四级标题（不进 TOC）\n\n四级标题落在 `build_toc_html(2, 3)` 的过滤范围之外。\n\n> 引用块：一行也要能渲染成 blockquote。\n\n- 列表项甲\n- 列表项乙\n- 列表项丙\n\n正文里引用一次脚注[^1]。\n\n[^1]: 这条脚注的文字里含 `&` 与 `<`，两侧都必须逐字节一致。\n");
+PUT_FILE(PATH_JOIN(root, "pages/article/2026-02-08-search-design.html"), "<!-- title: 站内搜索设计 -->\n<!-- date: 2026-02-08 15:15 -->\n<!-- slug: search-design -->\n<!-- tags: 搜索,前端 -->\n<!-- summary: 索引只含摘要不含正文。 -->\n<!-- category: Tech -->\n<!-- status: published -->\n<!DOCTYPE html>\n<html><body>\n<div class=\"post-content\"><p>旧正文占位：真实正文在同名 .md 里。</p></div>\n</body></html>\n");
+PUT_FILE(PATH_JOIN(root, "pages/article/2026-02-08-search-design.md"), "## 搜索索引\n\n`search-index.json` 的每条记录只有 title / summary / url / date / tags / category 六个键。\n\n### 小节：格式\n\n这一节用来钉住行内语法：**粗体**、*斜体*、`行内代码`，以及一个[外链](https://example.org/a?b=1&c=2)。\n\n#### 四级标题（不进 TOC）\n\n四级标题落在 `build_toc_html(2, 3)` 的过滤范围之外。\n\n> 引用块：一行也要能渲染成 blockquote。\n\n- 列表项甲\n- 列表项乙\n- 列表项丙\n");
+PUT_FILE(PATH_JOIN(root, "pages/article/2026-02-12-theme-dark.html"), "<!-- title: 暗色主题与配色 -->\n<!-- date: 2026-02-12 18:45 -->\n<!-- slug: theme-dark -->\n<!-- tags: CSS,主题,前端 -->\n<!-- summary: 暗色主题靠一份额外的 CSS。 -->\n<!-- category: Tech -->\n<!-- status: published -->\n<!DOCTYPE html>\n<html><body>\n<div class=\"post-content\"><p>旧正文占位：真实正文在同名 .md 里。</p></div>\n</body></html>\n");
+PUT_FILE(PATH_JOIN(root, "pages/article/2026-02-12-theme-dark.md"), "## 暗色\n\n`theme.dark.css` 存在 ⇒ `has_dark` 为真 ⇒ 页面里多出 `color-scheme` meta、形态脚本与主题切换按钮。\n\n### 小节：格式\n\n这一节用来钉住行内语法：**粗体**、*斜体*、`行内代码`，以及一个[外链](https://example.org/a?b=1&c=2)。\n\n#### 四级标题（不进 TOC）\n\n四级标题落在 `build_toc_html(2, 3)` 的过滤范围之外。\n\n> 引用块：一行也要能渲染成 blockquote。\n\n- 列表项甲\n- 列表项乙\n- 列表项丙\n");
+PUT_FILE(PATH_JOIN(root, "pages/article/2026-02-16-writing-habit.html"), "<!-- title: 写作习惯：每天两百字 -->\n<!-- date: 2026-02-16 06:30 -->\n<!-- slug: writing-habit -->\n<!-- tags: 随笔,习惯 -->\n<!-- summary: 两百字的下限。 -->\n<!-- category: 生活 -->\n<!-- status: published -->\n<!DOCTYPE html>\n<html><body>\n<div class=\"post-content\"><p>旧正文占位：真实正文在同名 .md 里。</p></div>\n</body></html>\n");
+PUT_FILE(PATH_JOIN(root, "pages/article/2026-02-16-writing-habit.md"), "## 两百字\n\n写不出来的时候也写两百字，写完再决定要不要留下。\n\n### 小节：格式\n\n这一节用来钉住行内语法：**粗体**、*斜体*、`行内代码`，以及一个[外链](https://example.org/a?b=1&c=2)。\n\n#### 四级标题（不进 TOC）\n\n四级标题落在 `build_toc_html(2, 3)` 的过滤范围之外。\n\n> 引用块：一行也要能渲染成 blockquote。\n\n- 列表项甲\n- 列表项乙\n- 列表项丙\n");
+PUT_FILE(PATH_JOIN(root, "pages/article/2026-02-20-robots.html"), "<!-- title: robots 与站点地图 -->\n<!-- date: 2026-02-20 10:10 -->\n<!-- slug: robots -->\n<!-- tags: SEO -->\n<!-- summary: robots.txt 的 Sitemap 行不回落 localhost。 -->\n<!-- category: Notes -->\n<!-- status: published -->\n<!DOCTYPE html>\n<html><body>\n<div class=\"post-content\"><p>旧正文占位：真实正文在同名 .md 里。</p></div>\n</body></html>\n");
+PUT_FILE(PATH_JOIN(root, "pages/article/2026-02-20-robots.md"), "## 抓取协议\n\nSitemap 那一行用的是 site_url 或空串，**不**回落 localhost。\n\n### 小节：格式\n\n这一节用来钉住行内语法：**粗体**、*斜体*、`行内代码`，以及一个[外链](https://example.org/a?b=1&c=2)。\n\n#### 四级标题（不进 TOC）\n\n四级标题落在 `build_toc_html(2, 3)` 的过滤范围之外。\n\n> 引用块：一行也要能渲染成 blockquote。\n\n- 列表项甲\n- 列表项乙\n- 列表项丙\n");
+PUT_FILE(PATH_JOIN(root, "pages/article/2026-02-24-pagination.html"), "<!-- title: 分页：第二页的上一页指向哪 -->\n<!-- date: 2026-02-24 09:00 -->\n<!-- slug: pagination -->\n<!-- tags: 前端,SEO,测试 -->\n<!-- summary: 第 2 页的 `prev_url` 是 `/`。 -->\n<!-- category: Tech -->\n<!-- status: published -->\n<!DOCTYPE html>\n<html><body>\n<div class=\"post-content\"><p>旧正文占位：真实正文在同名 .md 里。</p></div>\n</body></html>\n");
+PUT_FILE(PATH_JOIN(root, "pages/article/2026-02-24-pagination.md"), "## 分页\n\n13 篇 + `page_size=10` ⇒ 两页；第 2 页的上一页链接是 `/`（不是 `/list/1.html`）。\n\n### 小节：格式\n\n这一节用来钉住行内语法：**粗体**、*斜体*、`行内代码`，以及一个[外链](https://example.org/a?b=1&c=2)。\n\n延伸阅读：[[站内搜索设计]]。\n\n#### 四级标题（不进 TOC）\n\n四级标题落在 `build_toc_html(2, 3)` 的过滤范围之外。\n\n> 引用块：一行也要能渲染成 blockquote。\n\n- 列表项甲\n- 列表项乙\n- 列表项丙\n");
+PUT_FILE(PATH_JOIN(root, "pages/article/2026-03-02-draft-wip.html"), "<!-- title: 未完成的草稿（不该出现在任何列表里） -->\n<!-- date: 2026-03-02 23:59 -->\n<!-- slug: draft-wip -->\n<!-- tags: 测试,草稿 -->\n<!-- summary: 这是一篇草稿。 -->\n<!-- category: Tech -->\n<!-- status: draft -->\n<!DOCTYPE html>\n<html><body>\n<div class=\"post-content\"><p>旧正文占位：真实正文在同名 .md 里。</p></div>\n</body></html>\n");
+PUT_FILE(PATH_JOIN(root, "pages/article/2026-03-02-draft-wip.md"), "## 草稿\n\n如果编排层漏了草稿过滤，它会以最新日期出现在列表首页第一项。\n\n### 小节：格式\n\n这一节用来钉住行内语法：**粗体**、*斜体*、`行内代码`，以及一个[外链](https://example.org/a?b=1&c=2)。\n\n#### 四级标题（不进 TOC）\n\n四级标题落在 `build_toc_html(2, 3)` 的过滤范围之外。\n\n> 引用块：一行也要能渲染成 blockquote。\n\n- 列表项甲\n- 列表项乙\n- 列表项丙\n");
+PUT_FILE(PATH_JOIN(root, "pages/standalone/about.html"), "<!-- title: 关于本站 -->\n<!-- summary: 这个站点是干什么的。 -->\n<!DOCTYPE html>\n<html><body>\n<div class=\"post-content\">关于本站。这里是一份用于端到端对照的合成语料，不是真实站点。</div>\n</body></html>\n");
+PUT_FILE(PATH_JOIN(root, "pages/standalone/colophon-long-title.html"), "<!-- title: 版权与致谢以及一份特意写长了的独立页标题用来钉住导航里的二十码点截断 -->\n<!-- summary: 致谢与版权说明。 -->\n<!DOCTYPE html>\n<html><body>\n<div class=\"post-content\">致谢。构建编排层的对齐工作参考了真 Python 的生成顺序，因此这份语料的产物可以逐字节比较。</div>\n</body></html>\n");
+PUT_FILE(PATH_JOIN(root, "themes/default/theme.css"), "/* 语料主题 —— 只求确定性，不求好看 */\n:root { --fg: #222; --bg: #fff; }\nbody { color: var(--fg); background: var(--bg); margin: 0; }\n.post-title { font-size: 1.5rem; }\n");
+PUT_FILE(PATH_JOIN(root, "themes/default/theme.dark.css"), "/* 语料暗色主题（只用于让 has_dark 为真） */\nbody { color: #eee; background: #111; }\n");
+
+// ── 跑一次完整构建 ──────────────────────────────────────────────────
+LET(res, BUILD(["root": root, "config": INDEX_SET(INDEX_SET(INDEX_SET(INDEX_SET(INDEX_SET(INDEX_SET(INDEX_SET(INDEX_SET(INDEX_SET(INDEX_SET(INDEX_SET(INDEX_SET(INDEX_SET(INDEX_SET(INDEX_SET(INDEX_SET(INDEX_SET(INDEX_SET(INDEX_SET(INDEX_SET(DICT(), "enable_dark_mode", TRUE), "enable_pwa", TRUE), "enable_rss", TRUE), "enable_search", TRUE), "enable_sitemap", TRUE), "enable_view_transitions", TRUE), "footer_text", "Powered by TinyPage"), "lang", "zh-CN"), "max_content_length", 50000), "max_file_size", 10485760), "max_title_length", 200), "page_size", 10), "pwa_bg_color", "#ffffff"), "pwa_short_name", "合成语料站"), "pwa_theme_color", "#2c3e50"), "site_author", "布布"), "site_description", "用于构建编排层端到端对照的站点"), "site_title", "合成语料站"), "site_url", "https://tiny.example.com"), "theme_name", "default")]));
+LET(res_articles, AT_K(res, "articles", -1));
+LET(res_written, AT_K(res, "written", -1));
+LET(res_ok, AT_K(res, "ok", FALSE));
+LET(res_pages, AT_K(res, "pages", -1));
+LET(res_cats, AT_K(res, "categories", -1));
+LET(res_sts, AT_K(res, "standalones", -1));
+
+// ── 每个产物的实际内容（顶层取，TEST 的 FUN 体里不能放 LET）─────────────
+LET(f0, READ_OR_SPENT(PATH_JOIN(out_dir, "article/2026-01-05-site-launch.html")));
+LET(f1, READ_OR_SPENT(PATH_JOIN(out_dir, "article/2026-01-05-site-launch.md")));
+LET(f2, READ_OR_SPENT(PATH_JOIN(out_dir, "article/2026-01-09-markdown-notes.html")));
+LET(f3, READ_OR_SPENT(PATH_JOIN(out_dir, "article/2026-01-09-markdown-notes.md")));
+LET(f4, READ_OR_SPENT(PATH_JOIN(out_dir, "article/2026-01-12-wikilink-garden.html")));
+LET(f5, READ_OR_SPENT(PATH_JOIN(out_dir, "article/2026-01-12-wikilink-garden.md")));
+LET(f6, READ_OR_SPENT(PATH_JOIN(out_dir, "article/2026-01-16-long-title.html")));
+LET(f7, READ_OR_SPENT(PATH_JOIN(out_dir, "article/2026-01-16-long-title.md")));
+LET(f8, READ_OR_SPENT(PATH_JOIN(out_dir, "article/2026-01-20-css-grid.html")));
+LET(f9, READ_OR_SPENT(PATH_JOIN(out_dir, "article/2026-01-20-css-grid.md")));
+LET(f10, READ_OR_SPENT(PATH_JOIN(out_dir, "article/2026-01-24-life-notes.html")));
+LET(f11, READ_OR_SPENT(PATH_JOIN(out_dir, "article/2026-01-24-life-notes.md")));
+LET(f12, READ_OR_SPENT(PATH_JOIN(out_dir, "article/2026-02-01-no-tags.html")));
+LET(f13, READ_OR_SPENT(PATH_JOIN(out_dir, "article/2026-02-01-no-tags.md")));
+LET(f14, READ_OR_SPENT(PATH_JOIN(out_dir, "article/2026-02-04-footnotes-deep.html")));
+LET(f15, READ_OR_SPENT(PATH_JOIN(out_dir, "article/2026-02-04-footnotes-deep.md")));
+LET(f16, READ_OR_SPENT(PATH_JOIN(out_dir, "article/2026-02-08-search-design.html")));
+LET(f17, READ_OR_SPENT(PATH_JOIN(out_dir, "article/2026-02-08-search-design.md")));
+LET(f18, READ_OR_SPENT(PATH_JOIN(out_dir, "article/2026-02-12-theme-dark.html")));
+LET(f19, READ_OR_SPENT(PATH_JOIN(out_dir, "article/2026-02-12-theme-dark.md")));
+LET(f20, READ_OR_SPENT(PATH_JOIN(out_dir, "article/2026-02-16-writing-habit.html")));
+LET(f21, READ_OR_SPENT(PATH_JOIN(out_dir, "article/2026-02-16-writing-habit.md")));
+LET(f22, READ_OR_SPENT(PATH_JOIN(out_dir, "article/2026-02-20-robots.html")));
+LET(f23, READ_OR_SPENT(PATH_JOIN(out_dir, "article/2026-02-20-robots.md")));
+LET(f24, READ_OR_SPENT(PATH_JOIN(out_dir, "article/2026-02-24-pagination.html")));
+LET(f25, READ_OR_SPENT(PATH_JOIN(out_dir, "article/2026-02-24-pagination.md")));
+LET(f26, READ_OR_SPENT(PATH_JOIN(out_dir, "article/2026-03-02-draft-wip.html")));
+LET(f27, READ_OR_SPENT(PATH_JOIN(out_dir, "article/2026-03-02-draft-wip.md")));
+LET(f28, READ_OR_SPENT(PATH_JOIN(out_dir, "category/Notes.html")));
+LET(f29, READ_OR_SPENT(PATH_JOIN(out_dir, "category/Tech.html")));
+LET(f30, READ_OR_SPENT(PATH_JOIN(out_dir, "category/生活.html")));
+LET(f31, READ_OR_SPENT(PATH_JOIN(out_dir, "index.html")));
+LET(f32, READ_OR_SPENT(PATH_JOIN(out_dir, "list/2.html")));
+LET(f33, READ_OR_SPENT(PATH_JOIN(out_dir, "robots.txt")));
+LET(f34, READ_OR_SPENT(PATH_JOIN(out_dir, "rss.xml")));
+LET(f35, READ_OR_SPENT(PATH_JOIN(out_dir, "search-index.json")));
+LET(f36, READ_OR_SPENT(PATH_JOIN(out_dir, "search.html")));
+LET(f37, READ_OR_SPENT(PATH_JOIN(out_dir, "sitemap.xml")));
+LET(f38, READ_OR_SPENT(PATH_JOIN(out_dir, "standalone/about.html")));
+LET(f39, READ_OR_SPENT(PATH_JOIN(out_dir, "standalone/colophon-long-title.html")));
+
+// ── 实际写出的文件清单（与基准逐个比对；多一个少一个都红）──────────────
+LET(walked, TST_WALK_FILES(out_dir));
+LET(want_list, [
+     "article/2026-01-05-site-launch.html",
+     "article/2026-01-05-site-launch.md",
+     "article/2026-01-09-markdown-notes.html",
+     "article/2026-01-09-markdown-notes.md",
+     "article/2026-01-12-wikilink-garden.html",
+     "article/2026-01-12-wikilink-garden.md",
+     "article/2026-01-16-long-title.html",
+     "article/2026-01-16-long-title.md",
+     "article/2026-01-20-css-grid.html",
+     "article/2026-01-20-css-grid.md",
+     "article/2026-01-24-life-notes.html",
+     "article/2026-01-24-life-notes.md",
+     "article/2026-02-01-no-tags.html",
+     "article/2026-02-01-no-tags.md",
+     "article/2026-02-04-footnotes-deep.html",
+     "article/2026-02-04-footnotes-deep.md",
+     "article/2026-02-08-search-design.html",
+     "article/2026-02-08-search-design.md",
+     "article/2026-02-12-theme-dark.html",
+     "article/2026-02-12-theme-dark.md",
+     "article/2026-02-16-writing-habit.html",
+     "article/2026-02-16-writing-habit.md",
+     "article/2026-02-20-robots.html",
+     "article/2026-02-20-robots.md",
+     "article/2026-02-24-pagination.html",
+     "article/2026-02-24-pagination.md",
+     "article/2026-03-02-draft-wip.html",
+     "article/2026-03-02-draft-wip.md",
+     "category/Notes.html",
+     "category/Tech.html",
+     "category/生活.html",
+     "index.html",
+     "list/2.html",
+     "robots.txt",
+     "rss.xml",
+     "search-index.json",
+     "search.html",
+     "sitemap.xml",
+     "standalone/about.html",
+     "standalone/colophon-long-title.html"
+]);
+
+LET(i_index, f31);
+LET(i_list2, f32);
+LET(i_rss, f34);
+LET(i_sitemap, f37);
+LET(i_sidx, f35);
+LET(i_draft, f26);
+LET(i_pub, f24);
+LET(n_items, LEN(RE_FIND_ALL(RE("[<]item[>]"), i_rss)));
+
+// ── 统计量 ────────────────────────────────────────────────────────
+TEST("stats/articles", FUN(() ,
+    (ASSERT(ASSERT_EQ(res_articles, 13)));
+    TRUE));
+TEST("stats/standalones", FUN(() ,
+    (ASSERT(ASSERT_EQ(res_sts, 2)));
+    TRUE));
+TEST("stats/pages", FUN(() ,
+    (ASSERT(ASSERT_EQ(res_pages, 2)));
+    TRUE));
+TEST("stats/categories", FUN(() ,
+    (ASSERT(ASSERT_EQ(res_cats, 3)));
+    TRUE));
+TEST("stats/written", FUN(() ,
+    (ASSERT(ASSERT_EQ(res_written, 25)));
+    TRUE));
+TEST("stats/ok", FUN(() ,
+    (ASSERT(ASSERT_EQ(res_ok, TRUE)));
+    TRUE));
+
+// ── 逐文件对照（sha256 + 码点数）──────────────────────────────────────
+TEST("files/article/2026-01-05-site-launch.html", FUN(() ,
+    (ASSERT(ASSERT_EQ(SHA256(f0), "0c22f0f17e7310f9b1455a473eb608db8e573c5f00362bf9f84d8f4ed5188625")));
+    (ASSERT(ASSERT_EQ(LEN(f0), 4917)));
+    TRUE));
+TEST("files/article/2026-01-05-site-launch.md", FUN(() ,
+    (ASSERT(ASSERT_EQ(SHA256(f1), "87348e173ee27ea985aae17cffcd1d97dba1f6da77d91d301d2fd14886fa44e5")));
+    (ASSERT(ASSERT_EQ(LEN(f1), 395)));
+    TRUE));
+TEST("files/article/2026-01-09-markdown-notes.html", FUN(() ,
+    (ASSERT(ASSERT_EQ(SHA256(f2), "0823e2089a31eea1344c19cee02983fb3adcc7a4d7de23da9de5386f53b72e66")));
+    (ASSERT(ASSERT_EQ(LEN(f2), 5221)));
+    TRUE));
+TEST("files/article/2026-01-09-markdown-notes.md", FUN(() ,
+    (ASSERT(ASSERT_EQ(SHA256(f3), "1963ad7da2839e34c08c0448251aa344d5a2ac888865654b09a387bba664d63d")));
+    (ASSERT(ASSERT_EQ(LEN(f3), 317)));
+    TRUE));
+TEST("files/article/2026-01-12-wikilink-garden.html", FUN(() ,
+    (ASSERT(ASSERT_EQ(SHA256(f4), "318b9fbff1292fb588324344392a6d9e226d722578216edebabc523bd4a79bf5")));
+    (ASSERT(ASSERT_EQ(LEN(f4), 5234)));
+    TRUE));
+TEST("files/article/2026-01-12-wikilink-garden.md", FUN(() ,
+    (ASSERT(ASSERT_EQ(SHA256(f5), "f448a7c108b26eb7fedc6082bb65957c2adec0cc5b2fbe1d5e295328627ad966")));
+    (ASSERT(ASSERT_EQ(LEN(f5), 290)));
+    TRUE));
+TEST("files/article/2026-01-16-long-title.html", FUN(() ,
+    (ASSERT(ASSERT_EQ(SHA256(f6), "0342182f99c1c31f9c25494c06718f7737252a08759e7137dd98921c07e6cc48")));
+    (ASSERT(ASSERT_EQ(LEN(f6), 5180)));
+    TRUE));
+TEST("files/article/2026-01-16-long-title.md", FUN(() ,
+    (ASSERT(ASSERT_EQ(SHA256(f7), "549f628197654a9ed270ee8f9127dc28c945c14a6de82bfc68c93ac1b581f340")));
+    (ASSERT(ASSERT_EQ(LEN(f7), 246)));
+    TRUE));
+TEST("files/article/2026-01-20-css-grid.html", FUN(() ,
+    (ASSERT(ASSERT_EQ(SHA256(f8), "0f643d7199d0d8f60f03eaa17eb78bb9389aa65de6ae3fe55aada49a97f55aaa")));
+    (ASSERT(ASSERT_EQ(LEN(f8), 4962)));
+    TRUE));
+TEST("files/article/2026-01-20-css-grid.md", FUN(() ,
+    (ASSERT(ASSERT_EQ(SHA256(f9), "2d80f9e2bd05797e3ca185dd829043680515f7303c7b12a71ddaf9011dfe4420")));
+    (ASSERT(ASSERT_EQ(LEN(f9), 217)));
+    TRUE));
+TEST("files/article/2026-01-24-life-notes.html", FUN(() ,
+    (ASSERT(ASSERT_EQ(SHA256(f10), "0d9bd989fb4d2e68e5354303818b8dd464e751f1c9ccd81c9491cf1115dc491c")));
+    (ASSERT(ASSERT_EQ(LEN(f10), 4552)));
+    TRUE));
+TEST("files/article/2026-01-24-life-notes.md", FUN(() ,
+    (ASSERT(ASSERT_EQ(SHA256(f11), "c4584453a49d102f3c231fde633e82741dff4494cd4f3ced27bd8a4f408f7626")));
+    (ASSERT(ASSERT_EQ(LEN(f11), 221)));
+    TRUE));
+TEST("files/article/2026-02-01-no-tags.html", FUN(() ,
+    (ASSERT(ASSERT_EQ(SHA256(f12), "bedcfab7fb920836cb2a2d13519913478d1e7e0852c37fa1775eabfdbb63c26a")));
+    (ASSERT(ASSERT_EQ(LEN(f12), 4110)));
+    TRUE));
+TEST("files/article/2026-02-01-no-tags.md", FUN(() ,
+    (ASSERT(ASSERT_EQ(SHA256(f13), "f50d899191e567507c96427e83a9f9b5ad51e6de3fe95328fed005cdc76f445d")));
+    (ASSERT(ASSERT_EQ(LEN(f13), 247)));
+    TRUE));
+TEST("files/article/2026-02-04-footnotes-deep.html", FUN(() ,
+    (ASSERT(ASSERT_EQ(SHA256(f14), "3cbd4c883928f5a7bbfdfe93aa5b840f384e21ddf8128686c67690f4eedcde82")));
+    (ASSERT(ASSERT_EQ(LEN(f14), 5091)));
+    TRUE));
+TEST("files/article/2026-02-04-footnotes-deep.md", FUN(() ,
+    (ASSERT(ASSERT_EQ(SHA256(f15), "23035606a572fc30c9761a19305aec5aea4f74579ad400e0ab4f01aa9d79b452")));
+    (ASSERT(ASSERT_EQ(LEN(f15), 288)));
+    TRUE));
+TEST("files/article/2026-02-08-search-design.html", FUN(() ,
+    (ASSERT(ASSERT_EQ(SHA256(f16), "d143867c4ce9bb3b8d9523d1dfadfec6cf3deb36191377aaaeefbd19fd51073d")));
+    (ASSERT(ASSERT_EQ(LEN(f16), 5144)));
+    TRUE));
+TEST("files/article/2026-02-08-search-design.md", FUN(() ,
+    (ASSERT(ASSERT_EQ(SHA256(f17), "37528fcd250b780eeeee6737ff9631d5206d76dc7345efbda5964d5818965245")));
+    (ASSERT(ASSERT_EQ(LEN(f17), 282)));
+    TRUE));
+TEST("files/article/2026-02-12-theme-dark.html", FUN(() ,
+    (ASSERT(ASSERT_EQ(SHA256(f18), "7d91c36a68c0a41c52f4748576757a5f5a336a833ce6c90e52f9af0e32a31f37")));
+    (ASSERT(ASSERT_EQ(LEN(f18), 5066)));
+    TRUE));
+TEST("files/article/2026-02-12-theme-dark.md", FUN(() ,
+    (ASSERT(ASSERT_EQ(SHA256(f19), "b2bc3e8613b2f976b45cd450764be585c798f76f2da6d8ea02bb693aa6bf2b75")));
+    (ASSERT(ASSERT_EQ(LEN(f19), 277)));
+    TRUE));
+TEST("files/article/2026-02-16-writing-habit.html", FUN(() ,
+    (ASSERT(ASSERT_EQ(SHA256(f20), "1f14cb09876588f95336eb8ad3d864cca3c177acaaa7a049af0d7448f3366a6b")));
+    (ASSERT(ASSERT_EQ(LEN(f20), 4574)));
+    TRUE));
+TEST("files/article/2026-02-16-writing-habit.md", FUN(() ,
+    (ASSERT(ASSERT_EQ(SHA256(f21), "798ac8e6e3326cc2774c86594d533caaeb168ee8c9f5b7c4bd8b7fa8567f316e")));
+    (ASSERT(ASSERT_EQ(LEN(f21), 226)));
+    TRUE));
+TEST("files/article/2026-02-20-robots.html", FUN(() ,
+    (ASSERT(ASSERT_EQ(SHA256(f22), "5b68bd3a3faa69f38af01b20d342a84816aab860fbc6db13be0e471de9b10b53")));
+    (ASSERT(ASSERT_EQ(LEN(f22), 4754)));
+    TRUE));
+TEST("files/article/2026-02-20-robots.md", FUN(() ,
+    (ASSERT(ASSERT_EQ(SHA256(f23), "17b2e8eac7bb128aecfa032205b5b392cebc31d257980944e0301afe23d8f566")));
+    (ASSERT(ASSERT_EQ(LEN(f23), 249)));
+    TRUE));
+TEST("files/article/2026-02-24-pagination.html", FUN(() ,
+    (ASSERT(ASSERT_EQ(SHA256(f24), "18dd822eb803b442fa9996d29799bea50d26258c8a965d71ac766ed4bda78e70")));
+    (ASSERT(ASSERT_EQ(LEN(f24), 5639)));
+    TRUE));
+TEST("files/article/2026-02-24-pagination.md", FUN(() ,
+    (ASSERT(ASSERT_EQ(SHA256(f25), "b0545f04f13c42d454176058c9f981bd0d3e9764d9cc1899af1fe835bea5092d")));
+    (ASSERT(ASSERT_EQ(LEN(f25), 282)));
+    TRUE));
+TEST("files/article/2026-03-02-draft-wip.html", FUN(() ,
+    (ASSERT(ASSERT_EQ(SHA256(f26), "155c1d3f24be5f76a84d8e4cf4f6b2d24bfb3319423c0e048b8b56cff392bcfa")));
+    (ASSERT(ASSERT_EQ(LEN(f26), 290)));
+    TRUE));
+TEST("files/article/2026-03-02-draft-wip.md", FUN(() ,
+    (ASSERT(ASSERT_EQ(SHA256(f27), "a894690928667abacb57bab1652dec89b967f7c1d9dcefe9779c353bdc866490")));
+    (ASSERT(ASSERT_EQ(LEN(f27), 231)));
+    TRUE));
+TEST("files/category/Notes.html", FUN(() ,
+    (ASSERT(ASSERT_EQ(SHA256(f28), "32953583792ce8b4002a5db5b874334cc3fa65b4a8fa64a9e0a479ea857eb6bb")));
+    (ASSERT(ASSERT_EQ(LEN(f28), 3481)));
+    TRUE));
+TEST("files/category/Tech.html", FUN(() ,
+    (ASSERT(ASSERT_EQ(SHA256(f29), "6be868ba25b8d1b525c785e4ba16ffcb91af826fcc658cb2d3e877c83ba40778")));
+    (ASSERT(ASSERT_EQ(LEN(f29), 4119)));
+    TRUE));
+TEST("files/category/生活.html", FUN(() ,
+    (ASSERT(ASSERT_EQ(SHA256(f30), "4c3a7212e9905c9719a6242808fb1988cb0e081b699a1f970b6677070a687aa6")));
+    (ASSERT(ASSERT_EQ(LEN(f30), 2642)));
+    TRUE));
+TEST("files/index.html", FUN(() ,
+    (ASSERT(ASSERT_EQ(SHA256(f31), "44ddbc7505e11115d3741cc9a67e1d56cabaecc7ed6e5525fd38c8e1b121f065")));
+    (ASSERT(ASSERT_EQ(LEN(f31), 7041)));
+    TRUE));
+TEST("files/list/2.html", FUN(() ,
+    (ASSERT(ASSERT_EQ(SHA256(f32), "085e9d28504ed34c001796269e6c0482528a2b8407b35f5e28bba436baf8bf98")));
+    (ASSERT(ASSERT_EQ(LEN(f32), 3705)));
+    TRUE));
+TEST("files/robots.txt", FUN(() ,
+    (ASSERT(ASSERT_EQ(SHA256(f33), "8a866fc2b9049200535ab74d2fe852944c49a5cd70cf7497fb854472defd0927")));
+    (ASSERT(ASSERT_EQ(LEN(f33), 69)));
+    TRUE));
+TEST("files/rss.xml", FUN(() ,
+    (ASSERT(ASSERT_EQ(SHA256(f34), "64333a1728a589289313b7848c0146b10d135df396e88677621f1c169e55de4a")));
+    (ASSERT(ASSERT_EQ(LEN(f34), 4338)));
+    TRUE));
+TEST("files/search-index.json", FUN(() ,
+    (ASSERT(ASSERT_EQ(SHA256(f35), "7928fdec415bb7d7d88a2ad416bc69a36121a785c8aafaa72450db21b5e90a1c")));
+    (ASSERT(ASSERT_EQ(LEN(f35), 2620)));
+    TRUE));
+TEST("files/search.html", FUN(() ,
+    (ASSERT(ASSERT_EQ(SHA256(f36), "e502993cb173c6fdc328ac197af3c89ad6ba951aff983d49310c164da80a8a0d")));
+    (ASSERT(ASSERT_EQ(LEN(f36), 1984)));
+    TRUE));
+TEST("files/sitemap.xml", FUN(() ,
+    (ASSERT(ASSERT_EQ(SHA256(f37), "ba9fca5038af362263b5cc9f13328b670b7b51df34a157c7527130a6d406f00e")));
+    (ASSERT(ASSERT_EQ(LEN(f37), 1773)));
+    TRUE));
+TEST("files/standalone/about.html", FUN(() ,
+    (ASSERT(ASSERT_EQ(SHA256(f38), "2a5f8dafafd3a1b894e21f75aa9cd49c6f7bad04fe3442c248bbb6685cc9f23a")));
+    (ASSERT(ASSERT_EQ(LEN(f38), 2190)));
+    TRUE));
+TEST("files/standalone/colophon-long-title.html", FUN(() ,
+    (ASSERT(ASSERT_EQ(SHA256(f39), "b197d62a416414c902a00a1e37aad1a80aaf1935189845a3387f42dec14874e4")));
+    (ASSERT(ASSERT_EQ(LEN(f39), 2294)));
+    TRUE));
+
+// ── 文件清单 ──────────────────────────────────────────────────────
+TEST("fileset/count", FUN(() ,
+    (ASSERT(ASSERT_EQ(LEN(walked), LEN(want_list))));
+    TRUE));
+TEST("fileset/order_and_names", FUN(() ,
+    (ASSERT(ASSERT_EQ(walked, want_list)));
+    TRUE));
+
+// ── 反向守卫 ──────────────────────────────────────────────────────
+// g1：草稿**不得**出现在任何列表类产物里（编排层过滤的唯一判据）。
+TEST("guard/draft_absent_from_index", FUN(() ,
+    (ASSERT(!CONTAINS_SUB(i_index, "2026-03-02-draft-wip.html")));
+    (ASSERT(!CONTAINS_SUB(i_index, "草稿")));
+    TRUE));
+TEST("guard/draft_absent_from_list2", FUN(() ,
+    (ASSERT(!CONTAINS_SUB(i_list2, "2026-03-02-draft-wip.html")));
+    (ASSERT(!CONTAINS_SUB(i_list2, "草稿")));
+    TRUE));
+TEST("guard/draft_absent_from_rss", FUN(() ,
+    (ASSERT(!CONTAINS_SUB(i_rss, "2026-03-02-draft-wip.html")));
+    (ASSERT(!CONTAINS_SUB(i_rss, "草稿")));
+    TRUE));
+TEST("guard/draft_absent_from_sitemap", FUN(() ,
+    (ASSERT(!CONTAINS_SUB(i_sitemap, "2026-03-02-draft-wip.html")));
+    (ASSERT(!CONTAINS_SUB(i_sitemap, "草稿")));
+    TRUE));
+TEST("guard/draft_absent_from_search_index", FUN(() ,
+    (ASSERT(!CONTAINS_SUB(i_sidx, "2026-03-02-draft-wip.html")));
+    (ASSERT(!CONTAINS_SUB(i_sidx, "草稿")));
+    TRUE));
+
+// g1b：对照组 —— 已发布文章**必须**出现在同样的产物里（否则 g1 是空断言）。
+TEST("guard/published_present_in_index", FUN(() ,
+    (ASSERT(CONTAINS_SUB(i_index, "2026-02-24-pagination.html")));
+    TRUE));
+TEST("guard/published_present_in_rss", FUN(() ,
+    (ASSERT(CONTAINS_SUB(i_rss, "2026-02-24-pagination.html")));
+    TRUE));
+TEST("guard/published_present_in_sitemap", FUN(() ,
+    (ASSERT(CONTAINS_SUB(i_sitemap, "2026-02-24-pagination.html")));
+    TRUE));
+TEST("guard/published_present_in_search_index", FUN(() ,
+    (ASSERT(CONTAINS_SUB(i_sidx, "2026-02-24-pagination.html")));
+    TRUE));
+TEST("guard/published_present_in_list2", FUN(() ,
+    (ASSERT(CONTAINS_SUB(i_list2, "2026-01-05-site-launch.html")));
+    (ASSERT(!CONTAINS_SUB(i_list2, "2026-02-24-pagination.html")));
+    TRUE));
+
+// g2：草稿 html 必须保持语料原样（它不进 list_articles ⇒ 不会被重新生成）。
+TEST("guard/draft_html_untouched", FUN(() ,
+    (ASSERT(ASSERT_EQ(SHA256(i_draft), "155c1d3f24be5f76a84d8e4cf4f6b2d24bfb3319423c0e048b8b56cff392bcfa")));
+    (ASSERT(CONTAINS_SUB(i_draft, "旧正文占位")));
+    TRUE));
+
+// g2b：对照组 —— 已发布文章的 html 必须**不再**含语料里的占位正文，
+//      且必须是「整页」（骨架 + 元数据头都在）⇒ 它真的被重新生成过。
+TEST("guard/published_html_regenerated", FUN(() ,
+    (ASSERT(!CONTAINS_SUB(i_pub, "旧正文占位")));
+    (ASSERT(CONTAINS_SUB(i_pub, "class=\"post-title\"")));
+    (ASSERT(CONTAINS_SUB(i_pub, "<!-- status: published -->")));
+    TRUE));
+
+// g3：rss 的 <item> 恰好等于已发布篇数（14 篇语料里 1 篇草稿）。
+TEST("guard/rss_item_count", FUN(() ,
+    (ASSERT(ASSERT_EQ(n_items, 13)));
+    TRUE));
+
+// g4：sitemap 的 <url> 数 == 1（根） + 文章数 + 独立页数 + 分类数。
+LET(n_loc, LEN(RE_FIND_ALL(RE("[<]loc[>]"), i_sitemap)));
+TEST("guard/sitemap_url_count", FUN(() ,
+    (ASSERT(ASSERT_EQ(n_loc, 19)));
+    TRUE));
+
+// g5：BUILD 不得改坏 .md 源文件（内容与语料相同即通过）。
+TEST("guard/md_sources_intact", FUN(() ,
+    (ASSERT(ASSERT_EQ(SHA256(f1), "87348e173ee27ea985aae17cffcd1d97dba1f6da77d91d301d2fd14886fa44e5")));
+    TRUE));
+
+// ── 跑测试（RUN_TESTS 的失败不影响退出码 ⇒ 自己把关）──────────────────
+LET(records, RUN_TESTS());
+PRINT("test_build: ", LEN(records), " test(s) run");
+LET MUT(failed, 0);
+FOR(rec, records,
+    (IF(AT_K(rec, "passed", FALSE), NULL,
+        (SET(failed, +(failed, 1));
+         PRINT("  FAIL ", AT_K(rec, "name", "?"))))));
+PRINT("test_build: failed=", failed);
+IF(>(failed, 0), (PRINT_ERR("test_build: FAILED"); PANIC("build tests failed")), NULL);
+PRINT("test_build: OK");
