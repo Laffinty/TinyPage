@@ -1,9 +1,12 @@
-﻿"""生成 tp/bin/serve_admin.wll —— admin 后台的传输入口（卡 S4-3）。
+﻿"""生成 tp/bin/serve_admin.wll —— admin 后台的传输入口（卡 S4-3 / S4-7 接线）。
 
 ⚠ 输出的 .wll 由本文件生成，不要手改。
 
-**分工**：HTTP 语义全在 `tp/lib/http_util.wll`（纯函数，脱网可测）；本文件只做
-「收请求 → MATCH_ROUTE → 会话/CSRF（security.wll）→ 动作（admin_actions.wll）→ 发响应」。
+**分工**：HTTP 语义全在 `tp/lib/http_util.wll`（纯函数，脱网可测）；GET 页面在
+`tp/lib/admin_views.wll`（6 个 `*_VIEW` + `NAV_HTML`）；`/ai-assist` 与 `/translate`
+在 `tp/lib/admin_ai.wll`（`*_JSON` 直接给响应体）；模板替换用 `tp/lib/template.wll`
+的 `SAFE_SUBSTITUTE`（== `templates.py:27 render_template`）。本文件只做
+「收请求 → MATCH_ROUTE → 会话/CSRF（security.wll）→ 取数据 → 渲染/动作 → 发响应」。
 
 **绑定**：**仅 127.0.0.1**（业主裁决，卡 S4-3 的反向守卫）。地址是**字面量**，
 `TP_ADMIN_HOST` 一旦被设成别的值就启动即 PANIC —— 钉死「别绑 0.0.0.0」，
@@ -15,15 +18,27 @@
   TP_ADMIN_PASS / ADMIN_PASS   登录口令（**空 ⇒ 登录一律 503**，actions.py:394-400）
   TP_ROOT                      站点根（缺省 pages，config.py:48）
   BIND_DOMAIN                  非空 ⇒ cookie 加 Secure（security.py:130-132）
+  TP_AI_ENABLED                "1"/"true" ⇒ cfg.ai_enabled（config.py:63-68 的 AI 段；
+                               其余取缺省 ⇒ `/ai-assist` 返回**未配置** JSON，仍是 200）
+  TP_AI_API_KEY / TP_AI_MODEL / TP_AI_PROVIDER / TP_AI_ENDPOINT  AI 参数
+  TP_THEME                     cfg.theme_name（缺省 default，config.py:42）
+  TP_THEMES_DIR                主题目录（缺省 themes，views.py:244 的字面量）
+
+**base.html 外壳**：`admin_templates/base.html` **逐字**搬在下面的 `BASE_TEMPLATE`，
+生成期与磁盘比对（`check_base_template`）—— 上游改了模板，本生成器必须同步。
+外壳六键 == `responses.py:58 render_admin_page`：`title`（先 `escape_html`）/ `body` /
+`csrf_token` / `current_path` / `nav_html`（用 `NAV_HTML`）/ `htmx_script`。
 
 **已知缺口（诚实登记，不粉饰）**：
-  ① 视图层（views.py / admin 模板）**尚未交付** ⇒ GET 页面是占位 HTML；
-     登录页是能用的最小表单（含 csrf_token 隐藏域）。
-  ② `admin_actions.wll` 没有 login/logout handler ⇒ 本入口按 actions.py:382-437 的
-     顺序直接调 security 原语。S4-4 若补 LOGIN_HANDLER，这里应改成一行调用。
-  ③ `/ai-assist`、`/translate` 两个动作在 admin_actions.wll 里没有实现 ⇒ 500。
-  ④ 注入的静态资源（app.py:142-152 的 `_get_injected_assets`）需要资产管线 ⇒
-     本入口不服务它（`STATIC_RESPONSE` 已在 http_util 里交付并测过，等接线）。
+  ① 新建文章表单的**日期不预填**（Python 用 `datetime.now()`；WLWL 没有本地时区
+     格式化，不拿 UTC 硬凑 —— 差 8 小时比空值更误导）。
+  ② `/translate` 只接**文本层**（表单 `text` + `lang`）：dashboard 上「翻译」下拉框
+     发的是 `file`，不产出译文；文章层（定位文件 / summarize(200) / 落盘）未接。
+  ③ 编辑页取正文只读兄弟 `.md` 或 HTML 内嵌正文，**不做** Python 的懒迁移写盘
+     （GET 不该写文件）；两者都取不到时回落 `summary`。
+  ④ 静态资源（`/admin.css` / `/admin.js` / `/htmx.min.js`）本入口不服务
+     （app.py:142-152 的注入资产需要资产管线）。
+  ⑤ `admin_actions.wll` 没有 login/logout handler ⇒ 登录/登出仍直接调 security 原语。
 
 **⚠ 生成器自身的纪律**：所有嵌套 `INDEX_SET` 链一律用 `chain()` **程序化拼**，
 不手写括号 —— 手写时实测三处各差一个 `)`，而 `wlwl check` 只会在很远的地方报
@@ -33,7 +48,7 @@ import os
 import sys
 
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
-from wllgen import write  # noqa: E402
+from wllgen import C, fn, write  # noqa: E402
 
 HERE = os.path.dirname(os.path.abspath(__file__))
 OUT = os.path.join(HERE, '..', 'bin', 'serve_admin.wll')
@@ -63,24 +78,99 @@ ACTION_REDIRECTS = [
 REGEN_HTML = ('<span style="color:var(--a-primary);font-size:0.9rem;">'
               '✓ 已重新生成</span>')
 
-# ── HTML 片段（视图层未交付 ⇒ 占位页）────────────────────────────────────
-PAGE_HEAD = ('<!doctype html>\n<html lang="zh-CN">\n'
-             '<head><meta charset="utf-8"><title>')
-PAGE_MID = '</title></head>\n<body>\n'
-PAGE_TAIL = '\n</body>\n</html>\n'
+# ── base.html 外壳（逐字搬自 admin_templates/base.html）──────────────────
+# ⚠ 与磁盘**逐字**一致（生成期 check_base_template 比对）。Python 侧
+#   templates.py:23 的 `path.read_text(encoding="utf-8")` 会把 CRLF 归一成 LF，
+#   `Template` 实际收到的就是下面这份 LF 文本。
+BASE_TEMPLATE = """<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<meta name="color-scheme" content="light dark">
+<title>$title - TinyPage Admin</title>
+<link rel="stylesheet" href="/admin.css">
+$htmx_script
+<script>
+(function(){
+  var m = localStorage.getItem('theme');
+  if (m === 'light' || (!m && window.matchMedia('(prefers-color-scheme: light)').matches)) {
+    document.documentElement.classList.add('light');
+  }
+})();
+</script>
+</head>
+<body>
+<button class="mobile-menu-toggle" aria-label="打开菜单" onclick="document.body.classList.toggle('menu-open')">☰</button>
+<div class="admin-layout">
+  <aside class="admin-sidebar">
+    <div class="brand">
+      <span class="brand-logo">TinyPage</span>
+      <span class="brand-tag">Admin</span>
+    </div>
+    <nav>
+      $nav_html
+    </nav>
+    <div class="sidebar-footer">
+      <button class="theme-toggle" aria-label="切换主题" onclick="toggleTheme()">🌓</button>
+      <form method="post" action="/logout" class="logout-form">
+        <input type="hidden" name="csrf_token" value="$csrf_token">
+        <button type="submit" class="logout-btn">退出登录</button>
+      </form>
+    </div>
+  </aside>
+  <main class="admin-main">
+    $body
+  </main>
+</div>
+<div id="toast-container"></div>
+<script src="/admin.js"></script>
+</body>
+</html>
+"""
 
-LOGIN_HEAD = ('<h1>登录</h1>\n<form method="post" action="/login">\n'
-              '<input type="hidden" name="csrf_token" value="')
-LOGIN_MID = ('">\n<label>用户名 <input name="username" '
-             'autocomplete="username"></label>\n'
-             '<label>密码 <input type="password" name="password" '
-             'autocomplete="current-password"></label>\n'
-             '<button type="submit">登录</button>\n</form>\n')
+TEMPLATES_DIR = os.path.join(HERE, '..', '..', 'admin_templates')
 
-PH_HEAD = '<h1>'
-PH_MID = ('</h1>\n<p>本页是卡 S4-3 的 <b>路由占位</b>：admin 的视图层'
-          '（views.py / 模板）尚未交付。</p>\n<p>route=<code>')
-PH_TAIL = '</code></p>\n'
+# responses.py:69-75 的 nav_items（href, label, icon_name）
+NAV_ITEMS = [
+    ('/', '仪表盘', 'dashboard'),
+    ('/new', '新建文章', 'article'),
+    ('/new-page', '新建页面', 'page'),
+    ('/pages', '管理页面', 'pages'),
+    ('/theme', '主题', 'theme'),
+]
+
+# app.py:192-212：这几条路由的 render_admin_page(htmx=True)
+HTMX_ROUTES = ['pages_dashboard', 'new_article', 'edit_article',
+               'new_page', 'edit_page']
+
+# content.py:662 SAFE_PAGE_FILENAME（CJK 用**字面**，`\uXXXX` 在 WLWL 正则里不生效）
+PAGE_NAME_RE = '^[a-zA-Z0-9一-龥_-]+[.]html$'
+
+# config.py:44-48 的缺省（本入口没有 toml 解析 ⇒ 只沿用缺省）
+MAX_FILE_SIZE = 10 * 1024 * 1024
+PAGE_SIZE = 10
+MAX_TITLE_LENGTH = 200
+MAX_CONTENT_LENGTH = 50000
+
+
+def check_base_template():
+    """生成期漂移守卫：BASE_TEMPLATE 必须与磁盘上的 base.html 逐字一致。"""
+    path = os.path.join(TEMPLATES_DIR, 'base.html')
+    # ⚠ 用 read_text 的默认换行处理（CRLF → LF）：templates.py:23 就是这口径，
+    #   即 Template 实际收到的字符串。
+    with open(path, encoding='utf-8') as f:
+        got = f.read()
+    if got != BASE_TEMPLATE:
+        i = 0
+        while i < min(len(got), len(BASE_TEMPLATE)) and got[i] == BASE_TEMPLATE[i]:
+            i += 1
+        lo = max(0, i - 40)
+        raise SystemExit(
+            'admin_templates/base.html 与生成器里的 BASE_TEMPLATE 不一致'
+            '（首个差异在第 %d 个字符）：\n  磁盘: %r\n  生成器: %r\n'
+            '  ⇒ 上游改了外壳，本生成器必须同步。'
+            % (i, got[lo:i + 40], BASE_TEMPLATE[lo:i + 40]))
 
 
 def wl(s):
@@ -151,17 +241,19 @@ def main():
     W('//   & D:\\wlwl_v0.12.1\\wlwl.exe run tp\\bin\\serve_admin.wll')
     W('//   curl -s -o NUL -w "%{http_code}" http://127.0.0.1:18081/login')
     W('//')
-    W('// ⚠ 已知缺口（不粉饰）：视图层未交付 ⇒ GET 页面是占位 HTML；login/logout 走')
-    W('//   security 原语（admin_actions 没有这两个 handler）；/ai-assist /translate ⇒ 500。')
+    W('// ⚠ 已知缺口（不粉饰）：新建文章日期不预填（WLWL 无本地时区格式化）；')
+    W('//   /translate 只到文本层；静态资源（/admin.css 等）本入口不服务。')
     W('')
     W('IMPORT("wlwl:std.net", ["TCP_LISTEN", "TCP_SERVE", "TCP_CLOSE_LISTENER",')
     W('    "TCP_LOCAL_ADDR"]);')
     W('IMPORT("wlwl:std.signal", ["ON_SIGNAL", "STOP"]);')
     W('IMPORT("wlwl:std.env", ["ENV_GET"]);')
-    W('IMPORT("wlwl:std.text", ["TO_INT"]);')
-    W('IMPORT("wlwl:std.fs", ["PATH_JOIN", "PATH_CANONICAL"]);')
-    W('IMPORT("wlwl:std.str", ["CAT"]);')
-    W('IMPORT("wlwl:std.encode", ["TIMING_SAFE_EQ"]);')
+    W('IMPORT("wlwl:std.text", ["TO_INT", "TO_LOWER"]);')
+    W('IMPORT("wlwl:std.fs", ["PATH_JOIN", "PATH_CANONICAL", "LIST_DIR", "PATH_BASE",')
+    W('    "PATH_EXT", "READ_FILE", "FILE_META", "EXISTS"]);')
+    W('IMPORT("wlwl:std.str", ["CAT", "INDEX_OF"]);')
+    W('IMPORT("wlwl:std.regex", ["RE", "RE_TEST"]);')
+    W('IMPORT("wlwl:std.encode", ["TIMING_SAFE_EQ", "URL_DECODE"]);')
     W('IMPORT("./../lib/http_util.wll", ["MATCH_ROUTE", "PARSE_FORM", "FORM_FIELD",')
     W('    "HEADER_VALUE", "COOKIE_VALUE", "BUILD_RESPONSE", "TEXT_ERROR_RESPONSE",')
     W('    "JSON_ERROR_RESPONSE", "JSON_RESPONSE", "HTML_RESPONSE", "REDIRECT",')
@@ -173,6 +265,18 @@ def main():
     W('IMPORT("./../lib/admin_actions.wll", ["CREATE_ARTICLE", "SAVE_ARTICLE",')
     W('    "DELETE_ARTICLE", "CREATE_PAGE", "SAVE_PAGE", "DELETE_PAGE", "SET_THEME",')
     W('    "PREVIEW", "REGEN", "UPLOAD_IMAGE"]);')
+    W('// 视图层 / 模板 / 主题 / 元数据 / 排序 —— 全部复用已交付模块，不重写')
+    W('IMPORT("./../lib/admin_views.wll", ["DASHBOARD_VIEW", "ARTICLE_FORM_VIEW",')
+    W('    "PAGE_FORM_VIEW", "PAGES_DASHBOARD_VIEW", "THEME_SELECTOR_VIEW",')
+    W('    "LOGIN_VIEW", "NAV_HTML"]);')
+    W('IMPORT("./../lib/admin_ai.wll", ["AI_ASSIST_JSON", "TRANSLATE_JSON"]);')
+    W('IMPORT("./../lib/template.wll", ["SAFE_SUBSTITUTE"]);')
+    W('IMPORT("./../lib/esc.wll", ["ESCAPE_HTML"]);')
+    W('IMPORT("./../lib/frontmatter.wll", ["PARSE_META"]);')
+    W('IMPORT("./../lib/article_store.wll", ["VALIDATE_FILENAME", "SOURCE_PATH",')
+    W('    "DECODE_CONTENT"]);')
+    W('IMPORT("./../lib/sort_util.wll", ["SORT_BY_DATE", "SORT_BY_TITLE_OR_FILE"]);')
+    W('IMPORT("./../lib/theme.wll", ["LIST_THEMES"]);')
     W('')
 
     # ── 配置 ──────────────────────────────────────────────────────────
@@ -210,22 +314,192 @@ def main():
     W('// 页面标题（app.py:288-298）')
     W('LET(SAD_TITLES, ' + chain([(k, wl(v)) for k, v in TITLES]) + ');')
     W('')
+    W('// 主题目录 / 当前主题（views.py:244 用字面量 Path("themes")；config.py:42）')
+    W('LET(SAD_THEMES_DIR, ENV_GET("TP_THEMES_DIR", "themes"));')
+    W('LET(SAD_THEME_NAME, ENV_GET("TP_THEME", "default"));')
+    W('')
+    W('// AI 配置（config.py:63-68；只认布尔 TRUE，见 admin_ai 的 IS_ENABLED 口径）')
+    W('LET(SAD_AI_FLAG, TO_LOWER(ENV_GET("TP_AI_ENABLED", "")));')
+    W('LET(SAD_AI_ENABLED, ||(==(SAD_AI_FLAG, "1"), ==(SAD_AI_FLAG, "true")));')
+    W('LET(SAD_CFG, ' + chain([
+        ('page_size', str(PAGE_SIZE)),
+        ('max_file_size', str(MAX_FILE_SIZE)),
+        ('max_title_length', str(MAX_TITLE_LENGTH)),
+        ('max_content_length', str(MAX_CONTENT_LENGTH)),
+        ('ai_enabled', 'SAD_AI_ENABLED'),
+        ('ai_api_key', 'ENV_GET("TP_AI_API_KEY", "")'),
+        ('ai_model', 'ENV_GET("TP_AI_MODEL", "gpt-3.5-turbo")'),
+        ('ai_provider', 'ENV_GET("TP_AI_PROVIDER", "openai")'),
+        ('ai_endpoint', 'ENV_GET("TP_AI_ENDPOINT", "")'),
+    ]) + ');')
+    W('')
+    W('// 侧边导航项（responses.py:69-75）；NAV_HTML 读 [href, label, icon_name]')
+    W('LET(SAD_NAV_ITEMS, ' + '[' + ', '.join(
+        '[' + ', '.join(wl(x) for x in item) + ']' for item in NAV_ITEMS) + ']);')
+    W('// app.py:192-212：这几条路由的 render_admin_page(htmx=True)')
+    W('LET(SAD_HTMX_ROUTES, [' + ', '.join(wl(r) for r in HTMX_ROUTES) + ']);')
+    W('LET(SAD_HTMX_SCRIPT, ' + wl('<script src="/htmx.min.js"></script>') + ');')
+    W('')
 
-    # ── HTML 片段 ─────────────────────────────────────────────────────
-    W('// ── HTML 片段（视图层未交付 ⇒ 占位页；登录页是**能用**的最小表单）────────')
-    W('// ⚠ WLWL 不做字面量拼接（`"a" "b"` 是 E0002）⇒ 每段都是**一个**字面量，用 CAT 连。')
-    W('LET(SAD_PAGE, FUN((title, body), (')
-    W('     ' + call('CAT', wl(PAGE_HEAD), 'title', wl(PAGE_MID), 'body', wl(PAGE_TAIL)))
-    W(')));')
+    # ── base.html 外壳 + 数据 ────────────────────────────────────────
+    W('// ── base.html 外壳（responses.py:58 render_admin_page）─────────────')
+    W('// ⚠ 模板正文逐字搬在生成器里，生成期与磁盘比对；`$` 在 WLWL 字面量里是插值')
+    W('//   ⇒ 全部发射成 `\\$`（wl() 负责，反斜杠先、美元符后）。')
+    W('LET(SAD_T_BASE, ' + wl(BASE_TEMPLATE) + ');')
     W('')
-    W('LET(SAD_LOGIN_FORM, FUN((csrf), (')
-    W('     ' + call('CAT', wl(LOGIN_HEAD), 'csrf', wl(LOGIN_MID)))
-    W(')));')
-    W('')
-    W('LET(SAD_PLACEHOLDER, FUN((route), (')
-    W('     ' + call('CAT', wl(PH_HEAD), 'AT_K(SAD_TITLES, route, "管理后台")',
-                      wl(PH_MID), 'route', wl(PH_TAIL)))
-    W(')));')
+    A.extend(fn('SAD_NAV', 'cur', [
+        '// templates.py:35 build_nav_html（复用视图层的 NAV_HTML）',
+        'NAV_HTML(' + opts(('nav_items', 'SAD_NAV_ITEMS'), ('current_path', 'cur')) + ')',
+    ], '// 侧边导航'))
+
+    A.extend(fn('SAD_SHELL', 'title, body, csrf, path, htmx', [
+        '// responses.py:79-87 的六键：title 先 escape_html；body/nav_html 是**片段**',
+        'LET MUT(m, DICT())',
+        'SET(m, INDEX_SET(m, "title", ESCAPE_HTML(title)))',
+        'SET(m, INDEX_SET(m, "body", body))',
+        'SET(m, INDEX_SET(m, "csrf_token", csrf))',
+        'SET(m, INDEX_SET(m, "current_path", path))',
+        'SET(m, INDEX_SET(m, "nav_html", SAD_NAV(path)))',
+        'SET(m, INDEX_SET(m, "htmx_script", htmx))',
+        'SAFE_SUBSTITUTE(SAD_T_BASE, m)',
+    ], '// 整页外壳（base.html + SAFE_SUBSTITUTE，缺键原样保留）'))
+
+    W('// ── 数据（读目录；口径 == content.py:153 list_articles / :674 list_standalones）')
+    W('// ⚠ 入口不做 Python 的「懒迁移写盘」：GET 一律只读。')
+    A.extend(fn('SAD_AS_STR', 'v, d', [
+        'IF(==(TYPE(v), "STRING"), v, d)',
+    ]))
+    A.extend(fn('SAD_READ_OR', 'p, fb', [
+        '// ⚠ `LET(r, READ_FILE(p))` 绑定**不算消费** ERR（坑 25）',
+        'IF(IS_ERR(READ_FILE(p)), fb, READ_FILE(p))',
+    ]))
+    A.extend(fn('SAD_FILE_SIZE', 'p', [
+        '// 取不到给 -1（Python 侧 entry.stat() 抛错时整篇跳过；这里放过大小门）',
+        'IF(IS_ERR(FILE_META(p)), -1, AT_K(FILE_META(p), "size", 0))',
+    ]))
+    A.extend(fn('SAD_TAG_LIST', 'tags', [
+        '// == ArticleMeta.tag_list：split(",") → strip → 丢空',
+        'LET MUT(out, [])',
+        C('IF', '!=(tags, "")', [
+            C('FOR', 't0, SPLIT(tags, ",")', [
+                'LET(t, TRIM(t0))',
+                C('IF', '==(t, "")', ['NULL'], ['SET(out, PUSH(out, t))']),
+            ]),
+        ], ['NULL']),
+        'out',
+    ]))
+    A.extend(fn('SAD_ART_REC', 'meta, name', [
+        '// meta 是 PARSE_META 的 DICT；补 ArticleMeta 的派生字段',
+        'LET MUT(r, meta)',
+        'LET(status, TO_LOWER(SAD_AS_STR(AT_K(r, "status", "published"), "published")))',
+        'SET(r, INDEX_SET(r, "file", name))',
+        'SET(r, INDEX_SET(r, "tag_list", SAD_TAG_LIST(SAD_AS_STR(AT_K(r, "tags", ""), ""))))',
+        'SET(r, INDEX_SET(r, "is_draft", ==(status, "draft")))',
+        '// models.py:50 is_published == status.lower() != "draft"',
+        'SET(r, INDEX_SET(r, "is_published", !=(status, "draft")))',
+        'r',
+    ]))
+    A.extend(fn('SAD_LIST_ARTICLES', 'dir, max_size', [
+        '// content.py:171-196：.html + validate_filename + 大小 + 日期可解析；收草稿',
+        'LET MUT(out, [])',
+        C('IF', '!IS_ERR(LIST_DIR(dir))', [
+            C('FOR', 'e, LIST_DIR(dir)', [
+                'LET(name, PATH_BASE(e))',
+                C('IF', '!=(PATH_EXT(name), "html")', ['NULL'], [
+                    C('IF', '!VALIDATE_FILENAME(name)', ['NULL'], [
+                        C('IF', '>(SAD_FILE_SIZE(e), max_size)', ['NULL'], [
+                            'LET(meta, PARSE_META(SAD_READ_OR(e, "")))',
+                            'SET(out, PUSH(out, SAD_ART_REC(meta, name)))',
+                        ]),
+                    ]),
+                ]),
+            ]),
+        ], ['NULL']),
+        '// == arts.sort(key=date_obj, reverse=True)（sort_util 稳定降序）',
+        'SORT_BY_DATE(out)',
+    ]))
+    W('// 独立页文件名白名单 == content.py:662 SAFE_PAGE_FILENAME')
+    W('// ⚠ CJK 用**字面** `一-龥`（坑 20：`\\u4e00` 在 WLWL 正则里不生效）')
+    W('LET(SAD_PAGE_NAME_RE, RE(' + wl(PAGE_NAME_RE) + '));')
+    A.extend(fn('SAD_LIST_PAGES', 'dir, max_size', [
+        'LET MUT(out, [])',
+        C('IF', '!IS_ERR(LIST_DIR(dir))', [
+            C('FOR', 'e, LIST_DIR(dir)', [
+                'LET(name, PATH_BASE(e))',
+                C('IF', '!RE_TEST(SAD_PAGE_NAME_RE, name)', ['NULL'], [
+                    C('IF', '>(SAD_FILE_SIZE(e), max_size)', ['NULL'], [
+                        'LET MUT(r, SAD_ART_REC(PARSE_META(SAD_READ_OR(e, "")), name))',
+                        '// slug = 去掉 ".html" 的干名（Python: entry.stem）',
+                        'SET(r, INDEX_SET(r, "slug", SUB(name, 0, -(LEN(name), 5))))',
+                        'SET(out, PUSH(out, r))',
+                    ]),
+                ]),
+            ]),
+        ], ['NULL']),
+        '// == pages.sort(key=lambda x: x.title or x.file)',
+        'SORT_BY_TITLE_OR_FILE(out)',
+    ]))
+    A.extend(fn('SAD_FIND', 'arr, key, val', [
+        '// 线性找第一条 arr[i][key] == val（Python 的 next((a for a in ...), None)）',
+        'LET MUT(out, NULL)',
+        'LET(n, LEN(arr))',
+        'LET MUT(i, 0)',
+        C('WHILE', '&&(<(i, n), ==(TYPE(out), "NULL"))', [
+            'LET(it, AT(arr, i, DICT()))',
+            C('IF', '==(SAD_AS_STR(AT_K(it, key, ""), ""), val)',
+              ['SET(out, it)'], ['NULL']),
+            'SET(i, +(i, 1))',
+        ]),
+        'out',
+    ]))
+    A.extend(fn('SAD_RAW', 'dir, fname', [
+        '// content.py:493 get_raw_content 的**只读**部分：兄弟 .md → HTML 内嵌正文 → summary',
+        'LET MUT(out, "")',
+        C('IF', '==(fname, "")', ['NULL'], [
+            'LET(p, PATH_JOIN(dir, fname))',
+            'LET(md, SOURCE_PATH(p))',
+            C('IF', 'EXISTS(md)', [
+                'SET(out, SAD_READ_OR(md, ""))',
+            ], [
+                'LET(html, SAD_READ_OR(p, ""))',
+                'LET(d, DECODE_CONTENT(html))',
+                C('IF', '==(TYPE(d), "STRING")', [
+                    'SET(out, d)',
+                ], [
+                    'LET(meta, PARSE_META(html))',
+                    'SET(out, SAD_AS_STR(AT_K(meta, "summary", ""), ""))',
+                ]),
+            ]),
+        ]),
+        'out',
+    ]))
+    A.extend(fn('SAD_PATH_OF', 'req', [
+        '// PATH_INFO（去掉查询串）：nav 高亮与 MATCH_ROUTE 都不看 query',
+        'LET(p, SAD_AS_STR(AT_K(req, "path", ""), ""))',
+        'LET(i, INDEX_OF(p, "?"))',
+        'IF(<(i, 0), p, SUB(p, 0, i))',
+    ]))
+    A.extend(fn('SAD_QUERY', 'req, key', [
+        '// QUERY_STRING 里 key 的第一个值（Python：parse_qs(...).get(k, [""])[0]）',
+        'LET(p, SAD_AS_STR(AT_K(req, "path", ""), ""))',
+        'LET(qi, INDEX_OF(p, "?"))',
+        'LET MUT(out, "")',
+        'LET MUT(found, FALSE)',
+        C('IF', '>=(qi, 0)', [
+            C('FOR', 'part, SPLIT(SUB(p, +(qi, 1)), "&")', [
+                'LET(eq, INDEX_OF(part, "="))',
+                C('IF', '||(found, <(eq, 0))', ['NULL'], [
+                    C('IF', '==(SUB(part, 0, eq), key)', [
+                        'LET(rawv, SUB(part, +(eq, 1)))',
+                        '// 非法 percent 转义 ⇒ 原样（fail open：只影响查询参数取值）',
+                        'SET(out, IF(IS_ERR(URL_DECODE(rawv)), rawv, URL_DECODE(rawv)))',
+                        'SET(found, TRUE)',
+                    ], ['NULL']),
+                ]),
+            ]),
+        ], ['NULL']),
+        'out',
+    ]))
     W('')
 
     # ── 请求工具 ──────────────────────────────────────────────────────
@@ -354,27 +628,117 @@ def main():
       + call('UPLOAD_IMAGE', opts(('filename', ffield('filename')),
                                   ('data', ffield('data')),
                                   ('static_dir', 'SAD_STATIC_DIR'))) + '))), NULL);')
-    W('     // /ai-assist 与 /translate：admin_actions.wll 里没有实现（见文件头缺口 ③）')
+    W('     // /ai-assist（actions.py:296-329）：**永远** 200 + application/json')
+    W('     //   action / text / lang 三个表单字段 == actions.py:299-314 的取法')
+    W('     IF(==(route, "ai_assist"), (RETURN(JSON_RESPONSE(' + opts(
+        ('status', '200'),
+        ('body', 'AI_ASSIST_JSON(' + opts(
+            ('action', ffield('action')),
+            ('text', ffield('text')),
+            ('target', ffield('lang')),
+            ('cfg', 'SAD_CFG')) + ')')) + '))), NULL);')
+    W('     // /translate（content.py:757-842 的**文本层**）：收 text + lang，不出文件')
+    W('     IF(==(route, "translate_article"), (RETURN(JSON_RESPONSE(' + opts(
+        ('status', '200'),
+        ('body', 'TRANSLATE_JSON(' + opts(
+            ('text', ffield('text')),
+            ('target', ffield('lang')),
+            ('cfg', 'SAD_CFG')) + ')')) + '))), NULL);')
     W('     TEXT_ERROR_RESPONSE(500, CAT("action not implemented: ", route))')
     W(')));')
     W('')
 
     # ── 各 kind 的响应 ────────────────────────────────────────────────
     W('// ── 各 kind 的响应 ───────────────────────────────────────────────')
-    W('LET(SAD_LOGIN_GET, FUN((cookie), (')
-    W('     // app.py:226-237：头序 = Content-Type → CSRF cookie → CSP → 5 个安全头')
+    W('LET(SAD_LOGIN_GET, FUN((req, cookie), (')
+    W('     // app.py:226-237：login.html 是**整页**（不走 base.html）；头序照旧：')
+    W('     //   Content-Type → CSRF cookie → CSP → 5 个安全头')
     W('     LET(csrf, SAD_EXISTING_CSRF(cookie));')
+    W('     LET(body, LOGIN_VIEW(' + opts(
+        ('csrf_token', 'csrf'),
+        ('error', 'SAD_QUERY(req, "error")'),
+        ('locked', 'SAD_QUERY(req, "locked")')) + '));')
     W('     HTML_RESPONSE(' + opts(
-        ('body', 'SAD_PAGE("登录", SAD_LOGIN_FORM(csrf))'),
+        ('body', 'body'),
         ('csrf_token', 'csrf'),
         ('security_last', 'TRUE')) + ')')
     W(')));')
     W('')
-    W('LET(SAD_VIEW, FUN((route, cookie), (')
-    W('     // app.py:185-224：GET 页面（render_admin_page 也发 CSRF cookie）')
+    A.extend(fn('SAD_VIEW_BODY', 'route, req, csrf', [
+        '// app.py:194-214 的 GET 分派：每条路由取自己的数据，交给视图层渲染**正文**',
+        '// ⚠ 视图层已处理「取不到就显示未找到」⇒ 这里不做额外兜底',
+        'LET(mfs, AT_K(SAD_CFG, "max_file_size", 10485760))',
+        C('IF', '==(route, "dashboard")', [
+            'RETURN(DASHBOARD_VIEW(' + opts(
+                ('csrf_token', 'csrf'),
+                ('articles', 'SAD_LIST_ARTICLES(SAD_ARTICLE_DIR, mfs)'),
+                ('standalones', 'SAD_LIST_PAGES(SAD_STANDALONE_DIR, mfs)'),
+                ('page', 'SAD_QUERY(req, "page")'),
+                ('cfg', 'SAD_CFG')) + '))',
+        ], ['NULL']),
+        C('IF', '==(route, "pages_dashboard")', [
+            'RETURN(PAGES_DASHBOARD_VIEW(' + opts(
+                ('csrf_token', 'csrf'),
+                ('pages', 'SAD_LIST_PAGES(SAD_STANDALONE_DIR, mfs)')) + '))',
+        ], ['NULL']),
+        C('IF', '==(route, "new_article")', [
+            '// views.py:132 的分类 datalist 要**全部**文章（含草稿）',
+            '// ⚠ Python 的 date 缺省是 datetime.now()；WLWL 无本地时区格式化 ⇒ 空串',
+            'RETURN(ARTICLE_FORM_VIEW(' + opts(
+                ('csrf_token', 'csrf'),
+                ('is_edit', 'FALSE'),
+                ('now', '""'),
+                ('articles', 'SAD_LIST_ARTICLES(SAD_ARTICLE_DIR, mfs)'),
+                ('content', '""'),
+                ('cfg', 'SAD_CFG')) + '))',
+        ], ['NULL']),
+        C('IF', '==(route, "edit_article")', [
+            '// views.py:94-117：按 ?file= 定位；拿不到 ⇒ 视图回 "Article not found"',
+            'LET(fname, SAD_QUERY(req, "file"))',
+            'LET(arts, SAD_LIST_ARTICLES(SAD_ARTICLE_DIR, mfs))',
+            'RETURN(ARTICLE_FORM_VIEW(' + opts(
+                ('csrf_token', 'csrf'),
+                ('is_edit', 'TRUE'),
+                ('now', '""'),
+                ('articles', 'arts'),
+                ('article', 'SAD_FIND(arts, "file", fname)'),
+                ('content', 'SAD_RAW(SAD_ARTICLE_DIR, fname)'),
+                ('cfg', 'SAD_CFG')) + '))',
+        ], ['NULL']),
+        C('IF', '==(route, "new_page")', [
+            'RETURN(PAGE_FORM_VIEW(' + opts(
+                ('csrf_token', 'csrf'),
+                ('is_edit', 'FALSE'),
+                ('content', '""'),
+                ('cfg', 'SAD_CFG')) + '))',
+        ], ['NULL']),
+        C('IF', '==(route, "edit_page")', [
+            'LET(fname, SAD_QUERY(req, "file"))',
+            'LET(pgs, SAD_LIST_PAGES(SAD_STANDALONE_DIR, mfs))',
+            'RETURN(PAGE_FORM_VIEW(' + opts(
+                ('csrf_token', 'csrf'),
+                ('is_edit', 'TRUE'),
+                ('page', 'SAD_FIND(pgs, "file", fname)'),
+                ('content', 'SAD_RAW(SAD_STANDALONE_DIR, fname)'),
+                ('cfg', 'SAD_CFG')) + '))',
+        ], ['NULL']),
+        C('IF', '==(route, "theme")', [
+            'RETURN(THEME_SELECTOR_VIEW(' + opts(
+                ('csrf_token', 'csrf'),
+                ('themes', 'LIST_THEMES(SAD_THEMES_DIR)'),
+                ('current_theme', 'SAD_THEME_NAME')) + '))',
+        ], ['NULL']),
+        '""',
+    ], '// GET 正文（视图层输出；外壳由 SAD_VIEW 套）'))
+    W('LET(SAD_VIEW, FUN((route, req, cookie), (')
+    W('     // app.py:185-224：render_admin_page（也发 CSRF cookie）')
     W('     LET(csrf, SAD_EXISTING_CSRF(cookie));')
+    W('     LET(body, SAD_VIEW_BODY(route, req, csrf));')
+    W('     LET(shell, SAD_SHELL(AT_K(SAD_TITLES, route, "管理后台"), body, csrf,')
+    W('          SAD_PATH_OF(req),')
+    W('          IF(CONTAINS(SAD_HTMX_ROUTES, route), SAD_HTMX_SCRIPT, "")));')
     W('     HTML_RESPONSE(' + opts(
-        ('body', 'SAD_PAGE(AT_K(SAD_TITLES, route, "管理后台"), SAD_PLACEHOLDER(route))'),
+        ('body', 'shell'),
         ('csrf_token', 'csrf')) + ')')
     W(')));')
     W('')
@@ -437,10 +801,10 @@ def main():
     W('')
     W('LET(SAD_DISPATCH, FUN((m, req, cookie), (')
     W('     LET(kind, AT_K(m, "kind", ""));')
-    W('     IF(==(kind, "login"), (RETURN(SAD_LOGIN_GET(cookie))), NULL);')
+    W('     IF(==(kind, "login"), (RETURN(SAD_LOGIN_GET(req, cookie))), NULL);')
     W('     IF(==(kind, "login_post"), (RETURN(SAD_LOGIN_POST(req, cookie))), NULL);')
     W('     IF(==(kind, "logout_post"), (RETURN(SAD_LOGOUT(cookie))), NULL);')
-    W('     IF(==(kind, "get"), (RETURN(SAD_VIEW(AT_K(m, "route", ""), cookie))), NULL);')
+    W('     IF(==(kind, "get"), (RETURN(SAD_VIEW(AT_K(m, "route", ""), req, cookie))), NULL);')
     W('     SAD_POST(m, req, cookie)')
     W(')));')
     W('')
@@ -516,6 +880,12 @@ def main():
     print('wrote %s (%d chars, %d lines)' % (OUT, chars, lines))
 
 
+def main_guarded():
+    """先跑模板漂移守卫，再生成（上游改了 base.html ⇒ 生成即失败）。"""
+    check_base_template()
+    main()
+
+
 def _action_call(route, location):
     """「构造 opts → 调动作 → 转响应」的表达式（**单行**，括号由 chain/call 保证）。"""
     if route == 'create_article':
@@ -552,4 +922,4 @@ def _action_call(route, location):
 
 
 if __name__ == '__main__':
-    main()
+    main_guarded()

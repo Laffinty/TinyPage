@@ -1,0 +1,503 @@
+// tp/lib/admin_views.wll —— admin 视图层（卡 S4-6）
+//
+// ⚠ 本文件由 tp/test/gen_admin_views.py 生成 —— 请勿手改。
+//   改实现请改生成器（WLWL 的括号诊断不告诉你缺了几层）。
+//
+// 对齐目标（真 Python 源码树 tinypage/admin/）：
+//   DASHBOARD_VIEW(opts)       == views.py:14   dashboard_view
+//   ARTICLE_FORM_VIEW(opts)    == views.py:90   article_form_view
+//   PAGE_FORM_VIEW(opts)       == views.py:162  page_form_view
+//   PAGES_DASHBOARD_VIEW(opts) == views.py:213  pages_dashboard_view
+//   THEME_SELECTOR_VIEW(opts)  == views.py:239  theme_selector_view
+//   LOGIN_VIEW(opts)           == views.py:275  login_view
+//   AI_PANEL(opts)             == views.py:291  _build_ai_panel
+//   NAV_HTML(opts)             == templates.py:35 build_nav_html
+//
+// 逐字节对照基准：tp/test/fixtures/admin_views_baseline.json
+//   （由 tp/test/gen_admin_views_baseline.py 用真 Python 生成）
+//
+// ⚠ 模板替换的口径是 safe_substitute（templates.py:32），**不是** substitute：
+//   缺键 ⇒ 原样保留占位符。直接复用 ./template.wll 的 SAFE_SUBSTITUTE。
+//
+// ⚠ 模板正文里的 `$var` 是**要交给 SAFE_SUBSTITUTE 的占位符**，
+//   在 WLWL 源码里必须写成 `\$var`（README #32：字面量里的 `$x` 是插值）。
+//   实测 `"\$a"` ⇒ `$a`、`"\${b}"` ⇒ `${b}`、`"\$\$"` ⇒ `$$`。
+//
+// ⚠ escape 只照 views.py 的调用点做：`rows` / `nav_html` / `datalist` /
+//   `ai_panel` / `file_input` / `theme_cards` 等是**已构造好的 HTML 片段**，
+//   一律原样代入（全 escape 会把编辑器与表单弄坏）。
+//
+// ⚠ 顶层名全部加 `AV_` 前缀（README #52：顶层绑定跨模块共享，且诊断行号会错标）；
+//   只有 8 个契约导出名不加前缀（已核实全仓无同名顶层绑定）。
+
+IMPORT("wlwl:std.str", ["CAT"]);
+IMPORT("wlwl:std.text", ["TO_INT"]);
+IMPORT("wlwl:std.regex", ["RE", "RE_TEST"]);
+IMPORT("./esc.wll", ["ESCAPE_HTML"]);
+IMPORT("./template.wll", ["SAFE_SUBSTITUTE"]);
+IMPORT("./sort_util.wll", ["SORT_STRINGS"]);
+
+// ── 模板正文（逐字来自 admin_templates/*.html，生成期已与磁盘比对）──
+// ⚠ 每个 `$` 都是 `\$`：它们是 SAFE_SUBSTITUTE 的占位符，不是 WLWL 插值。
+// dashboard.html
+LET(AV_T_DASHBOARD, "<div class=\"admin-wrapper\">\n  <h1>仪表盘</h1>\n  <div class=\"bento-grid stats-grid\">\n    <div class=\"stat-card\">\n      <div class=\"stat-value\">\$total</div>\n      <div class=\"stat-label\">文章总数</div>\n    </div>\n    <div class=\"stat-card\">\n      <div class=\"stat-value\">\$draft_count</div>\n      <div class=\"stat-label\">草稿</div>\n    </div>\n    <div class=\"stat-card\">\n      <div class=\"stat-value\">\$page_count</div>\n      <div class=\"stat-label\">独立页面</div>\n    </div>\n  </div>\n  <div class=\"glass-banner\">\n    <span class=\"pulse-dot\"></span>\n    <strong>安全提醒：</strong>所有操作已记录审计日志 | CSRF保护已启用\n  </div>\n  <div class=\"actions\">\n    <a href=\"/new\" class=\"btn-primary btn-glow\">+ 新建文章</a>\n    <a href=\"/new-page\" class=\"btn-primary\">+ 新建页面</a>\n    <a href=\"/pages\" class=\"btn-secondary\">📄 管理页面</a>\n    <form method=\"post\" action=\"/regen\" hx-post=\"/regen\" hx-target=\"#regen-status\" style=\"display:inline;\">\n      <input type=\"hidden\" name=\"csrf_token\" value=\"\$csrf_token\">\n      <button type=\"submit\" class=\"btn-secondary\" id=\"regen-btn\">\n        <span class=\"btn-icon\">↻</span> 重新生成静态页\n      </button>\n    </form>\n    <span id=\"regen-status\"></span>\n    <a href=\"/theme\" class=\"btn-secondary\">◐ 主题</a>\n    <div class=\"search-wrap\">\n      <input type=\"search\" id=\"article-search\" placeholder=\"搜索文章标题...\" oninput=\"filterArticles(this.value)\">\n    </div>\n  </div>\n  <div class=\"table-card\">\n    <table class=\"admin-table\">\n      <thead>\n        <tr>\n          <th style=\"width:55%\">标题</th>\n          <th style=\"width:25%\">发布时间</th>\n          <th style=\"width:20%\">操作</th>\n        </tr>\n      </thead>\n      <tbody>\$rows</tbody>\n    </table>\n  </div>\n  \$nav_html\n  <p class=\"table-meta\">共 \$total 篇文章，第 \$page/\$pages 页</p>\n</div>\n");
+// article_form.html
+LET(AV_T_ARTICLE_FORM, "<div class=\"admin-wrapper\">\n  <h1>\$heading</h1>\n  <div class=\"editor-grid\">\n    <div class=\"editor-form\">\n      <form method=\"post\" action=\"\$form_action\" id=\"article-form\">\n        <input type=\"hidden\" name=\"csrf_token\" value=\"\$csrf_token\">\n        \$file_input\n        <div class=\"form-group\">\n          <input name=\"title\" value=\"\$title\" placeholder=\"文章标题\" required maxlength=\"\$max_title_length\">\n        </div>\n        <div class=\"form-group\">\n          <input name=\"date\" value=\"\$date\" required pattern=\"\\d{4}-\\d{2}-\\d{2} \\d{2}:\\d{2}\">\n        </div>\n        <div class=\"form-group\">\n          <input name=\"category\" list=\"category-list\" value=\"\$category\" placeholder=\"分类\">\n          \$datalist\n        </div>\n        <div class=\"form-group\">\n          <input name=\"tags\" value=\"\$tags\" placeholder=\"标签，用逗号分隔\">\n        </div>\n        <div class=\"form-group\">\n          <select name=\"status\">\n            <option value=\"published\"\$pub_selected>发布</option>\n            <option value=\"draft\"\$draft_selected>草稿</option>\n          </select>\n        </div>\n        \$ai_panel\n        <div id=\"drop-zone\" onclick=\"document.getElementById('file-input').click()\" ondragover=\"event.preventDefault();this.classList.add('dragover')\" ondragleave=\"this.classList.remove('dragover')\" ondrop=\"handleDrop(event)\">\n          <span class=\"drop-icon\">📎</span>\n          <span>拖拽图片到此处上传，或点击选择文件</span>\n          <input type=\"file\" id=\"file-input\" accept=\"image/*\" style=\"display:none\" onchange=\"handleFileSelect(event)\">\n        </div>\n        <div class=\"form-group\">\n          <textarea name=\"content\" placeholder=\"支持 Markdown：# 标题、**粗体**、*斜体*、`代码`、[链接](url)、```代码块```\" required maxlength=\"\$max_content_length\" hx-trigger=\"keyup changed delay:500ms\" hx-post=\"/preview\" hx-target=\"#live-preview\" hx-include=\"#article-form\">\$content</textarea>\n        </div>\n        <div class=\"form-actions\">\n          <button type=\"submit\" class=\"btn-primary btn-glow\">\$submit_label</button>\n          <a href=\"/\" class=\"btn-secondary\">返回</a>\n        </div>\n      </form>\n    </div>\n    <div class=\"editor-preview\">\n      <div class=\"preview-header\">\n        <span class=\"preview-badge\">Live Preview</span>\n      </div>\n      <div id=\"live-preview\" class=\"preview-box\">\n        <p class=\"preview-placeholder\">在左侧输入内容，预览将显示在这里...</p>\n      </div>\n    </div>\n  </div>\n</div>\n");
+// page_form.html
+LET(AV_T_PAGE_FORM, "<div class=\"admin-wrapper\">\n  <h1>\$heading</h1>\n  <div class=\"editor-grid\">\n    <div class=\"editor-form\">\n      <form method=\"post\" action=\"\$form_action\" id=\"page-form\">\n        <input type=\"hidden\" name=\"csrf_token\" value=\"\$csrf_token\">\n        \$file_input\n        <div class=\"form-group\">\n          <input name=\"title\" value=\"\$title\" placeholder=\"页面标题\" required maxlength=\"\$max_title_length\">\n        </div>\n        <div class=\"form-group\">\n          <input name=\"slug\" value=\"\$slug\" placeholder=\"URL 标识（如 about）\" required pattern=\"[a-zA-Z0-9\\u4e00-\\u9fa5_-]+\" title=\"字母、数字、中文、下划线、连字符\">\n        </div>\n        \$ai_panel\n        <div id=\"drop-zone\" onclick=\"document.getElementById('file-input').click()\" ondragover=\"event.preventDefault();this.classList.add('dragover')\" ondragleave=\"this.classList.remove('dragover')\" ondrop=\"handleDrop(event)\">\n          <span class=\"drop-icon\">📎</span>\n          <span>拖拽图片到此处上传，或点击选择文件</span>\n          <input type=\"file\" id=\"file-input\" accept=\"image/*\" style=\"display:none\" onchange=\"handleFileSelect(event)\">\n        </div>\n        <div class=\"form-group\">\n          <textarea name=\"content\" placeholder=\"支持 Markdown\" required maxlength=\"\$max_content_length\" hx-trigger=\"keyup changed delay:500ms\" hx-post=\"/preview\" hx-target=\"#live-preview\" hx-include=\"#page-form\">\$content</textarea>\n        </div>\n        <div class=\"form-actions\">\n          <button type=\"submit\" class=\"btn-primary btn-glow\">\$submit_label</button>\n          <a href=\"/pages\" class=\"btn-secondary\">返回</a>\n        </div>\n      </form>\n    </div>\n    <div class=\"editor-preview\">\n      <div class=\"preview-header\">\n        <span class=\"preview-badge\">Live Preview</span>\n      </div>\n      <div id=\"live-preview\" class=\"preview-box\">\n        <p class=\"preview-placeholder\">在左侧输入内容，预览将显示在这里...</p>\n      </div>\n    </div>\n  </div>\n</div>\n");
+// pages_dashboard.html
+LET(AV_T_PAGES_DASHBOARD, "<div class=\"admin-wrapper\">\n  <h1>独立页面管理</h1>\n  <div class=\"actions\">\n    <a href=\"/new-page\" class=\"btn-primary btn-glow\">+ 新建页面</a>\n    <a href=\"/\" class=\"btn-secondary\">返回文章</a>\n  </div>\n  <div class=\"table-card\">\n    <table class=\"admin-table\">\n      <thead>\n        <tr>\n          <th style=\"width:45%\">标题</th>\n          <th style=\"width:35%\">路径</th>\n          <th style=\"width:20%\">操作</th>\n        </tr>\n      </thead>\n      <tbody>\$rows</tbody>\n    </table>\n  </div>\n  <p class=\"table-meta\">共 \$total 个页面</p>\n</div>\n");
+// theme_selector.html
+LET(AV_T_THEME_SELECTOR, "<div class=\"admin-wrapper\">\n  <h1>主题管理</h1>\n  <div class=\"actions\">\n    <a href=\"/\" class=\"btn-secondary\">返回后台</a>\n  </div>\n  <p class=\"theme-current\">当前主题：<strong>\$current_theme</strong></p>\n  <div class=\"theme-grid\">\n    \$theme_cards\n  </div>\n</div>\n");
+// login.html
+LET(AV_T_LOGIN, "<!DOCTYPE html>\n<html lang=\"zh-CN\">\n<head>\n<meta charset=\"utf-8\">\n<meta name=\"viewport\" content=\"width=device-width,initial-scale=1\">\n<meta name=\"color-scheme\" content=\"light dark\">\n<title>登录 - TinyPage Admin</title>\n<link rel=\"stylesheet\" href=\"/admin.css\">\n<script>\n(function(){\n  var m = localStorage.getItem('theme');\n  if (m === 'light' || (!m && window.matchMedia('(prefers-color-scheme: light)').matches)) {\n    document.documentElement.classList.add('light');\n  }\n})();\n</script>\n</head>\n<body class=\"login-body\">\n<button class=\"theme-toggle login-theme-toggle\" aria-label=\"切换主题\" onclick=\"toggleTheme()\">🌓</button>\n<div class=\"login-bg\"></div>\n<div class=\"login-container\">\n  <div class=\"login-card glass-panel\">\n    <div class=\"login-brand\">\n      <span class=\"brand-logo\">TinyPage</span>\n    </div>\n    <div class=\"login-subtitle\">管理后台登录</div>\n    \$error_msg\n    <form method=\"post\" action=\"/login\" class=\"login-form\">\n      <input type=\"hidden\" name=\"csrf_token\" value=\"\$csrf_token\">\n      <div class=\"input-group\">\n        <input type=\"text\" id=\"username\" name=\"username\" required autocomplete=\"username\" autofocus placeholder=\" \">\n        <label for=\"username\">用户名</label>\n      </div>\n      <div class=\"input-group\">\n        <input type=\"password\" id=\"password\" name=\"password\" required autocomplete=\"current-password\" placeholder=\" \">\n        <label for=\"password\">密码</label>\n      </div>\n      <button type=\"submit\" class=\"btn-primary btn-glow\">登录</button>\n    </form>\n    <div class=\"login-footer\">所有登录尝试已记录审计日志</div>\n  </div>\n</div>\n<script src=\"/admin.js\"></script>\n</body>\n</html>\n");
+
+// 图标表 —— 逐字照 templates.py:43-49（未知 icon_name ⇒ "•"）
+LET(AV_ICONS, INDEX_SET(INDEX_SET(INDEX_SET(INDEX_SET(INDEX_SET(DICT(), "dashboard", "◈"), "article", "+"), "page", "◉"), "pages", "☰"), "theme", "◐"));
+// 合法页码的形态（只用 ASCII 数字：WLWL 正则不认 \d，README #20）
+LET(AV_PAGE_RE, RE("^[0-9]+\$"));
+
+// // 字符串字段（缺失或 NULL ⇒ ""）
+     LET(AV_S, FUN((d, k), (
+               // 取字符串字段：键缺失**或值为 NULL** ⇒ ""（Python 侧这些字段恒为 str）;
+               // ⚠ 不能只靠 AT_K 的缺省值：键存在但值为 NULL 时 AT_K 返回 NULL。;
+               LET(v, AT_K(d, k, ""));
+               IF(==(TYPE(v), "NULL"), "", v)
+     )));
+
+// // 数组字段（缺失或 NULL ⇒ []）
+     LET(AV_ARR, FUN((d, k), (
+               // 取数组字段：键缺失**或值为 NULL** ⇒ [];
+               LET(v, AT_K(d, k, []));
+               IF(==(TYPE(v), "NULL"), [], v)
+     )));
+
+// // 字符串数组连接（对齐 sep.join）
+     LET(AV_JOIN, FUN((sep, items), (
+               // sep.join(items) —— 元素一律过 STR（Python 侧 ", ".join 只吃 str）;
+               // ⚠ 长度缓存到局部变量（README #21：数组的 LEN 是 O(n)，热循环里不能反复读）;
+               LET MUT(out, "");
+               LET MUT(i, 0);
+               LET(n, LEN(items));
+               WHILE(<(i, n), (
+                    IF(>(i, 0), (
+                         SET(out, +(out, sep))
+                    ), (
+                         NULL
+                    ));
+                    SET(out, +(out, STR(AT(items, i, ""))));
+                    SET(i, +(i, 1))
+               ));
+               out
+     )));
+
+// // 属性转义（== escape_html）
+     LET(AV_ATTR, FUN((s), (
+               // security.py:39 escape_attr —— 实测与 escape_html **逐字节相同**：;
+               //   html.escape(quote=True) 已经把 " 转成 &quot;，后面那次 .replace 是空操作;
+               //   （生成期由 gen_admin_views_baseline.py 用真 Python 断言）。;
+               ESCAPE_HTML(s)
+     )));
+
+// // 页码归一化（非法/越界 ⇒ 1）
+     LET(AV_PAGE, FUN((v), (
+               // 对齐 views.py:17-20：page = max(1, int(qs["page"][0]))，非法 ⇒ 1;
+               // ⚠ TO_INT 失败返 ERR ⇒ 不能先绑定（README #25）⇒ 照 http_client_tls.wll:51;
+               //   的既有形态：IS_ERR(...) 判别 + 分支里再算一次。;
+               LET(p, IF(!=(TYPE(v), "STRING"), IF(==(TYPE(v), "INTEGER"), v, 1), IF(RE_TEST(AV_PAGE_RE, v), IF(IS_ERR(TO_INT(v)), 1, TO_INT(v)), 1)));
+               IF(<(p, 1), 1, p)
+     )));
+
+// // 分类去重 + 排序（对齐 sorted({…})）
+     LET(AV_CATS, FUN((arts), (
+               // views.py:133 sorted({a.category for a in all_arts if a.category});
+               // ① 去重（保持首次出现序）② 再排序（SORT_STRINGS == Python sorted，码点序稳定）;
+               LET MUT(out, []);
+               LET MUT(i, 0);
+               LET(n, LEN(arts));
+               WHILE(<(i, n), (
+                    LET(c, AV_S(AT(arts, i, DICT()), "category"));
+                    IF(&&(!=(c, ""), !CONTAINS(out, c)), (
+                         SET(out, PUSH(out, c))
+                    ), (
+                         NULL
+                    ));
+                    SET(i, +(i, 1))
+               ));
+               SORT_STRINGS(out)
+     )));
+
+// // datalist 的 <option> 行（换行分隔）
+     LET(AV_OPTIONS, FUN((cats), (
+               // views.py:136 "\n".join(f'<option value="{escape_attr(c)}">');
+               LET MUT(out, "");
+               LET MUT(i, 0);
+               LET(n, LEN(cats));
+               WHILE(<(i, n), (
+                    IF(>(i, 0), (
+                         SET(out, +(out, "\n"))
+                    ), (
+                         NULL
+                    ));
+                    SET(out, +(out, CAT("<option value=\"", AV_ATTR(AT(cats, i, "")), "\">")));
+                    SET(i, +(i, 1))
+               ));
+               out
+     )));
+
+// // 翻译表单（views.py:43）
+     LET(AV_TRANSLATE, FUN((art, csrf), (
+               // views.py:43-56（⚠ 缩进逐字节照抄：6 空格 input / 8 空格 option；csrf 走 escape_attr）;
+               CAT("<form method=\"post\" action=\"/translate\" style=\"display:inline;\">\n      <input type=\"hidden\" name=\"csrf_token\" value=\"", AV_ATTR(csrf), "\">\n      <input type=\"hidden\" name=\"file\" value=\"", AV_ATTR(AV_S(art, "file")), "\">\n      <select name=\"lang\" onchange=\"if(this.value)this.form.submit()\"\n              style=\"padding:0.25rem 0.5rem;font-size:0.8rem;border-radius:var(--a-radius-sm);\n                     background:var(--a-surface);color:var(--a-text);border:1px solid var(--a-border);\">\n        <option value=\"\">翻译▼</option>\n        <option value=\"en\">English</option>\n        <option value=\"ja\">日本語</option>\n      </select>\n    </form>")
+     )));
+
+// // 文章列表的一行（views.py:32）
+     LET(AV_ROW, FUN((art, csrf, ai_on), (
+               // views.py:32-68 的一行 —— 逐字节照抄（含 2/4/6 空格缩进与行尾换行）;
+               LET(safe_title, ESCAPE_HTML(SUB(AV_S(art, "title"), 0, 80)));
+               LET(tags, AV_ARR(art, "tag_list"));
+               // views.py:34-37：标签整体进一个 <span class='tag'>（单引号形态照抄）;
+               LET(tags_display, IF(==(LEN(tags), 0), "", CAT("<span class='tag'>", ESCAPE_HTML(AV_JOIN(", ", tags)), "</span>")));
+               LET(is_draft, AT_K(art, "is_draft", FALSE));
+               LET(draft_label, IF(is_draft, "<span class=\"draft-badge\">草稿</span>", ""));
+               LET(cat, AV_S(art, "category"));
+               // views.py:39-42：分类标记（不是属性位置，用 escape_html）;
+               LET(cat_display, IF(==(cat, ""), "", CAT("<span style=\"color:var(--a-text-dim);font-size:0.8rem;margin-left:0.5rem;\">[", ESCAPE_HTML(cat), "]</span>")));
+               // views.py:55：cfg.ai_enabled and cfg.ai_api_key —— 两个都要真;
+               LET(translate_html, IF(ai_on, AV_TRANSLATE(art, csrf), ""));
+               // views.py:57：草稿行加内联底色（注意是**单引号**属性，照抄）;
+               LET(row_style, IF(is_draft, " style='background:var(--a-surface-elevated);'", ""));
+               CAT("<tr", row_style, ">\n  <td><a href=\"/edit?file=", AV_ATTR(AV_S(art, "file")), "\">", safe_title, "</a>", cat_display, draft_label, " ", tags_display, "</td>\n  <td>", ESCAPE_HTML(AV_S(art, "date")), "</td>\n  <td>\n    <form method=\"post\" action=\"/delete\" hx-post=\"/delete\" hx-target=\"closest tr\" hx-swap=\"outerHTML swap:0.3s\" hx-confirm=\"删除不可恢复，确定？\" style=\"display:inline;\">\n      <input type=\"hidden\" name=\"csrf_token\" value=\"", AV_ATTR(csrf), "\">\n      <input type=\"hidden\" name=\"file\" value=\"", AV_ATTR(AV_S(art, "file")), "\">\n      <button type=\"submit\" class=\"btn-danger btn-sm\" onclick=\"return confirm('删除不可恢复，确定？')\">删除</button>\n    </form>\n    ", translate_html, "\n  </td>\n</tr>")
+     )));
+
+// // 独立页面列表的一行（views.py:218）
+     LET(AV_PAGES_ROW, FUN((pg, csrf), (
+               // views.py:218-229 —— ⚠ safe_title 的 or 对**空串**也回落文件名;
+               LET(t80, SUB(AV_S(pg, "title"), 0, 80));
+               LET(safe_title, ESCAPE_HTML(IF(==(t80, ""), AV_S(pg, "file"), t80)));
+               CAT("<tr>\n  <td><a href=\"/edit-page?file=", AV_ATTR(AV_S(pg, "file")), "\">", safe_title, "</a></td>\n  <td>/standalone/", AV_ATTR(AV_S(pg, "file")), "</td>\n  <td>\n    <form method=\"post\" action=\"/delete-page\" hx-post=\"/delete-page\" hx-target=\"closest tr\" hx-swap=\"outerHTML swap:0.3s\" hx-confirm=\"删除不可恢复，确定？\" style=\"display:inline;\">\n      <input type=\"hidden\" name=\"csrf_token\" value=\"", AV_ATTR(csrf), "\">\n      <input type=\"hidden\" name=\"file\" value=\"", AV_ATTR(AV_S(pg, "file")), "\">\n      <button type=\"submit\" class=\"btn-danger btn-sm\" onclick=\"return confirm('删除不可恢复，确定？')\">删除</button>\n    </form>\n  </td>\n</tr>")
+     )));
+
+// // 主题卡片（views.py:248）
+     LET(AV_THEME_CARD, FUN((th, csrf, current_theme), (
+               // views.py:248-265 —— 逐字节照抄（含 2/4 空格缩进与 {disabled} 前的空格）;
+               LET(name, AV_S(th, "name"));
+               LET(is_active, ==(name, current_theme));
+               LET(active_cls, IF(is_active, " active", ""));
+               LET(default_badge, IF(is_active, " <span class=\"draft-badge\">当前</span>", ""));
+               // views.py:253：layouts 为空/缺失 ⇒ "blog";
+               LET(lk, AV_ARR(th, "layouts"));
+               LET(layouts, IF(==(LEN(lk), 0), "blog", AV_JOIN(", ", lk)));
+               // views.py:254：描述 escape;
+               LET(desc, ESCAPE_HTML(AV_S(th, "description")));
+               LET(disabled, IF(is_active, "disabled style=\"opacity:0.5;\"", ""));
+               // views.py:257：theme.get("display_name", theme["name"]) —— 只在**缺键**时回落;
+               LET(disp, AT_K(th, "display_name", name));
+               CAT("<div class=\"theme-card", active_cls, "\">\n  <h3>", ESCAPE_HTML(disp), default_badge, "</h3>\n  <p>", desc, "</p>\n  <p class=\"theme-meta\">布局: ", layouts, "</p>\n  <form method=\"post\" action=\"/set-theme\" style=\"margin:0;\">\n    <input type=\"hidden\" name=\"csrf_token\" value=\"", AV_ATTR(csrf), "\">\n    <input type=\"hidden\" name=\"theme\" value=\"", AV_ATTR(name), "\">\n    <button type=\"submit\" class=\"btn-primary btn-sm\" ", disabled, ">选择</button>\n  </form>\n</div>")
+     )));
+
+// // AI 助手面板（views.py:291）
+     LET(AV_AI_PANEL, FUN((cfg, _csrf, suggest_tags), (
+               // views.py:291-306 —— cfg.ai_enabled and cfg.ai_api_key 都为真才输出;
+               // ⚠ csrf 参数 Python 接了但**正文里没用到** ⇒ 这里同样不读（不自己发挥）；;
+               //   形参名写 `_csrf` 只为消掉 W0011（未使用参数），调用点仍是位置传参。;
+               LET(tags_btn, IF(suggest_tags, "<button type=\"button\" class=\"ai-btn\" onclick=\"aiSuggestTags()\">推荐标签</button>", ""));
+               IF(!(&&(AT_K(cfg, "ai_enabled", FALSE), !=(AT_K(cfg, "ai_api_key", ""), ""))), "", CAT("<div id=\"ai-panel\" class=\"ai-panel\">\n  <div class=\"ai-panel-header\">\n    <span class=\"ai-label\">AI 助手</span>\n    <button type=\"button\" class=\"ai-btn\" onclick=\"aiComplete()\">续写</button>\n    <button type=\"button\" class=\"ai-btn\" onclick=\"aiPolish()\">润色</button>\n    <button type=\"button\" class=\"ai-btn\" onclick=\"aiTranslate('en')\">译英</button>\n    <button type=\"button\" class=\"ai-btn\" onclick=\"aiTranslate('ja')\">译日</button>\n    ", tags_btn, "\n    <span id=\"ai-status\"></span>\n  </div>\n</div>"))
+     )));
+
+// // 仪表盘（views.py:14 dashboard_view）
+     LET(DASHBOARD_VIEW, FUN((opts), (
+               // opts 键：csrf_token / articles / standalones / page / cfg;
+               //   cfg：page_size / ai_enabled / ai_api_key;
+               //   articles：ARRAY[DICT{title, file, date, category, tag_list, is_draft}];
+               LET(cfg, AT_K(opts, "cfg", DICT()));
+               LET(csrf, AV_S(opts, "csrf_token"));
+               LET(arts, AV_ARR(opts, "articles"));
+               LET(standalones, AV_ARR(opts, "standalones"));
+               LET(pg, AV_PAGE(AT_K(opts, "page", 1)));
+               LET(ps, AT_K(cfg, "page_size", 10));
+               LET(total, LEN(arts));
+               // views.py:24 pages = max(1, (total + page_size - 1) // page_size);
+               LET(cnt_pages, IF(<(total, 1), 1, /(-(+(total, ps), 1), ps)));
+               // views.py:25 start_idx = (page - 1) * page_size;
+               LET(start_idx, *(-(pg, 1), ps));
+               // views.py:55 cfg.ai_enabled and cfg.ai_api_key;
+               LET(ai_on, &&(AT_K(cfg, "ai_enabled", FALSE), !=(AT_K(cfg, "ai_api_key", ""), "")));
+               // views.py:28 draft_count = sum(1 for a in arts if a.is_draft);
+               LET MUT(draft_count, 0);
+               LET MUT(k, 0);
+               WHILE(<(k, total), (
+                    IF(AT_K(AT(arts, k, DICT()), "is_draft", FALSE), (
+                         SET(draft_count, +(draft_count, 1))
+                    ), (
+                         NULL
+                    ));
+                    SET(k, +(k, 1))
+               ));
+               // views.py:29 page_count = len(list_standalones(...));
+               LET(page_count, LEN(standalones));
+               // views.py:26 page_arts = arts[start_idx : start_idx + page_size];
+               // ⚠ 越界不切片：用下标上界（README #21 下标 O(1)、LEN 已缓存）;
+               LET MUT(rows, "");
+               LET MUT(i, start_idx);
+               LET(end_idx, +(start_idx, ps));
+               WHILE(&&(<(i, end_idx), <(i, total)), (
+                    SET(rows, +(rows, AV_ROW(AT(arts, i, DICT()), csrf, ai_on)));
+                    SET(i, +(i, 1))
+               ));
+               // views.py:70-75 分页导航;
+               LET MUT(navs, []);
+               IF(>(pg, 1), (SET(navs, PUSH(navs, CAT("<a href=\"/?page=", STR(-(pg, 1)), "\">← 上一页</a>")))), NULL);
+               IF(<(pg, cnt_pages), (SET(navs, PUSH(navs, CAT("<a href=\"/?page=", STR(+(pg, 1)), "\">下一页 →</a>")))), NULL);
+               LET(nav_html, IF(==(LEN(navs), 0), "", CAT("<div class=\"nav-links\">", AV_JOIN(" ", navs), "</div>")));
+               // views.py:77-87 的渲染：rows / nav_html 是**片段**（不 escape）;
+               LET MUT(m, DICT());
+               SET(m, INDEX_SET(m, "total", STR(total)));
+               SET(m, INDEX_SET(m, "draft_count", STR(draft_count)));
+               SET(m, INDEX_SET(m, "page_count", STR(page_count)));
+               SET(m, INDEX_SET(m, "csrf_token", csrf));
+               SET(m, INDEX_SET(m, "rows", rows));
+               SET(m, INDEX_SET(m, "nav_html", nav_html));
+               SET(m, INDEX_SET(m, "page", STR(pg)));
+               SET(m, INDEX_SET(m, "pages", STR(cnt_pages)));
+               SAFE_SUBSTITUTE(AV_T_DASHBOARD, m)
+     )));
+
+// // 文章表单（views.py:90 article_form_view）
+     LET(ARTICLE_FORM_VIEW, FUN((opts), (
+               // opts 键：csrf_token / is_edit / now / articles / content / article / cfg;
+               //   cfg：max_title_length / max_content_length / ai_enabled / ai_api_key;
+               //   article：DICT{title, date, category, tags, is_published, is_draft, file};
+               LET(cfg, AT_K(opts, "cfg", DICT()));
+               LET(csrf, AV_S(opts, "csrf_token"));
+               LET(is_edit, AT_K(opts, "is_edit", FALSE));
+               LET(raw_art, AT_K(opts, "article", NULL));
+               LET(has_art, ==(TYPE(raw_art), "DICT"));
+               LET(art, IF(has_art, raw_art, DICT()));
+               // views.py:101 的 not-found 分支（本模块由「article 不是 DICT」承载）;
+               LET MUT(heading, "");
+               LET MUT(form_action, "");
+               LET MUT(file_input, "");
+               LET MUT(title_val, "");
+               LET MUT(date_val, "");
+               LET MUT(cat_val, "");
+               LET MUT(tags_val, "");
+               LET MUT(pub_selected, "");
+               LET MUT(draft_selected, "");
+               LET MUT(content_val, "");
+               LET MUT(submit_label, "");
+               IF(&&(is_edit, !has_art), (
+                    "<p>Article not found</p>"
+               ), (
+                    IF(is_edit, (
+                         // views.py:107-117;
+                         SET(heading, CAT("编辑: ", ESCAPE_HTML(AV_S(art, "title"))));
+                         SET(form_action, "/save");
+                         SET(file_input, CAT("<input type=\"hidden\" name=\"file\" value=\"", AV_ATTR(AV_S(art, "file")), "\">"));
+                         SET(title_val, AV_ATTR(AV_S(art, "title")));
+                         SET(date_val, ESCAPE_HTML(AV_S(art, "date")));
+                         SET(cat_val, AV_ATTR(AV_S(art, "category")));
+                         SET(tags_val, AV_ATTR(AV_S(art, "tags")));
+                         SET(pub_selected, IF(AT_K(art, "is_published", FALSE), " selected", ""));
+                         SET(draft_selected, IF(AT_K(art, "is_draft", FALSE), " selected", ""));
+                         SET(content_val, ESCAPE_HTML(AV_S(opts, "content")));
+                         SET(submit_label, "保存更改")
+                    ), (
+                         // views.py:119-130（⚠ Python 用 datetime.now()，本模块取显式键 now）;
+                         SET(heading, "新建文章");
+                         SET(form_action, "/create");
+                         SET(file_input, "");
+                         SET(title_val, "");
+                         SET(date_val, AV_S(opts, "now"));
+                         SET(cat_val, "");
+                         SET(tags_val, "");
+                         SET(pub_selected, " selected");
+                         SET(draft_selected, "");
+                         SET(content_val, "");
+                         SET(submit_label, "发布")
+                    ));
+                    // views.py:132-137 分类 datalist（跨全部文章，含草稿）;
+                    LET(cats, AV_CATS(AV_ARR(opts, "articles")));
+                    LET(datalist, IF(==(LEN(cats), 0), "", CAT("<datalist id=\"category-list\">", AV_OPTIONS(cats), "</datalist>")));
+                    // views.py:139 _build_ai_panel(cfg, csrf_token, suggest_tags=True);
+                    LET(ai_panel, AV_AI_PANEL(cfg, csrf, TRUE));
+                    LET MUT(m, DICT());
+                    SET(m, INDEX_SET(m, "heading", heading));
+                    SET(m, INDEX_SET(m, "form_action", form_action));
+                    SET(m, INDEX_SET(m, "csrf_token", csrf));
+                    SET(m, INDEX_SET(m, "file_input", file_input));
+                    SET(m, INDEX_SET(m, "title", title_val));
+                    SET(m, INDEX_SET(m, "date", date_val));
+                    SET(m, INDEX_SET(m, "category", cat_val));
+                    SET(m, INDEX_SET(m, "tags", tags_val));
+                    SET(m, INDEX_SET(m, "datalist", datalist));
+                    SET(m, INDEX_SET(m, "pub_selected", pub_selected));
+                    SET(m, INDEX_SET(m, "draft_selected", draft_selected));
+                    SET(m, INDEX_SET(m, "ai_panel", ai_panel));
+                    SET(m, INDEX_SET(m, "max_title_length", STR(AT_K(cfg, "max_title_length", 200))));
+                    SET(m, INDEX_SET(m, "max_content_length", STR(AT_K(cfg, "max_content_length", 50000))));
+                    SET(m, INDEX_SET(m, "content", content_val));
+                    SET(m, INDEX_SET(m, "submit_label", submit_label));
+                    SAFE_SUBSTITUTE(AV_T_ARTICLE_FORM, m)
+               ))
+     )));
+
+// // 独立页面表单（views.py:162 page_form_view）
+     LET(PAGE_FORM_VIEW, FUN((opts), (
+               // opts 键：csrf_token / is_edit / page / content / cfg;
+               //   page：DICT{title, slug, file}；cfg：max_title_length / max_content_length;
+               //        / ai_enabled / ai_api_key;
+               LET(cfg, AT_K(opts, "cfg", DICT()));
+               LET(csrf, AV_S(opts, "csrf_token"));
+               LET(is_edit, AT_K(opts, "is_edit", FALSE));
+               LET(raw_pg, AT_K(opts, "page", NULL));
+               LET(has_pg, ==(TYPE(raw_pg), "DICT"));
+               LET(pg, IF(has_pg, raw_pg, DICT()));
+               // views.py:173 的 not-found 分支;
+               LET MUT(heading, "");
+               LET MUT(form_action, "");
+               LET MUT(file_input, "");
+               LET MUT(title_val, "");
+               LET MUT(slug_val, "");
+               LET MUT(content_val, "");
+               LET MUT(submit_label, "");
+               IF(&&(is_edit, !has_pg), (
+                    "<p>Page not found</p>"
+               ), (
+                    IF(is_edit, (
+                         // views.py:179-185;
+                         SET(heading, CAT("编辑: ", ESCAPE_HTML(AV_S(pg, "title"))));
+                         SET(form_action, "/save-page");
+                         SET(file_input, CAT("<input type=\"hidden\" name=\"file\" value=\"", AV_ATTR(AV_S(pg, "file")), "\">"));
+                         SET(title_val, AV_ATTR(AV_S(pg, "title")));
+                         SET(slug_val, AV_ATTR(AV_S(pg, "slug")));
+                         SET(content_val, ESCAPE_HTML(AV_S(opts, "content")));
+                         SET(submit_label, "保存更改")
+                    ), (
+                         // views.py:186-193;
+                         SET(heading, "新建独立页面");
+                         SET(form_action, "/create-page");
+                         SET(file_input, "");
+                         SET(title_val, "");
+                         SET(slug_val, "");
+                         SET(content_val, "");
+                         SET(submit_label, "创建")
+                    ));
+                    // views.py:195 _build_ai_panel(cfg, csrf_token, suggest_tags=False);
+                    LET(ai_panel, AV_AI_PANEL(cfg, csrf, FALSE));
+                    LET MUT(m, DICT());
+                    SET(m, INDEX_SET(m, "heading", heading));
+                    SET(m, INDEX_SET(m, "form_action", form_action));
+                    SET(m, INDEX_SET(m, "csrf_token", csrf));
+                    SET(m, INDEX_SET(m, "file_input", file_input));
+                    SET(m, INDEX_SET(m, "title", title_val));
+                    SET(m, INDEX_SET(m, "slug", slug_val));
+                    SET(m, INDEX_SET(m, "ai_panel", ai_panel));
+                    SET(m, INDEX_SET(m, "max_title_length", STR(AT_K(cfg, "max_title_length", 200))));
+                    SET(m, INDEX_SET(m, "max_content_length", STR(AT_K(cfg, "max_content_length", 50000))));
+                    SET(m, INDEX_SET(m, "content", content_val));
+                    SET(m, INDEX_SET(m, "submit_label", submit_label));
+                    SAFE_SUBSTITUTE(AV_T_PAGE_FORM, m)
+               ))
+     )));
+
+// // 独立页面列表（views.py:213 pages_dashboard_view）
+     LET(PAGES_DASHBOARD_VIEW, FUN((opts), (
+               // opts 键：csrf_token / pages（ARRAY[DICT{title, file}]）;
+               LET(csrf, AV_S(opts, "csrf_token"));
+               LET(pages, AV_ARR(opts, "pages"));
+               LET(n, LEN(pages));
+               LET MUT(rows, "");
+               LET MUT(i, 0);
+               WHILE(<(i, n), (
+                    SET(rows, +(rows, AV_PAGES_ROW(AT(pages, i, DICT()), csrf)));
+                    SET(i, +(i, 1))
+               ));
+               LET MUT(m, DICT());
+               SET(m, INDEX_SET(m, "csrf_token", csrf));
+               SET(m, INDEX_SET(m, "rows", rows));
+               SET(m, INDEX_SET(m, "total", STR(n)));
+               SAFE_SUBSTITUTE(AV_T_PAGES_DASHBOARD, m)
+     )));
+
+// // 主题选择（views.py:239 theme_selector_view）
+     LET(THEME_SELECTOR_VIEW, FUN((opts), (
+               // opts 键：csrf_token / themes / current_theme;
+               //   themes：ARRAY[DICT{name, display_name?, description?, layouts?}];
+               LET(csrf, AV_S(opts, "csrf_token"));
+               LET(themes, AV_ARR(opts, "themes"));
+               LET(current, AV_S(opts, "current_theme"));
+               LET(n, LEN(themes));
+               LET MUT(cards, "");
+               LET MUT(i, 0);
+               WHILE(<(i, n), (
+                    SET(cards, +(cards, AV_THEME_CARD(AT(themes, i, DICT()), csrf, current)));
+                    SET(i, +(i, 1))
+               ));
+               LET MUT(m, DICT());
+               SET(m, INDEX_SET(m, "csrf_token", csrf));
+               // views.py:270 current_theme=escape_html(current_theme);
+               SET(m, INDEX_SET(m, "current_theme", ESCAPE_HTML(current)));
+               SET(m, INDEX_SET(m, "theme_cards", cards));
+               SAFE_SUBSTITUTE(AV_T_THEME_SELECTOR, m)
+     )));
+
+// // 登录页（views.py:275 login_view）
+     LET(LOGIN_VIEW, FUN((opts), (
+               // opts 键：csrf_token / error / locked（"1" 表示命中，照 qs 的取值口径）;
+               LET(csrf, AV_S(opts, "csrf_token"));
+               LET MUT(error_msg, "");
+               // views.py:279-280（先判 error）;
+               IF(==(AV_S(opts, "error"), "1"), (
+                    SET(error_msg, "<div class=\"login-error\">用户名或密码错误</div>")
+               ), (
+                    NULL
+               ));
+               // views.py:281-282（后判 locked ⇒ **覆盖** error，顺序照抄）;
+               IF(==(AV_S(opts, "locked"), "1"), (
+                    SET(error_msg, "<div class=\"login-error\">登录尝试过多，请稍后再试</div>")
+               ), (
+                    NULL
+               ));
+               LET MUT(m, DICT());
+               SET(m, INDEX_SET(m, "csrf_token", csrf));
+               SET(m, INDEX_SET(m, "error_msg", error_msg));
+               SAFE_SUBSTITUTE(AV_T_LOGIN, m)
+     )));
+
+// // AI 面板入口（views.py:291 _build_ai_panel）
+     LET(AI_PANEL, FUN((opts), (
+               // opts 键：cfg / csrf_token / suggest_tags（Python 缺省 True）;
+               AV_AI_PANEL(AT_K(opts, "cfg", DICT()), AV_S(opts, "csrf_token"), AT_K(opts, "suggest_tags", TRUE))
+     )));
+
+// // 侧边导航（templates.py:35 build_nav_html）
+     LET(NAV_HTML, FUN((opts), (
+               // opts 键：nav_items（ARRAY[ARRAY[href, label, icon_name]]）/ current_path;
+               LET(items, AV_ARR(opts, "nav_items"));
+               LET(cur, AV_S(opts, "current_path"));
+               LET(n, LEN(items));
+               LET MUT(out, "");
+               LET MUT(i, 0);
+               WHILE(<(i, n), (
+                    LET(it, AT(items, i, []));
+                    LET(href, STR(AT(it, 0, "")));
+                    LET(label, STR(AT(it, 1, "")));
+                    // templates.py:51 icon = icons.get(icon_name, "•");
+                    LET(icon, AT_K(AV_ICONS, STR(AT(it, 2, "")), "•"));
+                    // templates.py:52-53 高亮：href == current_path（**逐字**比较）;
+                    LET(is_cur, ==(href, cur));
+                    LET(active, IF(is_cur, " aria-current=\"page\"", ""));
+                    LET(active_cls, IF(is_cur, " nav-active", ""));
+                    IF(>(i, 0), (
+                         SET(out, +(out, "\n"))
+                    ), (
+                         NULL
+                    ));
+                    SET(out, +(out, CAT("<a href=\"", href, "\" class=\"nav-item", active_cls, "\"", active, "><span class=\"nav-icon\">", icon, "</span><span class=\"nav-label\">", label, "</span></a>")));
+                    SET(i, +(i, 1))
+               ));
+               out
+     )));
+
+EXPORT(["DASHBOARD_VIEW", "ARTICLE_FORM_VIEW", "PAGE_FORM_VIEW", "PAGES_DASHBOARD_VIEW", "THEME_SELECTOR_VIEW", "LOGIN_VIEW", "AI_PANEL", "NAV_HTML"]);

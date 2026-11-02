@@ -35,8 +35,8 @@
 | S1-4 front-matter/TOC/脚注/wikilink | ✅ 完成 | `frontmatter.wll` / `toc.wll` / `footnotes.wll` / `wikilink.wll` + 共享 `esc.wll`（全部生成器产出）；**38/38 + 41/41 + 23/23 + 28/28 + esc 19/19 全绿**；本地 CI 5 步全过（21 生成器 / 21 产物无 drift） |
 | S2 内容模型与生成器 | ✅ **完成（含编排层）** | S2-1 **277/277**／S2-2 **39/39**／S2-3 **162+68**／S2-4 **42+33+21+30+29=155**／S2-5 **37/37**／**编排层 `bin/build.wll` 63/63，端到端 40/40 产物 sha256 全等**；合计 20 个模块 + 1 个入口，**801 个断言** |
 | S3 前台静态服务（TLS） | ✅ **完成** | `static_serve.wll`（纯函数内核）+ `bin/serve_public.wll`（明文）+ `bin/serve_tls.wll`（TLS）；`test_static_serve.wll` **365/365**；5 个安全头与 `get_security_headers()` 逐字同序相等；curl 实测 200/404/405 与长缓存；坏连接后循环存活；缺 cert 拒绝启动 |
-| S4 Admin 后台 | ✅ **完成**（⚠ 视图层未交付，见卡 S4-3） | `security.wll`（**235**）／`admin_actions.wll`（**108**）／`http_util.wll` + `bin/serve_admin.wll`（**312**）／S4-5 高亮资产与注入（`test_build` **63**）；合计 **718 个断言** |
-| S5 AI 助手（出站 HTTPS） | ✅ **完成** | `http_client_tls.wll`（**180**，无扩展可跑）／`ai.wll`（**163**，脱网）；合计 **343 个断言**；真实 TLS 往返只在本机探针覆盖 |
+| S4 Admin 后台 | ✅ **完成** | `security.wll`（**235**）／`admin_actions.wll`（**108**）／`http_util.wll` + `bin/serve_admin.wll`（**312**）／S4-5 高亮资产与注入（`test_build` **63**）／S4-6 视图层（**50**）+ 接线（六条 curl 全绿）；合计 **768 个断言** |
+| S5 AI 助手（出站 HTTPS） | ✅ **完成** | `http_client_tls.wll`（**180**，无扩展可跑）／`ai.wll`（**163**，脱网）／`admin_ai.wll`（**129**，脱网）；合计 **472 个断言**；真实 TLS 往返只在本机探针覆盖 |
 | S6 部署与切换 | ⬜ 未开始 | Dockerfile/compose 改造 + 停用 nginx |
 
 ### §0.2 S1 已沉淀的工程约定（**后续所有 .wll 都适用**）
@@ -1343,8 +1343,8 @@ TinyPage/
   ③ 「POST 缺 CSRF ⇒ 403」只对其余路由成立 —— `/login` 是 302 `?error=1`，`/upload` 是 403 JSON，
   且 **404 早于 CSRF、未登录时会话检查早于 method**。
   ⚠ **已知缺口（如实登记）**：
-  - **视图层未交付**：GET 页面是占位 HTML（登录页是可用的最小表单）⇒ admin 能登录、状态码正确，
-    但**看不到仪表盘/编辑器**。这是 S4 的实际缺口，需要单独一张视图卡。
+  - ~~视图层未交付~~ ⇒ **已由卡 S4-6 + 接线关闭（2026-11-02）**：GET 页面现由 `admin_views.wll`
+    渲染并套 `base.html` 外壳；「路由占位」文案在全部 GET 响应里 **0 命中**（实证见卡 S4-6）。
   - `login`/`logout` 的 handler 不在 `admin_actions.wll`（它只导出 10 个动作）⇒ 入口按 `actions.py:382-437`
     直接调 security 原语，属**重复实现**；且 `[AUTH-FAIL]`/`[LOGIN]` 审计未接线。
   - `admin_actions` 的返回**不含 HTTP 状态** ⇒ `Page already exists → 409` 等是**按消息字符串**映射，脆弱。
@@ -1400,7 +1400,7 @@ TinyPage/
     + `static_inject/highlight-theme.css`（明/暗两套 token 颜色，跟本站的 `.light` 切换方式对齐）
     + `static_inject/HIGHLIGHT.md`（版本/来源/许可/用法）。
 
-#### 卡 S4-6：admin 视图层（✅ 已开卡，2026-11-02 补）
+#### 卡 S4-6：admin 视图层 ✅ 已完成（2026-11-02 新开）
 
 > **为什么补这张卡**：S4-3 只交了「路由 + 状态码 + Cookie」，GET 页面是**占位 HTML**
 > —— 后台能登录但看不到仪表盘/编辑器。S6 的验收是「用 WLWL 版真正管起站点」，
@@ -1415,8 +1415,30 @@ TinyPage/
 - **反向守卫**：
   - 文章标题/正文里的 `<` `&` 必须被 escape（不得原样进 HTML）
   - 模板 `$var` 占位符不得**二次替换**（正文里出现的字面 `$x` 要原样保留）
-  - 缺模板变量 ⇒ 必须**报错**（对齐 `string.Template.substitute` 的「缺键即 KeyError」）
+  - ⚠ **本条原写「缺模板变量 ⇒ 必须报错」是错的**（2026-11-02 实测纠正）：
+    `templates.py:32` 的 `render_template` 用的是 **`safe_substitute`**（缺键**原样保留** `${…}`），
+    不是 `substitute`。⇒ 反向守卫改为「**不得残留** `$total` / `$rows` / `$content` 这类未替换占位符」，
+    因为残留说明某个映射键漏了。
+- **✅ 实测状态（2026-11-02）**：`tp/lib/admin_views.wll`（503 行）导出 8 个函数
+  （6 视图 + `AI_PANEL` + `NAV_HTML`）；`test_admin_views.wll` **50/50**、failed=0、exit 0；
+  基准 43 用例、**0 处已知差异**；7 个模板逐字搬入并在**生成期与磁盘比对**（防漂移）。
+  ⚠ **模板正文里的 `$var` 如何避免被 WLWL 插值吃掉**（本卡最大的坑）：
+  每个 `$` 发射成 `\$`，且转义顺序必须**反斜杠先、美元符后**；反写实证 `"\\$5"` 不行
+  （`\\` 被吃成一个字面反斜杠，紧跟的 `${a}` 仍被当插值 ⇒ `E0020 undefined name 'a'`）。
+  ⚠ **已知缺口**：`base.html` 外壳（`responses.py:58 render_admin_page`）**未实现**，
+  它不在本卡 8 个导出内，属 `serve_admin` 接线 → 接线时按 `base.html` 自拼外壳。
 - **非目标**：不做前端交互逻辑（在 `static_inject/admin.js`）
+- **✅ 实测状态（2026-11-02 交付 + 已接线）**：`tp/lib/admin_views.wll` **50/50**、43 条基准 **0 处已知差异**；
+  接线后 `serve_admin.wll` 本机 curl 六条全绿：`/login` 200（真实表单）、登录后 `/` 200（`<h1>仪表盘</h1>` +
+  stat-value + 文章行 + 标签）、`/new` `/pages` `/theme` `/new-page` 各 200 且有对应表单/列表、
+  `/edit?file=…` 200 且回填标题/日期/textarea 正文、`/edit-page` 回填 slug（`stem` 口径正确）。
+  **反向守卫实证**：`/` `/login` `/new` `/pages` `/theme` 全部 GET 响应里「路由占位」**0 命中**；
+  源文件里 `SAD_PLACEHOLDER` / `SAD_PAGE(` 也 0 命中。变异（`nav_html` 置空）⇒ `<nav>` 为空、`nav-item` 0 条，
+  还原后 5 条。
+  **⚠ 仍未覆盖（如实登记，属部署/后续卡）**：① 新建文章日期不预填（Python 用 `datetime.now()`，
+  WLWL 无本地时区格式化，用 UTC 会差 8 小时、比空值更误导）；② `/translate` 只到文本层；
+  ③ 编辑页不做 Python 的懒迁移写盘；④ `/admin.css` `/admin.js` `/htmx.min.js` 本入口**不返回**
+  —— 页面样式/JS 在真实部署里仍需资产管线（与 D-HL 那条「`static_inject/` 映射」是同一个缺口）。
 
 ### S5 AI 助手（出站 HTTPS）
 #### 卡 S5-1：出站 HTTPS 客户端 ✅ 已完成
@@ -1441,7 +1463,7 @@ TinyPage/
   - 未配置 API key ⇒ 必须明确报错，不得静默返回空
 - **非目标**：不做流式（SSE）；不做多供应商适配（只 OpenAI 兼容协议，对齐 Python）
 
-#### 卡 S5-2：五个 AI 能力与后台接线 ✅ 已完成（端点接线见缺口）
+#### 卡 S5-2：五个 AI 能力与后台接线 ✅ 已完成（端点接线已由 S5-3 关闭）
 
 - **依赖**：S5-1
 - **交付物**：`tp/lib/ai.wll` + `/ai-assist`、`/translate` 端点
@@ -1457,7 +1479,7 @@ TinyPage/
 - **反向守卫**：后端错误**必须**返回 JSON（Python 侧错误也返回 200 + `{"error":…}`，保持一致）
 - **非目标**：不引入 `openai`/`deepseek` Python 包（Python 侧声明了但从未使用，属声明冗余）
 
-#### 卡 S5-3：AI 端点接线（`/ai-assist`、`/translate`）（✅ 已开卡，2026-11-02 补）
+#### 卡 S5-3：AI 端点接线（`/ai-assist`、`/translate`）✅ 已完成（2026-11-02 新开）
 
 > **为什么补这张卡**：`ai.wll`（S5-2）已交付 163 个断言，但 `serve_admin.wll` 里
 > `/ai-assist` 与 `/translate` 仍是 **500**（`admin_actions.wll` 只导出 10 个 CRUD 动作）。

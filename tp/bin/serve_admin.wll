@@ -21,17 +21,19 @@
 //   & D:\wlwl_v0.12.1\wlwl.exe run tp\bin\serve_admin.wll
 //   curl -s -o NUL -w "%{http_code}" http://127.0.0.1:18081/login
 //
-// ⚠ 已知缺口（不粉饰）：视图层未交付 ⇒ GET 页面是占位 HTML；login/logout 走
-//   security 原语（admin_actions 没有这两个 handler）；/ai-assist /translate ⇒ 500。
+// ⚠ 已知缺口（不粉饰）：新建文章日期不预填（WLWL 无本地时区格式化）；
+//   /translate 只到文本层；静态资源（/admin.css 等）本入口不服务。
 
 IMPORT("wlwl:std.net", ["TCP_LISTEN", "TCP_SERVE", "TCP_CLOSE_LISTENER",
     "TCP_LOCAL_ADDR"]);
 IMPORT("wlwl:std.signal", ["ON_SIGNAL", "STOP"]);
 IMPORT("wlwl:std.env", ["ENV_GET"]);
-IMPORT("wlwl:std.text", ["TO_INT"]);
-IMPORT("wlwl:std.fs", ["PATH_JOIN", "PATH_CANONICAL"]);
-IMPORT("wlwl:std.str", ["CAT"]);
-IMPORT("wlwl:std.encode", ["TIMING_SAFE_EQ"]);
+IMPORT("wlwl:std.text", ["TO_INT", "TO_LOWER"]);
+IMPORT("wlwl:std.fs", ["PATH_JOIN", "PATH_CANONICAL", "LIST_DIR", "PATH_BASE",
+    "PATH_EXT", "READ_FILE", "FILE_META", "EXISTS"]);
+IMPORT("wlwl:std.str", ["CAT", "INDEX_OF"]);
+IMPORT("wlwl:std.regex", ["RE", "RE_TEST"]);
+IMPORT("wlwl:std.encode", ["TIMING_SAFE_EQ", "URL_DECODE"]);
 IMPORT("./../lib/http_util.wll", ["MATCH_ROUTE", "PARSE_FORM", "FORM_FIELD",
     "HEADER_VALUE", "COOKIE_VALUE", "BUILD_RESPONSE", "TEXT_ERROR_RESPONSE",
     "JSON_ERROR_RESPONSE", "JSON_RESPONSE", "HTML_RESPONSE", "REDIRECT",
@@ -43,6 +45,18 @@ IMPORT("./../lib/security.wll", ["NEW_CSRF_TOKEN", "VALIDATE_CSRF_TOKEN",
 IMPORT("./../lib/admin_actions.wll", ["CREATE_ARTICLE", "SAVE_ARTICLE",
     "DELETE_ARTICLE", "CREATE_PAGE", "SAVE_PAGE", "DELETE_PAGE", "SET_THEME",
     "PREVIEW", "REGEN", "UPLOAD_IMAGE"]);
+// 视图层 / 模板 / 主题 / 元数据 / 排序 —— 全部复用已交付模块，不重写
+IMPORT("./../lib/admin_views.wll", ["DASHBOARD_VIEW", "ARTICLE_FORM_VIEW",
+    "PAGE_FORM_VIEW", "PAGES_DASHBOARD_VIEW", "THEME_SELECTOR_VIEW",
+    "LOGIN_VIEW", "NAV_HTML"]);
+IMPORT("./../lib/admin_ai.wll", ["AI_ASSIST_JSON", "TRANSLATE_JSON"]);
+IMPORT("./../lib/template.wll", ["SAFE_SUBSTITUTE"]);
+IMPORT("./../lib/esc.wll", ["ESCAPE_HTML"]);
+IMPORT("./../lib/frontmatter.wll", ["PARSE_META"]);
+IMPORT("./../lib/article_store.wll", ["VALIDATE_FILENAME", "SOURCE_PATH",
+    "DECODE_CONTENT"]);
+IMPORT("./../lib/sort_util.wll", ["SORT_BY_DATE", "SORT_BY_TITLE_OR_FILE"]);
+IMPORT("./../lib/theme.wll", ["LIST_THEMES"]);
 
 // ── 配置（环境变量；缺省值对齐 tinypage/config.py）──────────────────
 LET(SAD_LOOPBACK, "127.0.0.1");
@@ -78,19 +92,223 @@ LET(SAD_CLIENT_IP, SAD_LOOPBACK);
 // 页面标题（app.py:288-298）
 LET(SAD_TITLES, INDEX_SET(INDEX_SET(INDEX_SET(INDEX_SET(INDEX_SET(INDEX_SET(INDEX_SET(DICT(), "dashboard", "仪表盘"), "pages_dashboard", "独立页面"), "new_article", "新建文章"), "edit_article", "编辑文章"), "new_page", "新建页面"), "edit_page", "编辑页面"), "theme", "主题管理"));
 
-// ── HTML 片段（视图层未交付 ⇒ 占位页；登录页是**能用**的最小表单）────────
-// ⚠ WLWL 不做字面量拼接（`"a" "b"` 是 E0002）⇒ 每段都是**一个**字面量，用 CAT 连。
-LET(SAD_PAGE, FUN((title, body), (
-     CAT("<!doctype html>\n<html lang=\"zh-CN\">\n<head><meta charset=\"utf-8\"><title>", title, "</title></head>\n<body>\n", body, "\n</body>\n</html>\n")
-)));
+// 主题目录 / 当前主题（views.py:244 用字面量 Path("themes")；config.py:42）
+LET(SAD_THEMES_DIR, ENV_GET("TP_THEMES_DIR", "themes"));
+LET(SAD_THEME_NAME, ENV_GET("TP_THEME", "default"));
 
-LET(SAD_LOGIN_FORM, FUN((csrf), (
-     CAT("<h1>登录</h1>\n<form method=\"post\" action=\"/login\">\n<input type=\"hidden\" name=\"csrf_token\" value=\"", csrf, "\">\n<label>用户名 <input name=\"username\" autocomplete=\"username\"></label>\n<label>密码 <input type=\"password\" name=\"password\" autocomplete=\"current-password\"></label>\n<button type=\"submit\">登录</button>\n</form>\n")
-)));
+// AI 配置（config.py:63-68；只认布尔 TRUE，见 admin_ai 的 IS_ENABLED 口径）
+LET(SAD_AI_FLAG, TO_LOWER(ENV_GET("TP_AI_ENABLED", "")));
+LET(SAD_AI_ENABLED, ||(==(SAD_AI_FLAG, "1"), ==(SAD_AI_FLAG, "true")));
+LET(SAD_CFG, INDEX_SET(INDEX_SET(INDEX_SET(INDEX_SET(INDEX_SET(INDEX_SET(INDEX_SET(INDEX_SET(INDEX_SET(DICT(), "page_size", 10), "max_file_size", 10485760), "max_title_length", 200), "max_content_length", 50000), "ai_enabled", SAD_AI_ENABLED), "ai_api_key", ENV_GET("TP_AI_API_KEY", "")), "ai_model", ENV_GET("TP_AI_MODEL", "gpt-3.5-turbo")), "ai_provider", ENV_GET("TP_AI_PROVIDER", "openai")), "ai_endpoint", ENV_GET("TP_AI_ENDPOINT", "")));
 
-LET(SAD_PLACEHOLDER, FUN((route), (
-     CAT("<h1>", AT_K(SAD_TITLES, route, "管理后台"), "</h1>\n<p>本页是卡 S4-3 的 <b>路由占位</b>：admin 的视图层（views.py / 模板）尚未交付。</p>\n<p>route=<code>", route, "</code></p>\n")
-)));
+// 侧边导航项（responses.py:69-75）；NAV_HTML 读 [href, label, icon_name]
+LET(SAD_NAV_ITEMS, [["/", "仪表盘", "dashboard"], ["/new", "新建文章", "article"], ["/new-page", "新建页面", "page"], ["/pages", "管理页面", "pages"], ["/theme", "主题", "theme"]]);
+// app.py:192-212：这几条路由的 render_admin_page(htmx=True)
+LET(SAD_HTMX_ROUTES, ["pages_dashboard", "new_article", "edit_article", "new_page", "edit_page"]);
+LET(SAD_HTMX_SCRIPT, "<script src=\"/htmx.min.js\"></script>");
+
+// ── base.html 外壳（responses.py:58 render_admin_page）─────────────
+// ⚠ 模板正文逐字搬在生成器里，生成期与磁盘比对；`$` 在 WLWL 字面量里是插值
+//   ⇒ 全部发射成 `\$`（wl() 负责，反斜杠先、美元符后）。
+LET(SAD_T_BASE, "<!DOCTYPE html>\n<html lang=\"zh-CN\">\n<head>\n<meta charset=\"utf-8\">\n<meta name=\"viewport\" content=\"width=device-width,initial-scale=1\">\n<meta name=\"color-scheme\" content=\"light dark\">\n<title>\$title - TinyPage Admin</title>\n<link rel=\"stylesheet\" href=\"/admin.css\">\n\$htmx_script\n<script>\n(function(){\n  var m = localStorage.getItem('theme');\n  if (m === 'light' || (!m && window.matchMedia('(prefers-color-scheme: light)').matches)) {\n    document.documentElement.classList.add('light');\n  }\n})();\n</script>\n</head>\n<body>\n<button class=\"mobile-menu-toggle\" aria-label=\"打开菜单\" onclick=\"document.body.classList.toggle('menu-open')\">☰</button>\n<div class=\"admin-layout\">\n  <aside class=\"admin-sidebar\">\n    <div class=\"brand\">\n      <span class=\"brand-logo\">TinyPage</span>\n      <span class=\"brand-tag\">Admin</span>\n    </div>\n    <nav>\n      \$nav_html\n    </nav>\n    <div class=\"sidebar-footer\">\n      <button class=\"theme-toggle\" aria-label=\"切换主题\" onclick=\"toggleTheme()\">🌓</button>\n      <form method=\"post\" action=\"/logout\" class=\"logout-form\">\n        <input type=\"hidden\" name=\"csrf_token\" value=\"\$csrf_token\">\n        <button type=\"submit\" class=\"logout-btn\">退出登录</button>\n      </form>\n    </div>\n  </aside>\n  <main class=\"admin-main\">\n    \$body\n  </main>\n</div>\n<div id=\"toast-container\"></div>\n<script src=\"/admin.js\"></script>\n</body>\n</html>\n");
+
+// // 侧边导航
+     LET(SAD_NAV, FUN((cur), (
+               // templates.py:35 build_nav_html（复用视图层的 NAV_HTML）;
+               NAV_HTML(INDEX_SET(INDEX_SET(DICT(), "nav_items", SAD_NAV_ITEMS), "current_path", cur))
+     )));
+
+// // 整页外壳（base.html + SAFE_SUBSTITUTE，缺键原样保留）
+     LET(SAD_SHELL, FUN((title, body, csrf, path, htmx), (
+               // responses.py:79-87 的六键：title 先 escape_html；body/nav_html 是**片段**;
+               LET MUT(m, DICT());
+               SET(m, INDEX_SET(m, "title", ESCAPE_HTML(title)));
+               SET(m, INDEX_SET(m, "body", body));
+               SET(m, INDEX_SET(m, "csrf_token", csrf));
+               SET(m, INDEX_SET(m, "current_path", path));
+               SET(m, INDEX_SET(m, "nav_html", SAD_NAV(path)));
+               SET(m, INDEX_SET(m, "htmx_script", htmx));
+               SAFE_SUBSTITUTE(SAD_T_BASE, m)
+     )));
+
+// ── 数据（读目录；口径 == content.py:153 list_articles / :674 list_standalones）
+// ⚠ 入口不做 Python 的「懒迁移写盘」：GET 一律只读。
+     LET(SAD_AS_STR, FUN((v, d), (
+               IF(==(TYPE(v), "STRING"), v, d)
+     )));
+
+     LET(SAD_READ_OR, FUN((p, fb), (
+               // ⚠ `LET(r, READ_FILE(p))` 绑定**不算消费** ERR（坑 25）;
+               IF(IS_ERR(READ_FILE(p)), fb, READ_FILE(p))
+     )));
+
+     LET(SAD_FILE_SIZE, FUN((p), (
+               // 取不到给 -1（Python 侧 entry.stat() 抛错时整篇跳过；这里放过大小门）;
+               IF(IS_ERR(FILE_META(p)), -1, AT_K(FILE_META(p), "size", 0))
+     )));
+
+     LET(SAD_TAG_LIST, FUN((tags), (
+               // == ArticleMeta.tag_list：split(",") → strip → 丢空;
+               LET MUT(out, []);
+               IF(!=(tags, ""), (
+                    FOR(t0, SPLIT(tags, ","), (
+                         LET(t, TRIM(t0));
+                         IF(==(t, ""), (
+                              NULL
+                         ), (
+                              SET(out, PUSH(out, t))
+                         ))
+                    ))
+               ), (
+                    NULL
+               ));
+               out
+     )));
+
+     LET(SAD_ART_REC, FUN((meta, name), (
+               // meta 是 PARSE_META 的 DICT；补 ArticleMeta 的派生字段;
+               LET MUT(r, meta);
+               LET(status, TO_LOWER(SAD_AS_STR(AT_K(r, "status", "published"), "published")));
+               SET(r, INDEX_SET(r, "file", name));
+               SET(r, INDEX_SET(r, "tag_list", SAD_TAG_LIST(SAD_AS_STR(AT_K(r, "tags", ""), ""))));
+               SET(r, INDEX_SET(r, "is_draft", ==(status, "draft")));
+               // models.py:50 is_published == status.lower() != "draft";
+               SET(r, INDEX_SET(r, "is_published", !=(status, "draft")));
+               r
+     )));
+
+     LET(SAD_LIST_ARTICLES, FUN((dir, max_size), (
+               // content.py:171-196：.html + validate_filename + 大小 + 日期可解析；收草稿;
+               LET MUT(out, []);
+               IF(!IS_ERR(LIST_DIR(dir)), (
+                    FOR(e, LIST_DIR(dir), (
+                         LET(name, PATH_BASE(e));
+                         IF(!=(PATH_EXT(name), "html"), (
+                              NULL
+                         ), (
+                              IF(!VALIDATE_FILENAME(name), (
+                                   NULL
+                              ), (
+                                   IF(>(SAD_FILE_SIZE(e), max_size), (
+                                        NULL
+                                   ), (
+                                        LET(meta, PARSE_META(SAD_READ_OR(e, "")));
+                                        SET(out, PUSH(out, SAD_ART_REC(meta, name)))
+                                   ))
+                              ))
+                         ))
+                    ))
+               ), (
+                    NULL
+               ));
+               // == arts.sort(key=date_obj, reverse=True)（sort_util 稳定降序）;
+               SORT_BY_DATE(out)
+     )));
+
+// 独立页文件名白名单 == content.py:662 SAFE_PAGE_FILENAME
+// ⚠ CJK 用**字面** `一-龥`（坑 20：`\u4e00` 在 WLWL 正则里不生效）
+LET(SAD_PAGE_NAME_RE, RE("^[a-zA-Z0-9一-龥_-]+[.]html\$"));
+     LET(SAD_LIST_PAGES, FUN((dir, max_size), (
+               LET MUT(out, []);
+               IF(!IS_ERR(LIST_DIR(dir)), (
+                    FOR(e, LIST_DIR(dir), (
+                         LET(name, PATH_BASE(e));
+                         IF(!RE_TEST(SAD_PAGE_NAME_RE, name), (
+                              NULL
+                         ), (
+                              IF(>(SAD_FILE_SIZE(e), max_size), (
+                                   NULL
+                              ), (
+                                   LET MUT(r, SAD_ART_REC(PARSE_META(SAD_READ_OR(e, "")), name));
+                                   // slug = 去掉 ".html" 的干名（Python: entry.stem）;
+                                   SET(r, INDEX_SET(r, "slug", SUB(name, 0, -(LEN(name), 5))));
+                                   SET(out, PUSH(out, r))
+                              ))
+                         ))
+                    ))
+               ), (
+                    NULL
+               ));
+               // == pages.sort(key=lambda x: x.title or x.file);
+               SORT_BY_TITLE_OR_FILE(out)
+     )));
+
+     LET(SAD_FIND, FUN((arr, key, val), (
+               // 线性找第一条 arr[i][key] == val（Python 的 next((a for a in ...), None)）;
+               LET MUT(out, NULL);
+               LET(n, LEN(arr));
+               LET MUT(i, 0);
+               WHILE(&&(<(i, n), ==(TYPE(out), "NULL")), (
+                    LET(it, AT(arr, i, DICT()));
+                    IF(==(SAD_AS_STR(AT_K(it, key, ""), ""), val), (
+                         SET(out, it)
+                    ), (
+                         NULL
+                    ));
+                    SET(i, +(i, 1))
+               ));
+               out
+     )));
+
+     LET(SAD_RAW, FUN((dir, fname), (
+               // content.py:493 get_raw_content 的**只读**部分：兄弟 .md → HTML 内嵌正文 → summary;
+               LET MUT(out, "");
+               IF(==(fname, ""), (
+                    NULL
+               ), (
+                    LET(p, PATH_JOIN(dir, fname));
+                    LET(md, SOURCE_PATH(p));
+                    IF(EXISTS(md), (
+                         SET(out, SAD_READ_OR(md, ""))
+                    ), (
+                         LET(html, SAD_READ_OR(p, ""));
+                         LET(d, DECODE_CONTENT(html));
+                         IF(==(TYPE(d), "STRING"), (
+                              SET(out, d)
+                         ), (
+                              LET(meta, PARSE_META(html));
+                              SET(out, SAD_AS_STR(AT_K(meta, "summary", ""), ""))
+                         ))
+                    ))
+               ));
+               out
+     )));
+
+     LET(SAD_PATH_OF, FUN((req), (
+               // PATH_INFO（去掉查询串）：nav 高亮与 MATCH_ROUTE 都不看 query;
+               LET(p, SAD_AS_STR(AT_K(req, "path", ""), ""));
+               LET(i, INDEX_OF(p, "?"));
+               IF(<(i, 0), p, SUB(p, 0, i))
+     )));
+
+     LET(SAD_QUERY, FUN((req, key), (
+               // QUERY_STRING 里 key 的第一个值（Python：parse_qs(...).get(k, [""])[0]）;
+               LET(p, SAD_AS_STR(AT_K(req, "path", ""), ""));
+               LET(qi, INDEX_OF(p, "?"));
+               LET MUT(out, "");
+               LET MUT(found, FALSE);
+               IF(>=(qi, 0), (
+                    FOR(part, SPLIT(SUB(p, +(qi, 1)), "&"), (
+                         LET(eq, INDEX_OF(part, "="));
+                         IF(||(found, <(eq, 0)), (
+                              NULL
+                         ), (
+                              IF(==(SUB(part, 0, eq), key), (
+                                   LET(rawv, SUB(part, +(eq, 1)));
+                                   // 非法 percent 转义 ⇒ 原样（fail open：只影响查询参数取值）;
+                                   SET(out, IF(IS_ERR(URL_DECODE(rawv)), rawv, URL_DECODE(rawv)));
+                                   SET(found, TRUE)
+                              ), (
+                                   NULL
+                              ))
+                         ))
+                    ))
+               ), (
+                    NULL
+               ));
+               out
+     )));
+
 
 // ── 请求工具 ─────────────────────────────────────────────────────
 LET(SAD_HDRS, FUN((req), (
@@ -196,21 +414,81 @@ LET(SAD_ACTION, FUN((route, fields, req), (
      IF(==(route, "live_preview"), (RETURN(SAD_PREVIEW_RESULT(PREVIEW(INDEX_SET(DICT(), "content", FORM_FIELD(INDEX_SET(INDEX_SET(DICT(), "fields", fields), "key", "content"))))))), NULL);
      IF(==(route, "regenerate"), (RETURN(SAD_REGEN_RESULT(REGEN(DICT()), htmx))), NULL);
      IF(==(route, "upload_image"), (RETURN(SAD_UPLOAD_RESULT(UPLOAD_IMAGE(INDEX_SET(INDEX_SET(INDEX_SET(DICT(), "filename", FORM_FIELD(INDEX_SET(INDEX_SET(DICT(), "fields", fields), "key", "filename"))), "data", FORM_FIELD(INDEX_SET(INDEX_SET(DICT(), "fields", fields), "key", "data"))), "static_dir", SAD_STATIC_DIR))))), NULL);
-     // /ai-assist 与 /translate：admin_actions.wll 里没有实现（见文件头缺口 ③）
+     // /ai-assist（actions.py:296-329）：**永远** 200 + application/json
+     //   action / text / lang 三个表单字段 == actions.py:299-314 的取法
+     IF(==(route, "ai_assist"), (RETURN(JSON_RESPONSE(INDEX_SET(INDEX_SET(DICT(), "status", 200), "body", AI_ASSIST_JSON(INDEX_SET(INDEX_SET(INDEX_SET(INDEX_SET(DICT(), "action", FORM_FIELD(INDEX_SET(INDEX_SET(DICT(), "fields", fields), "key", "action"))), "text", FORM_FIELD(INDEX_SET(INDEX_SET(DICT(), "fields", fields), "key", "text"))), "target", FORM_FIELD(INDEX_SET(INDEX_SET(DICT(), "fields", fields), "key", "lang"))), "cfg", SAD_CFG)))))), NULL);
+     // /translate（content.py:757-842 的**文本层**）：收 text + lang，不出文件
+     IF(==(route, "translate_article"), (RETURN(JSON_RESPONSE(INDEX_SET(INDEX_SET(DICT(), "status", 200), "body", TRANSLATE_JSON(INDEX_SET(INDEX_SET(INDEX_SET(DICT(), "text", FORM_FIELD(INDEX_SET(INDEX_SET(DICT(), "fields", fields), "key", "text"))), "target", FORM_FIELD(INDEX_SET(INDEX_SET(DICT(), "fields", fields), "key", "lang"))), "cfg", SAD_CFG)))))), NULL);
      TEXT_ERROR_RESPONSE(500, CAT("action not implemented: ", route))
 )));
 
 // ── 各 kind 的响应 ───────────────────────────────────────────────
-LET(SAD_LOGIN_GET, FUN((cookie), (
-     // app.py:226-237：头序 = Content-Type → CSRF cookie → CSP → 5 个安全头
+LET(SAD_LOGIN_GET, FUN((req, cookie), (
+     // app.py:226-237：login.html 是**整页**（不走 base.html）；头序照旧：
+     //   Content-Type → CSRF cookie → CSP → 5 个安全头
      LET(csrf, SAD_EXISTING_CSRF(cookie));
-     HTML_RESPONSE(INDEX_SET(INDEX_SET(INDEX_SET(DICT(), "body", SAD_PAGE("登录", SAD_LOGIN_FORM(csrf))), "csrf_token", csrf), "security_last", TRUE))
+     LET(body, LOGIN_VIEW(INDEX_SET(INDEX_SET(INDEX_SET(DICT(), "csrf_token", csrf), "error", SAD_QUERY(req, "error")), "locked", SAD_QUERY(req, "locked"))));
+     HTML_RESPONSE(INDEX_SET(INDEX_SET(INDEX_SET(DICT(), "body", body), "csrf_token", csrf), "security_last", TRUE))
 )));
 
-LET(SAD_VIEW, FUN((route, cookie), (
-     // app.py:185-224：GET 页面（render_admin_page 也发 CSRF cookie）
+// // GET 正文（视图层输出；外壳由 SAD_VIEW 套）
+     LET(SAD_VIEW_BODY, FUN((route, req, csrf), (
+               // app.py:194-214 的 GET 分派：每条路由取自己的数据，交给视图层渲染**正文**;
+               // ⚠ 视图层已处理「取不到就显示未找到」⇒ 这里不做额外兜底;
+               LET(mfs, AT_K(SAD_CFG, "max_file_size", 10485760));
+               IF(==(route, "dashboard"), (
+                    RETURN(DASHBOARD_VIEW(INDEX_SET(INDEX_SET(INDEX_SET(INDEX_SET(INDEX_SET(DICT(), "csrf_token", csrf), "articles", SAD_LIST_ARTICLES(SAD_ARTICLE_DIR, mfs)), "standalones", SAD_LIST_PAGES(SAD_STANDALONE_DIR, mfs)), "page", SAD_QUERY(req, "page")), "cfg", SAD_CFG)))
+               ), (
+                    NULL
+               ));
+               IF(==(route, "pages_dashboard"), (
+                    RETURN(PAGES_DASHBOARD_VIEW(INDEX_SET(INDEX_SET(DICT(), "csrf_token", csrf), "pages", SAD_LIST_PAGES(SAD_STANDALONE_DIR, mfs))))
+               ), (
+                    NULL
+               ));
+               IF(==(route, "new_article"), (
+                    // views.py:132 的分类 datalist 要**全部**文章（含草稿）;
+                    // ⚠ Python 的 date 缺省是 datetime.now()；WLWL 无本地时区格式化 ⇒ 空串;
+                    RETURN(ARTICLE_FORM_VIEW(INDEX_SET(INDEX_SET(INDEX_SET(INDEX_SET(INDEX_SET(INDEX_SET(DICT(), "csrf_token", csrf), "is_edit", FALSE), "now", ""), "articles", SAD_LIST_ARTICLES(SAD_ARTICLE_DIR, mfs)), "content", ""), "cfg", SAD_CFG)))
+               ), (
+                    NULL
+               ));
+               IF(==(route, "edit_article"), (
+                    // views.py:94-117：按 ?file= 定位；拿不到 ⇒ 视图回 "Article not found";
+                    LET(fname, SAD_QUERY(req, "file"));
+                    LET(arts, SAD_LIST_ARTICLES(SAD_ARTICLE_DIR, mfs));
+                    RETURN(ARTICLE_FORM_VIEW(INDEX_SET(INDEX_SET(INDEX_SET(INDEX_SET(INDEX_SET(INDEX_SET(INDEX_SET(DICT(), "csrf_token", csrf), "is_edit", TRUE), "now", ""), "articles", arts), "article", SAD_FIND(arts, "file", fname)), "content", SAD_RAW(SAD_ARTICLE_DIR, fname)), "cfg", SAD_CFG)))
+               ), (
+                    NULL
+               ));
+               IF(==(route, "new_page"), (
+                    RETURN(PAGE_FORM_VIEW(INDEX_SET(INDEX_SET(INDEX_SET(INDEX_SET(DICT(), "csrf_token", csrf), "is_edit", FALSE), "content", ""), "cfg", SAD_CFG)))
+               ), (
+                    NULL
+               ));
+               IF(==(route, "edit_page"), (
+                    LET(fname, SAD_QUERY(req, "file"));
+                    LET(pgs, SAD_LIST_PAGES(SAD_STANDALONE_DIR, mfs));
+                    RETURN(PAGE_FORM_VIEW(INDEX_SET(INDEX_SET(INDEX_SET(INDEX_SET(INDEX_SET(DICT(), "csrf_token", csrf), "is_edit", TRUE), "page", SAD_FIND(pgs, "file", fname)), "content", SAD_RAW(SAD_STANDALONE_DIR, fname)), "cfg", SAD_CFG)))
+               ), (
+                    NULL
+               ));
+               IF(==(route, "theme"), (
+                    RETURN(THEME_SELECTOR_VIEW(INDEX_SET(INDEX_SET(INDEX_SET(DICT(), "csrf_token", csrf), "themes", LIST_THEMES(SAD_THEMES_DIR)), "current_theme", SAD_THEME_NAME)))
+               ), (
+                    NULL
+               ));
+               ""
+     )));
+
+LET(SAD_VIEW, FUN((route, req, cookie), (
+     // app.py:185-224：render_admin_page（也发 CSRF cookie）
      LET(csrf, SAD_EXISTING_CSRF(cookie));
-     HTML_RESPONSE(INDEX_SET(INDEX_SET(DICT(), "body", SAD_PAGE(AT_K(SAD_TITLES, route, "管理后台"), SAD_PLACEHOLDER(route))), "csrf_token", csrf))
+     LET(body, SAD_VIEW_BODY(route, req, csrf));
+     LET(shell, SAD_SHELL(AT_K(SAD_TITLES, route, "管理后台"), body, csrf,
+          SAD_PATH_OF(req),
+          IF(CONTAINS(SAD_HTMX_ROUTES, route), SAD_HTMX_SCRIPT, "")));
+     HTML_RESPONSE(INDEX_SET(INDEX_SET(DICT(), "body", shell), "csrf_token", csrf))
 )));
 
 LET(SAD_LOGOUT, FUN((cookie), (
@@ -261,10 +539,10 @@ LET(SAD_POST, FUN((m, req, cookie), (
 
 LET(SAD_DISPATCH, FUN((m, req, cookie), (
      LET(kind, AT_K(m, "kind", ""));
-     IF(==(kind, "login"), (RETURN(SAD_LOGIN_GET(cookie))), NULL);
+     IF(==(kind, "login"), (RETURN(SAD_LOGIN_GET(req, cookie))), NULL);
      IF(==(kind, "login_post"), (RETURN(SAD_LOGIN_POST(req, cookie))), NULL);
      IF(==(kind, "logout_post"), (RETURN(SAD_LOGOUT(cookie))), NULL);
-     IF(==(kind, "get"), (RETURN(SAD_VIEW(AT_K(m, "route", ""), cookie))), NULL);
+     IF(==(kind, "get"), (RETURN(SAD_VIEW(AT_K(m, "route", ""), req, cookie))), NULL);
      SAD_POST(m, req, cookie)
 )));
 
