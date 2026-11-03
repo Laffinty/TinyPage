@@ -36,8 +36,10 @@
      发的是 `file`，不产出译文；文章层（定位文件 / summarize(200) / 落盘）未接。
   ③ 编辑页取正文只读兄弟 `.md` 或 HTML 内嵌正文，**不做** Python 的懒迁移写盘
      （GET 不该写文件）；两者都取不到时回落 `summary`。
-  ④ 静态资源（`/admin.css` / `/admin.js` / `/htmx.min.js`）本入口不服务
-     （app.py:142-152 的注入资产需要资产管线）。
+  ④ ~~静态资源（`/admin.css` 等）本入口不服务~~ —— **已补**（见下方「注入资产」）：
+     免会话按**白名单**从 `TP_ROOT` 根读，走 `static_serve.wll::HANDLE`（与公开站
+     同一条路径：三道安全门 + MIME + 缓存 + 5 个安全头 == `app.py:142-152`）。
+     不补这一条时登录页拿不到自己的 CSS，后台整页无样式（2026-11-03 实测）。
   ⑤ `admin_actions.wll` 没有 login/logout handler ⇒ 登录/登出仍直接调 security 原语。
 
 **⚠ 生成器自身的纪律**：所有嵌套 `INDEX_SET` 链一律用 `chain()` **程序化拼**，
@@ -130,6 +132,7 @@ $htmx_script
 """
 
 TEMPLATES_DIR = os.path.join(HERE, '..', '..', 'admin_templates')
+INJECT_DIR = os.path.join(HERE, '..', '..', 'static_inject')
 
 # responses.py:69-75 的 nav_items（href, label, icon_name）
 NAV_ITEMS = [
@@ -143,6 +146,12 @@ NAV_ITEMS = [
 # app.py:192-212：这几条路由的 render_admin_page(htmx=True)
 HTMX_ROUTES = ['pages_dashboard', 'new_article', 'edit_article',
                'new_page', 'edit_page']
+
+# 注入资产白名单（== frontend.py `_get_injected_assets` 扫 static_inject/ 的结果）。
+# 生成期与磁盘上的 static_inject/ 比对（见 check_injected_assets），漂移即报错。
+INJECTED_ASSETS = ['admin.css', 'admin.js', 'highlight-theme.css',
+                   'HIGHLIGHT.md', 'highlight.min.js', 'htmx.min.js',
+                   'manifest.json', 'search.js', 'sw.js']
 
 # content.py:662 SAFE_PAGE_FILENAME（CJK 用**字面**，`\uXXXX` 在 WLWL 正则里不生效）
 PAGE_NAME_RE = '^[a-zA-Z0-9一-龥_-]+[.]html$'
@@ -171,6 +180,27 @@ def check_base_template():
             '（首个差异在第 %d 个字符）：\n  磁盘: %r\n  生成器: %r\n'
             '  ⇒ 上游改了外壳，本生成器必须同步。'
             % (i, got[lo:i + 40], BASE_TEMPLATE[lo:i + 40]))
+
+
+def check_injected_assets():
+    """生成期漂移守卫：INJECTED_ASSETS 必须与磁盘上的 static_inject/ 逐名一致。
+
+    Python 是**运行期**扫目录拿到白名单的，WLWL 后台看不到那个目录 ⇒ 改成
+    编码期常量。常量会漂移 ⇒ 用这条守卫兜住：往 static_inject/ 增删文件却
+    没同步生成器时，生成直接失败（而不是线上悄悄 404）。
+    """
+    if not os.path.isdir(INJECT_DIR):
+        raise SystemExit('static_inject/ 不存在，无法校验注入资产白名单：' + INJECT_DIR)
+    got = sorted(n for n in os.listdir(INJECT_DIR)
+                 if os.path.isfile(os.path.join(INJECT_DIR, n)))
+    want = sorted(INJECTED_ASSETS)
+    if got != want:
+        raise SystemExit(
+            'static_inject/ 与生成器里的 INJECTED_ASSETS 不一致：\n'
+            '  磁盘    : %s\n  生成器  : %s\n'
+            '  ⇒ 往 static_inject/ 增删了文件却没同步本生成器；'
+            '不同步会让后台对新资产 404（或对已删资产发 404）。'
+            % (got, want))
 
 
 def wl(s):
@@ -242,7 +272,10 @@ def main():
     W('//   curl -s -o NUL -w "%{http_code}" http://127.0.0.1:18081/login')
     W('//')
     W('// ⚠ 已知缺口（不粉饰）：新建文章日期不预填（WLWL 无本地时区格式化）；')
-    W('//   /translate 只到文本层；静态资源（/admin.css 等）本入口不服务。')
+    W('//   /translate 只到文本层。')
+    W('//')
+    W('// 注入资产（app.py:142-152）：/admin.css、/admin.js、/htmx.min.js 等 9 个顶层')
+    W('//   文件**免会话**直接从 TP_ROOT 根读 —— 登录页自己要能拿到自己的 CSS。')
     W('')
     W('IMPORT("wlwl:std.net", ["TCP_LISTEN", "TCP_SERVE", "TCP_CLOSE_LISTENER",')
     W('    "TCP_LOCAL_ADDR"]);')
@@ -258,6 +291,10 @@ def main():
     W('    "HEADER_VALUE", "COOKIE_VALUE", "BUILD_RESPONSE", "TEXT_ERROR_RESPONSE",')
     W('    "JSON_ERROR_RESPONSE", "JSON_RESPONSE", "HTML_RESPONSE", "REDIRECT",')
     W('    "RATE_LIMIT_RESPONSE", "JSON_ESCAPE"]);')
+    # 注入资产：**复用公开站那套静态服务**（三道安全门 + MIME + 缓存 + charset
+    # + 5 安全头），不另写一套 —— 另写就会与公开站漂移，且容易漏掉 `..` / 隐藏
+    # 文件门。`HANDLE` 的契约 {status, headers, body} 与本文件其它分支一致。
+    W('IMPORT("./../lib/static_serve.wll", ["HANDLE"]);')
     W('IMPORT("./../lib/security.wll", ["NEW_CSRF_TOKEN", "VALIDATE_CSRF_TOKEN",')
     W('    "SESSION_FROM_COOKIE", "SESSION_VALIDATE", "SESSION_CREATE",')
     W('    "SESSION_DESTROY", "SESSION_COOKIE_HEADER", "SESSION_CLEAR_COOKIE_HEADER",')
@@ -808,7 +845,32 @@ def main():
     W('     SAD_POST(m, req, cookie)')
     W(')));')
     W('')
+    # ── 注入资产白名单 ────────────────────────────────────────────────
+    # Python 在**服务期**从 `static_inject/` 目录动态列出顶层文件
+    # （frontend.py `_get_injected_assets`）。WLWL 后台运行时**看不到**那个目录
+    # （docker 的 admin 只挂载 pages / themes / admin_templates），而 build.wll
+    # 已把这批文件拷到 TP_ROOT 根 ⇒ 改成「从根读 + **显式白名单**」。
+    # 白名单 = static_inject/ 的当前内容；往里加文件必须同步这里。
+    # ⚠ 后台页面真正引用的只有 /admin.css /admin.js /htmx.min.js —— 缺了会掉样式；
+    #   其余 6 个是公开页用的，后台发不发都不影响后台渲染，列上只为与公开站同集。
+    W('// ── 注入资产白名单（== static_inject/ 当前内容，9 个）──────────────────')
+    W('LET(SAD_INJECTED, [' + ', '.join(wl('/' + n) for n in INJECTED_ASSETS) + ']);')
+    W('')
+
     W('LET(SAD_ROUTE, FUN((req), (')
+    W('     // app.py:142-152：注入资产在**会话判定之前** —— 登录页自己要能拿到')
+    W('     // 自己的 CSS/JS，否则整页无样式（2026-11-03 实测缺陷）。')
+    W('     LET(p0, SAD_PATH_OF(req));')
+    W('     IF(CONTAINS(SAD_INJECTED, p0), (')
+    W('          // 读文件 / MIME / 缓存 / 安全门全走公开站那套 `HANDLE`；')
+    W('          // ⚠ 与 app.py 的唯一差异：原版不判 method（POST 也发文件），')
+    W('          //   `HANDLE` 只放 GET/HEAD、其余 405 —— 静态资源本就只读，')
+    W('          //   与公开站口径一致，登记在此不粉饰。')
+    W('          RETURN(HANDLE(' + opts(
+            ('root', 'SAD_ROOT'),
+            ('method', 'AT_K(req, "method", "GET")'),
+            ('path', 'p0')) + '))')
+    W('     ), NULL);')
     W('     // app.py:154-181 的顺序：路由判定 → 会话（未登录 302）→ 404 / 405 → 分发')
     W('     LET(m, MATCH_ROUTE(' + opts(
         ('method', 'AT_K(req, "method", "GET")'),
@@ -881,8 +943,9 @@ def main():
 
 
 def main_guarded():
-    """先跑模板漂移守卫，再生成（上游改了 base.html ⇒ 生成即失败）。"""
+    """先跑漂移守卫，再生成（上游改了 base.html / static_inject ⇒ 生成即失败）。"""
     check_base_template()
+    check_injected_assets()
     main()
 
 

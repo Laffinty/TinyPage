@@ -22,7 +22,10 @@
 //   curl -s -o NUL -w "%{http_code}" http://127.0.0.1:18081/login
 //
 // ⚠ 已知缺口（不粉饰）：新建文章日期不预填（WLWL 无本地时区格式化）；
-//   /translate 只到文本层；静态资源（/admin.css 等）本入口不服务。
+//   /translate 只到文本层。
+//
+// 注入资产（app.py:142-152）：/admin.css、/admin.js、/htmx.min.js 等 9 个顶层
+//   文件**免会话**直接从 TP_ROOT 根读 —— 登录页自己要能拿到自己的 CSS。
 
 IMPORT("wlwl:std.net", ["TCP_LISTEN", "TCP_SERVE", "TCP_CLOSE_LISTENER",
     "TCP_LOCAL_ADDR"]);
@@ -38,6 +41,7 @@ IMPORT("./../lib/http_util.wll", ["MATCH_ROUTE", "PARSE_FORM", "FORM_FIELD",
     "HEADER_VALUE", "COOKIE_VALUE", "BUILD_RESPONSE", "TEXT_ERROR_RESPONSE",
     "JSON_ERROR_RESPONSE", "JSON_RESPONSE", "HTML_RESPONSE", "REDIRECT",
     "RATE_LIMIT_RESPONSE", "JSON_ESCAPE"]);
+IMPORT("./../lib/static_serve.wll", ["HANDLE"]);
 IMPORT("./../lib/security.wll", ["NEW_CSRF_TOKEN", "VALIDATE_CSRF_TOKEN",
     "SESSION_FROM_COOKIE", "SESSION_VALIDATE", "SESSION_CREATE",
     "SESSION_DESTROY", "SESSION_COOKIE_HEADER", "SESSION_CLEAR_COOKIE_HEADER",
@@ -546,7 +550,20 @@ LET(SAD_DISPATCH, FUN((m, req, cookie), (
      SAD_POST(m, req, cookie)
 )));
 
+// ── 注入资产白名单（== static_inject/ 当前内容，9 个）──────────────────
+LET(SAD_INJECTED, ["/admin.css", "/admin.js", "/highlight-theme.css", "/HIGHLIGHT.md", "/highlight.min.js", "/htmx.min.js", "/manifest.json", "/search.js", "/sw.js"]);
+
 LET(SAD_ROUTE, FUN((req), (
+     // app.py:142-152：注入资产在**会话判定之前** —— 登录页自己要能拿到
+     // 自己的 CSS/JS，否则整页无样式（2026-11-03 实测缺陷）。
+     LET(p0, SAD_PATH_OF(req));
+     IF(CONTAINS(SAD_INJECTED, p0), (
+          // 读文件 / MIME / 缓存 / 安全门全走公开站那套 `HANDLE`；
+          // ⚠ 与 app.py 的唯一差异：原版不判 method（POST 也发文件），
+          //   `HANDLE` 只放 GET/HEAD、其余 405 —— 静态资源本就只读，
+          //   与公开站口径一致，登记在此不粉饰。
+          RETURN(HANDLE(INDEX_SET(INDEX_SET(INDEX_SET(DICT(), "root", SAD_ROOT), "method", AT_K(req, "method", "GET")), "path", p0)))
+     ), NULL);
      // app.py:154-181 的顺序：路由判定 → 会话（未登录 302）→ 404 / 405 → 分发
      LET(m, MATCH_ROUTE(INDEX_SET(INDEX_SET(DICT(), "method", AT_K(req, "method", "GET")), "path", AT_K(req, "path", "/"))));
      LET(cookie, SAD_HEADER(req, "cookie"));
